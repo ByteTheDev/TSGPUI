@@ -10,8 +10,29 @@ pub struct Node {
     pub key: u64,
     #[serde(default)] pub text: String,
     #[serde(default)] pub attrs: BTreeMap<String,String>,
+    #[serde(default)] pub props: BTreeMap<String,String>,
     #[serde(default)] pub style: BTreeMap<String,String>,
+    #[serde(default)] pub responsive: Vec<ResponsiveRule>,
     #[serde(default)] pub children: Vec<Node>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResponsiveRule {
+    pub media: String,
+    pub specificity: u32,
+    pub order: u32,
+    pub declarations: BTreeMap<String,String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddedAsset {
+    pub format: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Permissions {
+    #[serde(default)] pub network_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -23,16 +44,34 @@ pub struct AppPackage {
     pub height: i32,
     pub root: Node,
     pub backend_js: String,
+    #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
+    #[serde(default)] pub permissions: Permissions,
 }
 
 pub fn load() -> Result<AppPackage,String> {
-    let args: Vec<String> = std::env::args().collect();
-    let bytes = if let Some(i) = args.iter().position(|arg| arg == "--bundle") {
-        let file = args.get(i+1).ok_or("--bundle needs a .tgp path")?;
-        std::fs::read(file).map_err(|e| format!("Unable to read bundle {file}: {e}"))?
+    if let Some(file) = bundle_path()? {
+        load_bundle(&file)
     } else {
-        read_embedded()?
-    };
+        parse_bundle(read_embedded()?)
+    }
+}
+
+pub fn bundle_path() -> Result<Option<PathBuf>,String> {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|arg| arg == "--bundle") {
+        let file = args.get(i+1).ok_or("--bundle needs a .tgp path")?;
+        Ok(Some(PathBuf::from(file)))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn load_bundle(file: &std::path::Path) -> Result<AppPackage,String> {
+    let bytes = std::fs::read(file).map_err(|e| format!("Unable to read bundle {}: {e}",file.display()))?;
+    parse_bundle(bytes)
+}
+
+fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     let doc: AppPackage = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Invalid .tgp document: {e}"))?;
     if doc.format != "tsgpui-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}

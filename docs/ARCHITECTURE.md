@@ -2,48 +2,52 @@
 
 ## Source pipeline
 
-1. Parse a **strict HTML subset** into an element tree with explicit keys and attributes.
-2. Parse CSS with PostCSS; reject unsupported syntax. Resolve rules with descendant matching, class/id selectors, inheritance and specificity.
-3. Transpile single-file TypeScript backend actions with the TypeScript compiler (`CommonJS`, ES2020).
-4. Emit UTF-8 JSON `.tgp` bundle: `{ format, name, title, width, height, root, backend_js }`.
-5. Native GPUI host parses the `.tgp`, loads backend JS in embedded QuickJS, opens a GPU-accelerated GPUI window and renders the tree.
-6. Clicks invoke JS actions synchronously; native view snapshots state and redraws.
-7. Release packaging appends `[bundle][u64 LE length][TSGPUI01]` to a prebuilt host executable. Host reads trailer from its own executable; **no Node/Bun runtime is needed in the distributed app**.
+1. Parse the supported HTML subset into a keyed tree. Expand static components and collect image paths.
+2. Parse CSS with PostCSS, reject unknown syntax, resolve selector specificity, and retain media rules for native resize handling.
+3. Transpile the single-file TypeScript backend to JavaScript.
+4. Emit a UTF-8 JSON `.tgp` bundle containing the tree, styles, embedded images, backend script, and explicit network host permissions.
+5. The GPUI host loads the bundle, initializes embedded QuickJS, and renders the tree with native GPU-backed elements.
+6. Controls dispatch actions and immutable event data to QuickJS. State changes redraw the native view.
+7. Release packaging appends `[bundle][u64 LE length][TSGPUI01]` to a prebuilt host executable. The packaged app does not need Node or Bun at runtime.
 
-## Build separation
+## Build and development
 
-Native host changes: `cargo build --release` (expensive, uncommon).
-HTML/CSS/TS changes: `bun run gpui` (compile app JSON + copy host + append overlay, no Rust rebuild).
-Development: `bun run gpui:dev` (recompile app, restart host; not full hot module replacement).
+Build the native host with `cargo build --release` when Rust host code changes. HTML, CSS, TypeScript, and image changes only rebuild the `.tgp` bundle.
+
+`tsgpui dev` watches the configured source files and rewrites the bundle. The existing GPUI process polls the bundle and replaces the view when it changes, so the window stays open. The backend state resets on each reload; preserving state across edits is not implemented.
+
+## Native controls and capabilities
+
+The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Editable text is handled by a small key-driven control; IME composition, visible caret painting, and full native selection behavior are still future work. Selects cycle through options instead of opening a native dropdown.
+
+The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet.
+
+Clipboard actions run only after a button click. File reads and writes require the native file picker/save dialog, operate on the user-selected path, and are limited to 1 MiB. Network actions are user-initiated HTTPS GETs to exact hosts listed in `permissions.network`; redirects are disabled, requests time out after 15 seconds, and responses are limited to 1 MiB. Backend JavaScript does not receive a general filesystem or `fetch` API.
 
 ## Backend design
 
-The backend is TypeScript translated to JS and run in one embedded QuickJS context with in-memory application state.
-Actions execute in the GPUI UI thread. Only `get`, `set`, and `update` are currently exposed. Avoid long-running computations inside event handlers.
-The runtime does not expose Bun or Node globals, `fetch`, disk access or network permissions.
+The backend runs in one embedded QuickJS context with in-memory application state. Actions receive `get`, `set`, and `update`, plus a read-only event object. Promise-returning actions are supported for QuickJS microtasks; dispatch drains those jobs before redraw, so externally pending promises and long-running asynchronous work are not supported.
 
-**Important:** QuickJS execution limits currently set an approximate heap cap but do **not** impose hard CPU-time limits or malicious-script isolation. Only bundle trusted backend code.
+QuickJS memory is capped at 32 MiB. CPU time is not capped and the runtime is not a malicious-code sandbox. Only load backend code you trust.
 
 ## Versioned binary format
 
-A packaged application consists of the native binary followed by JSON bytes, 8-byte little-endian payload size, then `TSGPUI01`. `MAX_PAYLOAD=16 MiB` protects against unintended oversized reads. This is a **prototype container format**, not a mature signed, encrypted, or tamper-proof distribution format.
+A packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. `MAX_PAYLOAD=16 MiB` limits reads. This prototype container format is not signed, encrypted, or tamper-proof.
 
-## Next roadmap
+## Remaining roadmap
 
-1. Build and validate the GPUI Rust host on Windows using Actions; fix any platform-specific API drift.
-2. Verify keyboard/mouse events and font availability under Windows.
-3. Support image assets and native accessibility semantics.
-4. Add a JS-native I/O bridge with per-app filesystem/network permissions and strict path validation.
-5. Add input fields, scrolling, dynamic lists, layout primitives, drag/drop.
-6. Implement browser-compatible CSS subsets or a design-system-style standard library; do not claim arbitrary HTML/CSS support.
-7. Add incremental patch/HMR without restarting host, plus packaging signing and update support.
-8. Publish TSGPUI CLI and trusted prebuilt GPUI host assets with checksums.
+1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux.
+2. Replace the lightweight text controls with native text editing and a popup select component.
+3. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
+4. Add list virtualization, exact mixed grid track sizing, and more CSS layout properties.
+5. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
+6. Preserve app state across development reloads and add executable signing/update support.
 
 ## Alternatives considered
 
-- Rewriting GPUI in TypeScript: would abandon tested native renderer and demand a full GUI implementation.
-- Transpiling arbitrary TypeScript to Rust: not tractable with broad JavaScript semantics.
-- Embedding WebView: defeats the native-rendering requirement.
-- Compiling Rust per developer change: excessively slow compared with a reusable host.
+- Rewriting GPUI in TypeScript would abandon the existing native renderer and require a complete GUI toolkit.
+- Transpiling arbitrary TypeScript to Rust is not practical with broad JavaScript semantics.
+- Embedding a WebView would defeat the native rendering goal.
+- Recompiling Rust for every developer edit is much slower than reusing one host executable.
 
-The current architecture keeps native rendering and efficient app-logic iteration, trading some backend-native API breadth for a smaller initial system.
+The current design keeps the renderer native and keeps app iteration fast, with a small documented browser subset and explicit host capabilities.

@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TSGPUI · Web markup. Native pixels.</title>
+    <meta
+      name="description"
+      content="TSGPUI turns a supported subset of HTML and CSS into native GPUI elements and runs TypeScript backend actions in embedded QuickJS. No Chromium, no WebView."
+    />
+    <meta name="theme-color" content="#05060b" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <div class="ambient" aria-hidden="true">
+      <span class="orb orb-indigo"></span>
+      <span class="orb orb-violet"></span>
+      <span class="orb orb-blue"></span>
+    </div>
+
+    <header class="site-nav">
+      <div class="nav-inner">
+        <a class="brand" href="#top" aria-label="TSGPUI home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>TSGPUI</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="#demo">Demo</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#pipeline">Pipeline</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#quick-start">Quick start</a>
+          <a href="#status">Status</a>
+        </nav>
+        <a
+          class="nav-github"
+          href="https://github.com/ByteTheDev/TSGPUI"
+          target="_blank"
+          rel="noopener"
+        >
+          GitHub
+          <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- Hero -->
+      <section id="top" class="hero">
+        <div class="hero-copy">
+          <p class="kicker reveal">Experimental native framework</p>
+          <h1 class="reveal" style="--d: 1">
+            Web markup.<br />
+            <span class="gradient-text">Native pixels.</span>
+          </h1>
+          <p class="lede reveal" style="--d: 2">
+            TSGPUI transforms a supported subset of HTML and CSS into native GPUI
+            elements, and runs your TypeScript backend in embedded QuickJS.
+          </p>
+          <div class="actions reveal" style="--d: 3">
+            <a class="btn btn-primary" href="#quick-start">
+              Start building
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="btn btn-ghost" href="#demo">See the demo</a>
+          </div>
+
+          <dl class="compare reveal" style="--d: 4">
+            <div>
+              <dt>Typical Electron app</dt>
+              <dd>Ships Chromium and Node.js with every app</dd>
+            </div>
+            <div>
+              <dt>TSGPUI</dt>
+              <dd>Renders with GPUI and runs logic in QuickJS. No browser engine, no WebView</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="hero-visual reveal" style="--d: 2">
+          <ul class="source-chips" aria-label="Source files">
+            <li>index.html</li>
+            <li>styles.css</li>
+            <li>backend.ts</li>
+          </ul>
+          <div class="beam" aria-hidden="true"><span></span></div>
+          <div class="app app-hero" data-counter data-spot>
+            <div class="app-titlebar">
+              <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span>TSGPUI • Native Counter</span>
+            </div>
+            <div class="app-body">
+              <div class="app-card">
+                <span class="app-badge">GPUI NATIVE RENDERING</span>
+                <h3 class="app-title">TSGPUI</h3>
+                <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
+                <div class="app-panel">
+                  <span class="app-eyebrow">CLICK COUNTER</span>
+                  <span class="app-count" data-count aria-live="polite">0</span>
+                  <span class="app-hint">Click below to update native UI state.</span>
+                </div>
+                <div class="app-buttons">
+                  <button type="button" class="app-btn app-btn-secondary" data-action="decrement">− Decrease</button>
+                  <button type="button" class="app-btn app-btn-primary" data-action="increment">+ Increase</button>
+                  <button type="button" class="app-btn app-btn-ghost" data-action="reset">Reset</button>
+                </div>
+                <p class="app-foot">Backend actions run in embedded QuickJS, not Bun at runtime.</p>
+              </div>
+            </div>
+          </div>
+          <p class="visual-caption">
+            Simulated preview of <code>examples/counter</code>. Its buttons run in the browser
+            and do not use the TSGPUI runtime.
+          </p>
+        </div>
+      </section>
+
+      <!-- Interactive demo -->
+      <section id="demo" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Interactive demo</p>
+          <h2>Source on the left. Native window on the right.</h2>
+          <p class="section-lede">
+            These are the real files from <code>examples/counter/src</code>, shown
+            with syntax highlighting. Switch tabs to read each one.
+          </p>
+        </header>
+
+        <div class="demo-grid">
+          <div class="editor reveal" data-spot>
+            <div class="editor-bar">
+              <div class="tabs" role="tablist" aria-label="Source files">
+                <button type="button" role="tab" id="tab-html" aria-controls="panel-html" aria-selected="true" tabindex="0">index.html</button>
+                <button type="button" role="tab" id="tab-css" aria-controls="panel-css" aria-selected="false" tabindex="-1">styles.css</button>
+                <button type="button" role="tab" id="tab-ts" aria-controls="panel-ts" aria-selected="false" tabindex="-1">backend.ts</button>
+              </div>
+              <button type="button" class="copy" data-copy-active aria-label="Copy the file shown in this editor">Copy</button>
+            </div>
+
+            <div role="tabpanel" id="panel-html" aria-labelledby="tab-html" class="panel">
+              <pre><code id="code-html" data-lang="html">&lt;!doctype html&gt;
+&lt;html&gt;
+  &lt;body&gt;
+    &lt;main class="shell"&gt;
+      &lt;section class="card"&gt;
+        &lt;div class="badge"&gt;GPUI NATIVE RENDERING&lt;/div&gt;
+        &lt;h1&gt;TSGPUI&lt;/h1&gt;
+        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. No browser engine.&lt;/p&gt;
+        &lt;div class="counter-panel"&gt;
+          &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt;
+          &lt;span class="count" data-bind="count"&gt;0&lt;/span&gt;
+          &lt;span class="hint"&gt;Click below to update native UI state.&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div class="buttons"&gt;
+          &lt;button id="decrement" class="secondary" data-onclick="decrement"&gt;− Decrease&lt;/button&gt;
+          &lt;button id="increment" class="primary" data-onclick="increment"&gt;+ Increase&lt;/button&gt;
+          &lt;button id="reset" class="ghost" data-onclick="reset"&gt;Reset&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;p class="footer"&gt;Backend actions run in embedded QuickJS, not Bun at runtime.&lt;/p&gt;
+      &lt;/section&gt;
+    &lt;/main&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+            </div>
+
+            <div role="tabpanel" id="panel-css" aria-labelledby="tab-css" class="panel" hidden>
+              <pre><code id="code-css" data-lang="css">html, body { background: #090b14; color: #f5f5fb; }
+.shell { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 48px; background: #090b14; height: 600px; }
+.card { display: flex; flex-direction: column; gap: 19px; padding: 36px; width: 640px; background: #171b2c; border-radius: 22px; }
+.badge { font-size: 11px; font-weight: 700; color: #91a8ff; }
+h1 { font-size: 48px; font-weight: 700; color: #ffffff; }
+.subtitle { font-size: 15px; color: #adb7d2; }
+.counter-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; background: #222942; border-radius: 14px; padding: 25px; }
+.eyebrow { font-size: 12px; color: #8f9dc6; }
+.count { font-size: 66px; font-weight: 700; color: #ffffff; }
+.hint { font-size: 13px; color: #aab8d5; }
+.buttons { display: flex; flex-direction: row; gap: 12px; }
+button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; }
+.primary { background: #7288ff; color: #ffffff; }
+.secondary { background: #343e60; color: #edf2ff; }
+.ghost { background: #20273c; color: #b4bfd8; }
+.footer { font-size: 12px; color: #7887ac; }</code></pre>
+            </div>
+
+            <div role="tabpanel" id="panel-ts" aria-labelledby="tab-ts" class="panel" hidden>
+              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "tsgpui/types";
+
+type CounterState = { count: number };
+
+// Runs in QuickJS inside the native GPUI process, not in a browser.
+const app: AppDefinition&lt;CounterState&gt; = {
+  state: { count: 0 },
+  actions: {
+    increment(api) {
+      api.set("count", api.get("count") + 1);
+    },
+    decrement(api) {
+      api.set("count", api.get("count") - 1);
+    },
+    reset(api) {
+      api.set("count", 0);
+    }
+  }
+};
+
+export default app;</code></pre>
+            </div>
+          </div>
+
+          <div class="demo-preview reveal" style="--d: 1">
+            <div class="app app-demo" data-counter data-spot>
+              <div class="app-titlebar">
+                <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>TSGPUI • Native Counter · 900 × 600</span>
+              </div>
+              <div class="app-body">
+                <div class="app-card">
+                  <span class="app-badge">GPUI NATIVE RENDERING</span>
+                  <h3 class="app-title">TSGPUI</h3>
+                  <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
+                  <div class="app-panel">
+                    <span class="app-eyebrow">CLICK COUNTER</span>
+                    <span class="app-count" data-count aria-live="polite">0</span>
+                    <span class="app-hint">Click below to update native UI state.</span>
+                  </div>
+                  <div class="app-buttons">
+                    <button type="button" class="app-btn app-btn-secondary" data-action="decrement">− Decrease</button>
+                    <button type="button" class="app-btn app-btn-primary" data-action="increment">+ Increase</button>
+                    <button type="button" class="app-btn app-btn-ghost" data-action="reset">Reset</button>
+                  </div>
+                  <p class="app-foot">Backend actions run in embedded QuickJS, not Bun at runtime.</p>
+                </div>
+              </div>
+            </div>
+            <p class="visual-caption">
+              Interactive simulation of the counter's layout and colours. The real
+              window is drawn by the GPUI host from the compiled <code>.tgp</code>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pillars -->
+      <section id="how-it-works" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">How it works</p>
+          <h2>Three parts, each with one job.</h2>
+          <p class="section-lede">
+            Markup is compiled ahead of time, logic runs in a small sandbox, and the
+            pixels come from a native GPUI host. Nothing in the shipped app asks for
+            a browser or a JavaScript runtime.
+          </p>
+        </header>
+
+        <div class="pillars">
+          <article class="pillar reveal" data-spot style="--d: 0">
+            <h3>Markup and styles</h3>
+            <p>
+              A strict subset of HTML and CSS is parsed at build time into an element
+              tree with explicit keys. CSS selectors, specificity and inheritance are
+              resolved before anything reaches the window, so the layout you write is
+              the layout that ships.
+            </p>
+          </article>
+          <article class="pillar reveal" data-spot style="--d: 1">
+            <h3>TypeScript backend</h3>
+            <p>
+              One <code>backend.ts</code> exports state and actions. It is transpiled to
+              JavaScript and run in embedded QuickJS on the UI thread. Actions are
+              synchronous and see only <code>get</code>, <code>set</code> and
+              <code>update</code>.
+            </p>
+          </article>
+          <article class="pillar reveal" data-spot style="--d: 2">
+            <h3>One executable</h3>
+            <p>
+              Packaging copies a prebuilt GPUI host and appends the app bundle to it.
+              The result is a single <code>.exe</code> that runs without Bun, Node or
+              Rust on the machine.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- Pipeline -->
+      <section id="pipeline" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Compilation pipeline</p>
+          <h2>From source files to one native executable.</h2>
+          <p class="section-lede">
+            Each stage writes a file you can inspect. The bundle is plain JSON, so you
+            can open it and see exactly what the host will render.
+          </p>
+        </header>
+
+        <div class="pipeline" data-pipeline>
+          <div class="stage" style="--s: 0">
+            <span class="stage-index-label">Source</span>
+            <h3>Your project</h3>
+            <ul class="file-list">
+              <li><code>src/index.html</code></li>
+              <li><code>src/styles.css</code></li>
+              <li><code>src/backend.ts</code></li>
+              <li><code>tsgpui.config.json</code></li>
+            </ul>
+          </div>
+
+          <div class="link" aria-hidden="true"><span></span></div>
+
+          <div class="stage" style="--s: 1">
+            <span class="stage-index-label">Compile</span>
+            <h3><code>tsgpui compile</code></h3>
+            <p>
+              Parses the HTML subset, resolves CSS, transpiles the backend and writes a
+              <code>.tgp</code> document.
+            </p>
+            <pre class="tgp" aria-label="Excerpt of the compiled counter bundle"><code>{
+  "format": "tsgpui-1",
+  "name": "tsgpui-counter",
+  "title": "TSGPUI • Native Counter",
+  "width": 900,
+  "height": 600,
+  "root": { "tag": "body", … },
+  "backend_js": "…"
+}</code></pre>
+          </div>
+
+          <div class="link" aria-hidden="true"><span></span></div>
+
+          <div class="stage" style="--s: 2">
+            <span class="stage-index-label">Package</span>
+            <h3><code>tsgpui build</code></h3>
+            <p>Copies the prebuilt host and appends the bundle, then the host reads it back at startup.</p>
+            <div class="layout-bar" aria-label="Executable layout: host, bundle, length, marker">
+              <span class="seg seg-host">host</span>
+              <span class="seg seg-bundle">bundle</span>
+              <span class="seg seg-len">len</span>
+              <span class="seg seg-magic">TSGPUI01</span>
+            </div>
+            <p class="layout-caption">
+              Host executable, then the bundle JSON, an 8-byte little-endian length and
+              the <code>TSGPUI01</code> marker.
+            </p>
+            <p class="stage-result">→ <code>dist/tsgpui-counter.exe</code></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Architecture -->
+      <section id="architecture" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Architecture</p>
+          <h2>Native rendering with a small, contained backend.</h2>
+          <p class="section-lede">
+            The design trades browser breadth for a smaller, inspectable system. These
+            are the properties the current prototype is built around.
+          </p>
+        </header>
+
+        <ol class="layers reveal">
+          <li>
+            <span class="layer-name">Parse</span>
+            <p>Strict HTML subset to an element tree with explicit keys and attributes. Unsupported tags fail the build.</p>
+          </li>
+          <li>
+            <span class="layer-name">Style</span>
+            <p>CSS parsed with PostCSS. Descendant matching, class and id selectors, inheritance and specificity are resolved.</p>
+          </li>
+          <li>
+            <span class="layer-name">Transpile</span>
+            <p>The single backend file is compiled with the TypeScript compiler to CommonJS (ES2020).</p>
+          </li>
+          <li>
+            <span class="layer-name">Render</span>
+            <p>The GPUI host opens a GPU-accelerated window and draws the tree. Media queries are evaluated at compile time.</p>
+          </li>
+          <li>
+            <span class="layer-name">Run</span>
+            <p>Clicks invoke actions in QuickJS. The view takes a state snapshot and redraws. QuickJS has an approximate heap cap, not a CPU-time limit.</p>
+          </li>
+        </ol>
+
+        <div class="facts">
+          <div class="fact reveal" style="--d: 0">
+            <h3>No browser engine</h3>
+            <p>No Chromium and no WebView in the runtime path. Rendering goes through GPUI.</p>
+          </div>
+          <div class="fact reveal" style="--d: 1">
+            <h3>No Node or Bun at runtime</h3>
+            <p>Bun or Node is needed for development. The distributed app does not need either one installed.</p>
+          </div>
+          <div class="fact reveal" style="--d: 2">
+            <h3>Fast iteration</h3>
+            <p>Changing HTML, CSS or TypeScript recompiles the bundle and reuses the existing host. Rust is not rebuilt.</p>
+          </div>
+          <div class="fact reveal" style="--d: 3">
+            <h3>Plain-text bundle</h3>
+            <p>The <code>.tgp</code> document is JSON. Its format and contents can be read and checked directly.</p>
+          </div>
+          <div class="fact reveal" style="--d: 4">
+            <h3>Compile-time components</h3>
+            <p><code>&lt;template data-component&gt;</code> is expanded at compile time. Recursive uses and duplicate IDs are rejected.</p>
+          </div>
+          <div class="fact reveal" style="--d: 5">
+            <h3>Explicit data binding</h3>
+            <p><code>data-bind</code> and <code>{{stateKey}}</code> read backend state. <code>data-onclick</code> dispatches named actions.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick start -->
+      <section id="quick-start" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Quick start</p>
+          <h2>Build the counter from a checkout.</h2>
+          <p class="section-lede">
+            Requires Bun or Node 20+ for the developer CLI. Compiling the bundle does
+            not need Rust. Building the native host does.
+          </p>
+        </header>
+
+        <div class="steps">
+          <div class="step reveal">
+            <h3>1. Check and compile the example</h3>
+            <div class="codeblock">
+              <button type="button" class="copy" data-copy-text="bun install&#10;bun run test&#10;bun run gpui:compile" aria-label="Copy commands">Copy</button>
+              <pre><code>bun install
+bun run test
+bun run gpui:compile</code></pre>
+            </div>
+            <p>Writes <code>examples/counter/dist/tsgpui-counter.tgp</code>.</p>
+          </div>
+
+          <div class="step reveal">
+            <h3>2. Get a native host, once per machine</h3>
+            <p>
+              Either point <code>TSGPUI_HOST</code> at a host you trust, or compile one
+              with the Rust toolchain. On Windows that also needs the MSVC build tools.
+            </p>
+            <div class="codeblock">
+              <button type="button" class="copy" data-copy-text="bun run gpui:host" aria-label="Copy host build command">Copy</button>
+              <pre><code>bun run gpui:host</code></pre>
+            </div>
+          </div>
+
+          <div class="step reveal">
+            <h3>3. Package the executable</h3>
+            <div class="codeblock">
+              <button type="button" class="copy" data-copy-text="bun run gpui" aria-label="Copy package command">Copy</button>
+              <pre><code>bun run gpui</code></pre>
+            </div>
+            <p>Writes <code>examples/counter/dist/tsgpui-counter.exe</code>.</p>
+          </div>
+
+          <div class="step reveal">
+            <h3>Or start a new project with the CLI</h3>
+            <div class="codeblock">
+              <button type="button" class="copy" data-copy-text="tsgpui init my-app&#10;cd my-app&#10;tsgpui dev" aria-label="Copy CLI commands">Copy</button>
+              <pre><code>tsgpui init my-app
+cd my-app
+tsgpui dev</code></pre>
+            </div>
+            <p>
+              <code>tsgpui dev</code> rebuilds and restarts the host on save. It is a fast
+              reload, not state-preserving hot module replacement.
+              <code>tsgpui build</code> writes the single executable.
+            </p>
+          </div>
+        </div>
+
+        <p class="docs-links reveal">
+          Read the full
+          <a href="https://github.com/ByteTheDev/TSGPUI/tree/main/docs" target="_blank" rel="noopener">docs</a>,
+          the
+          <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
+          and the
+          <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">repository</a>.
+        </p>
+      </section>
+
+      <!-- Status -->
+      <section id="status" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Status</p>
+          <h2>An experimental prototype, stated plainly.</h2>
+          <p class="section-lede">
+            TSGPUI is not a production-ready GUI SDK. The supported subset is small on
+            purpose, and the list below is what the project currently documents.
+          </p>
+        </header>
+
+        <div class="status-grid">
+          <div class="status-col reveal">
+            <h3>Works today</h3>
+            <ul>
+              <li>Strict HTML subset with <code>class</code>, <code>id</code>, <code>data-bind</code> and <code>data-onclick</code></li>
+              <li>CSS with element, class, id and compound selectors, specificity and inheritance</li>
+              <li>Flex and grid layout, px sizing, hex colours and bold weights</li>
+              <li>Synchronous backend actions with <code>get</code>, <code>set</code> and <code>update</code></li>
+              <li>Compile-time <code>&lt;template&gt;</code> components</li>
+              <li>Single-executable packaging with the appended bundle</li>
+            </ul>
+          </div>
+          <div class="status-col reveal" style="--d: 1">
+            <h3>Not yet</h3>
+            <ul>
+              <li>Forms, text input and keyboard handling</li>
+              <li>Images and dynamic data lists</li>
+              <li>Media queries that respond to window resizing</li>
+              <li>Exact mixed <code>fr</code> and <code>px</code> grid sizing</li>
+              <li>Dialogs, clipboard, file access and network requests</li>
+              <li>Hard CPU-time limits, or isolation for untrusted backend code</li>
+              <li>Signed, encrypted or tamper-proof packages</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="notice reveal">
+          <p>
+            Only run backend code you trust. The container format is a prototype, and
+            the Windows host is still being validated through CI.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <a class="brand" href="#top" aria-label="Back to top">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>TSGPUI</span>
+          </a>
+          <p>Web markup. Native pixels. An experimental framework.</p>
+        </div>
+        <nav class="footer-links" aria-label="Project links">
+          <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/ByteTheDev/TSGPUI/tree/main/docs" target="_blank" rel="noopener">Docs</a>
+          <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
+          <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>

@@ -1,14 +1,51 @@
 {
-  "name": "tsgpui",
+  "name": "@rs/tsgpui",
   "version": "0.1.0",
   "description": "Compile HTML/CSS and TypeScript applications to a native GPUI host",
   "type": "module",
-  "bin": { "tsgpui": "./bin/tsgpui.mjs" },
-  "exports": {"./types": "./types/app.d.ts"},
-  "files": ["bin", "src", "types", "templates"],
-  "dependencies": {
+  "license": "MIT",
+  "keywords": [
+    "gpui",
+    "native",
+    "html",
+    "css",
+    "typescript",
+    "quickjs",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ByteTheDev/TSGPUI.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/ByteTheDev/TSGPUI#readme",
+  "bin": {
+    "tsgpui": "dist/tsgpui.mjs"
+  },
+  "exports": {
+    "./types": "./types/app.d.ts"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "types",
+    "native",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build bin/tsgpui.mjs --target=node --outfile=dist/tsgpui.mjs",
+    "prepack": "node scripts/pack-native.mjs copy && bun run build",
+    "postpack": "node scripts/pack-native.mjs clean",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
     "postcss": "^8.5.6",
     "typescript": "^5.9.3"
   },
-  "engines": {"node": ">=20"}
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

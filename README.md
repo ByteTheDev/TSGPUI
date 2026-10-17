@@ -6,6 +6,27 @@ TSGPUI compiles a **supported subset** of HTML and CSS to a GPUI element tree, a
 
 The Rust GPUI host is precompiled once. Subsequent `bun run gpui` commands rebuild only the app bundle and **append it to a copy of the native host** to produce a single executable. A host build is still required once per OS/architecture/GPUI version (either locally or via CI). This repository does **not** include a prebuilt Windows `.exe`.
 
+## Install the CLI globally
+
+The CLI is published as the `tsgpui` package (`packages/cli`). Its dependencies are bundled into one file, so a global install does not depend on anything else in your environment.
+
+```sh
+bun add -g ./packages/cli          # from a checkout of this repository
+# or, once published to npm:
+bun add -g tsgpui
+```
+
+Then, from any folder:
+
+```sh
+tsgpui init my-app
+cd my-app
+tsgpui host build                  # once per machine: compiles the GPUI host (needs Rust)
+tsgpui build                       # writes dist/my-app.exe
+```
+
+`tsgpui host build` puts the host under `~/.tsgpui/` (override with `TSGPUI_HOME`). See [packages/cli/README.md](packages/cli/README.md) for all commands.
+
 ## Quick start (from this ZIP's root)
 
 Requires Bun or Node 20+ for the developer CLI.

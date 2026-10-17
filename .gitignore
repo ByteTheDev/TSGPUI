@@ -5,3 +5,6 @@ target/
 *.exe
 *.pdb
 .DS_Store
+
+# Copied into the CLI package by prepack
+packages/cli/native/

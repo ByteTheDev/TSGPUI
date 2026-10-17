@@ -2,59 +2,80 @@
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {copyFile,mkdir,readFile,writeFile} from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildPackage,readProject} from '../src/compiler.mjs';
 import {packageExecutable} from '../src/pack.mjs';
 
+// This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here,'../../..');
+const pkgRoot = path.resolve(here,'..');
 const args = process.argv.slice(2);
 const command = args.shift() || 'help';
 const windows = process.platform === 'win32';
 const suffix = windows ? '.exe' : '';
+const VERSION = JSON.parse(fs.readFileSync(path.join(pkgRoot,'package.json'),'utf8')).version;
 function flag(name, fallback) { const i=args.indexOf(`--${name}`); return i>=0 ? args[i+1] || fallback : fallback; }
 function projectDir() {return path.resolve(flag('project',process.cwd()));}
-function rustAvailable() {return spawnSync('cargo',['--version'],{stdio:'ignore',shell:windows}).status === 0;}
+function rustAvailable() {return spawnSync('cargo',['--version'],{stdio:'ignore'}).status === 0;}
+
+// Per-user state: built host executables and the Cargo target directory.
+function tsgpuiHome() {return process.env.TSGPUI_HOME || path.join(os.homedir(),'.tsgpui');}
+function cachedHost() {return path.join(tsgpuiHome(),'host',`${process.platform}-${process.arch}`,`tsgpui-host${suffix}`);}
+
+// Rust sources: shipped inside the package, or next to it in a monorepo checkout.
+function nativeSource() {
+  for (const dir of [path.join(pkgRoot,'native'), path.resolve(pkgRoot,'../../native')]) {
+    if (fs.existsSync(path.join(dir,'Cargo.toml'))) return dir;
+  }
+  return null;
+}
+
 function hostCandidates() {
-  const envHost = process.env.TSGPUI_HOST;
-  return [flag('host',null), envHost, path.join(repo,'native/target/release',`tsgpui-host${suffix}`),
-    path.join(repo,'native/target/debug',`tsgpui-host${suffix}`),
-    path.join(repo,'prebuilt',`${process.platform}-${process.arch}`,`tsgpui-host${suffix}`)].filter(Boolean);
+  const source = nativeSource();
+  return [flag('host',null), process.env.TSGPUI_HOST, cachedHost(),
+    source && path.join(source,'target/release',`tsgpui-host${suffix}`),
+    source && path.join(source,'target/debug',`tsgpui-host${suffix}`)].filter(Boolean);
 }
 async function hostPath(autoBuild = false) {
   for(const candidate of hostCandidates()) if (fs.existsSync(candidate)) return path.resolve(candidate);
   if (autoBuild && rustAvailable()) {
-    console.log('Native host not found: compiling GPUI host once (subsequent app builds reuse it)...');
+    console.log('Native host not found: compiling GPUI host once (later builds reuse it)...');
     await buildHost();
     for(const candidate of hostCandidates()) if (fs.existsSync(candidate)) return path.resolve(candidate);
   }
-  throw new Error('No prebuilt GPUI host found. Set TSGPUI_HOST to your tsgpui-host.exe, or run `bun run gpui:host` once with Rust installed. A native executable cannot be made from TypeScript alone. See README.md.');
+  throw new Error(`No GPUI host found. Run \`tsgpui host build\` once (needs Rust and the MSVC/C++ build tools on Windows), or set TSGPUI_HOST to a trusted tsgpui-host executable. Checked: ${hostCandidates().join(', ')}`);
 }
 async function buildHost() {
-  if (!rustAvailable()) throw new Error('Rust/Cargo is required to compile the GPUI host once. Alternatively use a verified prebuilt host from CI.');
-  const res = spawnSync('cargo',['build','--manifest-path',path.join(repo,'native/Cargo.toml'),'--release'],{stdio:'inherit',shell:windows});
+  const source = nativeSource();
+  if (!source) throw new Error('Native host sources not found in this installation. Reinstall tsgpui or use a checkout of the TSGPUI repository.');
+  if (!rustAvailable()) throw new Error('Rust/Cargo is required to compile the GPUI host once. Install it from https://rustup.rs or supply a trusted prebuilt host via TSGPUI_HOST.');
+  const targetDir = path.join(tsgpuiHome(),'build');
+  const res = spawnSync('cargo',['build','--manifest-path',path.join(source,'Cargo.toml'),'--release','--target-dir',targetDir],{stdio:'inherit'});
   if (res.status !== 0) throw new Error(`Native host build failed (code ${res.status})`);
+  const destination = cachedHost();
+  await mkdir(path.dirname(destination),{recursive:true});
+  await copyFile(path.join(targetDir,'release',`tsgpui-host${suffix}`),destination);
+  console.log(`GPUI host installed: ${destination}`);
 }
 async function init() {
   const folder = args.find(x => !x.startsWith('--')) ?? 'my-tsgpui-app';
   const destination = path.resolve(folder);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error('Project destination is not empty');
   await mkdir(path.join(destination,'src'),{recursive:true});
-  const example = path.join(repo,'examples/counter');
-  const template = fs.existsSync(path.join(repo,'packages/cli/templates/basic/tsgpui.config.json'))
-    ? path.join(repo,'packages/cli/templates/basic') : example;
+  const template = path.join(pkgRoot,'templates/basic');
   for(const file of ['tsgpui.config.json','src/index.html','src/styles.css','src/backend.ts']) {
     const input = await readFile(path.join(template,file),'utf8');
-    await writeFile(path.join(destination,file),file === 'tsgpui.config.json' ? input.replace(/tsgpui-counter/g, 'my-tsgpui-app') : input);
+    await writeFile(path.join(destination,file),file === 'tsgpui.config.json' ? input.replace(/tsgpui-counter/g, path.basename(destination)) : input);
   }
   const pkg = {
-    name: 'my-tsgpui-app',private:true,type:'module',
+    name: path.basename(destination),private:true,type:'module',
     scripts:{gpui:'tsgpui build','gpui:dev':'tsgpui dev','gpui:build':'tsgpui build','gpui:compile':'tsgpui compile'},
-    devDependencies:{tsgpui:'^0.1.0'}
+    devDependencies:{tsgpui:`^${VERSION}`}
   };
   await writeFile(path.join(destination,'package.json'),JSON.stringify(pkg,null,2)+'\n');
-  console.log(`Created ${destination}. Run bun install, then bun run gpui:dev (native host required).`);
+  console.log(`Created ${destination}. Run \`tsgpui dev --project ${folder}\` or \`tsgpui build --project ${folder}\`.`);
 }
 function runHost(host,bundleFile) {
   const child=spawn(host,['--bundle',bundleFile],{stdio:'inherit',windowsHide:false});
@@ -64,36 +85,62 @@ function runHost(host,bundleFile) {
 async function dev() {
   const project = await readProject(projectDir());
   const host = await hostPath(true);
-  let child, refreshing=false, queued=false;
+  let child, refreshing=false, queued=false, debounceTimer, watchers=[];
+  async function refreshWatchers(assetPaths=[]) {
+    const latest=await readProject(project.projectRoot);
+    const watchFiles=[...new Set([
+      latest.paths.html,latest.paths.css,latest.paths.backend,latest.configFile,
+      ...assetPaths.map(source=>path.resolve(latest.projectRoot,source))
+    ])];
+    watchers.forEach(watcher=>watcher.close());
+    const dirs=[...new Set(watchFiles.map(file=>path.dirname(file)))];
+    watchers=dirs.map(dir=>fs.watch(dir,(_event,filename)=>{
+      if (filename && !watchFiles.some(file=>path.dirname(file)===dir && path.basename(file)===filename.toString())) return;
+      clearTimeout(debounceTimer);
+      debounceTimer=setTimeout(()=>void rebuild(),90);
+    }));
+  }
   async function rebuild() {
     if (refreshing) {queued=true;return;}
     refreshing=true;
     try {
       const output=await buildPackage(project.projectRoot);
-      if (child && !child.killed) child.kill();
-      child=runHost(host,output.bundleFile);
-      console.log(`GPUI dev: ${output.bundleFile}`);
+      await refreshWatchers(Object.keys(output.bundle.assets));
+      const launch = !child || child.exitCode !== null;
+      if (launch) child=runHost(host,output.bundleFile);
+      console.log(`GPUI dev: ${launch ? 'launched' : 'updated'} ${output.bundleFile}`);
     } catch(e) {console.error(`Build failed: ${e.message}`);}
     finally {refreshing=false;if(queued){queued=false;await rebuild();}}
   }
   await rebuild();
-  const watchFiles=[project.paths.html,project.paths.css,project.paths.backend,project.configFile];
-  const watchers=watchFiles.map(file=>fs.watch(file,()=>{void rebuild();}));
-  process.on('SIGINT',()=>{watchers.forEach(w=>w.close());child?.kill();process.exit(0);});
-  console.log('Watching HTML, CSS, backend TypeScript and config. Ctrl+C to stop.');
+  if (!watchers.length) {
+    try { await refreshWatchers(); }
+    catch(e) { console.error(`Unable to watch project sources: ${e.message}`); }
+  }
+  process.on('SIGINT',()=>{clearTimeout(debounceTimer);watchers.forEach(w=>w.close());child?.kill();process.exit(0);});
+  console.log('Watching project source directories. The running window reloads rebuilt bundles; Ctrl+C stops the dev host.');
 }
 async function doctor() {
-  console.log(`Node: ${process.version} | OS: ${process.platform}/${process.arch}`);
+  console.log(`tsgpui ${VERSION} | Node: ${process.version} | OS: ${process.platform}/${process.arch}`);
   console.log(`Cargo: ${rustAvailable() ? 'available' : 'not found'}`);
+  console.log(`Native sources: ${nativeSource() ?? 'not found'}`);
   console.log('Host paths checked:');
   for(const file of hostCandidates()) console.log(`  ${fs.existsSync(file)?'[found]':'[missing]'} ${file}`);
-  console.log('Rust is needed once to create a host, or supply a prebuilt host via TSGPUI_HOST.');
+  console.log('Run `tsgpui host build` once to create a host, or supply one with TSGPUI_HOST.');
+}
+function help() {
+  console.log(`tsgpui ${VERSION}
+  init [dir]                   Create a starter project
+  compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
+  dev [--project PATH]         Build, launch the native host, rebuild on change
+  build [--project PATH]       Package a single native executable
+  host build                   Compile the native host once (needs Rust)
+  doctor                       Show toolchain and host status
+Options: --host PATH, or the TSGPUI_HOST / TSGPUI_HOME environment variables.`);
 }
 async function main() {
-  if(command==='help' || args.includes('--help')) {
-    console.log('TSGPUI 0.1.0\n  init [dir]                  Create a project\n  compile [--project PATH]     Compile HTML/CSS/TS to .tgp\n  dev [--project PATH]         Launch native host and watch files\n  build [--project PATH]       Embed bundle in one native executable\n  host build                   Compile native host once (Cargo)\n  doctor                       Check environment\nOptions: --host PATH | TSGPUI_HOST=PATH');
-    return;
-  }
+  if(command==='help' || command==='--help' || args.includes('--help')) return help();
+  if(command==='--version' || command==='-v') return console.log(VERSION);
   if(command==='init') return init();
   if(command==='doctor') return doctor();
   if(command==='host' && args[0]==='build') return buildHost();
@@ -108,6 +155,6 @@ async function main() {
     return;
   }
   if(command==='dev') return dev();
-  throw new Error(`Unknown command: ${command}`);
+  throw new Error(`Unknown command: ${command}. Run \`tsgpui help\`.`);
 }
 main().catch(error=>{console.error(`TSGPUI: ${error.message}`);process.exitCode=1;});

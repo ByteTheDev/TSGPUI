@@ -40,7 +40,7 @@ test('CSS class and descendant selectors apply with CSS specificity and inherite
   assert.equal(main.children[0].style.color,'#fff');
 });
 test('CSS unsupported properties and selectors fail loudly',()=>{
-  assert.throws(()=>compileCSS('p{grid-template-columns: 1fr 1fr}'),/Unsupported CSS property/);
+  assert.throws(()=>compileCSS('p{position: absolute}'),/Unsupported CSS property/);
   assert.throws(()=>compileCSS('p:hover{color:#ffffff}'),/Unsupported CSS selector/);
   assert.throws(()=>compileCSS('p{padding:calc(3px + 2px)}'),/needs a nonnegative px/);
 });
