@@ -1,0 +1,34 @@
+name: Compile Windows GPUI host
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/**'
+      - '.github/workflows/windows-host.yml'
+  pull_request:
+    paths:
+      - 'native/**'
+      - '.github/workflows/windows-host.yml'
+permissions:
+  contents: read
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Build GPUI host
+        run: cargo build --manifest-path native/Cargo.toml --release
+      - name: Save SHA-256 hash
+        shell: pwsh
+        run: (Get-FileHash 'native/target/release/tsgpui-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpui-host.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsgpui-host-windows-x64
+          path: |
+            native/target/release/tsgpui-host.exe
+            native/target/release/tsgpui-host.exe.sha256
+          if-no-files-found: error

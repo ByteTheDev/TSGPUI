@@ -1,0 +1,16 @@
+html, body { background: #090b14; color: #f5f5fb; }
+.shell { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 48px; background: #090b14; height: 600px; }
+.card { display: flex; flex-direction: column; gap: 19px; padding: 36px; width: 640px; background: #171b2c; border-radius: 22px; }
+.badge { font-size: 11px; font-weight: 700; color: #91a8ff; }
+h1 { font-size: 48px; font-weight: 700; color: #ffffff; }
+.subtitle { font-size: 15px; color: #adb7d2; }
+.counter-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; background: #222942; border-radius: 14px; padding: 25px; }
+.eyebrow { font-size: 12px; color: #8f9dc6; }
+.count { font-size: 66px; font-weight: 700; color: #ffffff; }
+.hint { font-size: 13px; color: #aab8d5; }
+.buttons { display: flex; flex-direction: row; gap: 12px; }
+button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; }
+.primary { background: #7288ff; color: #ffffff; }
+.secondary { background: #343e60; color: #edf2ff; }
+.ghost { background: #20273c; color: #b4bfd8; }
+.footer { font-size: 12px; color: #7887ac; }

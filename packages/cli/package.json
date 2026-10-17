@@ -1,0 +1,14 @@
+{
+  "name": "tsgpui",
+  "version": "0.1.0",
+  "description": "Compile HTML/CSS and TypeScript applications to a native GPUI host",
+  "type": "module",
+  "bin": { "tsgpui": "./bin/tsgpui.mjs" },
+  "exports": {"./types": "./types/app.d.ts"},
+  "files": ["bin", "src", "types", "templates"],
+  "dependencies": {
+    "postcss": "^8.5.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {"node": ">=20"}
+}

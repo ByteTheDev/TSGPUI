@@ -1,0 +1,16 @@
+{
+  "name": "tsgpui-counter-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gpui": "tsgpui build",
+    "gpui:build": "tsgpui build",
+    "gpui:dev": "tsgpui dev",
+    "gpui:compile": "tsgpui compile",
+    "GPUI": "tsgpui build"
+  },
+  "devDependencies": {
+    "tsgpui": "workspace:*"
+  }
+}

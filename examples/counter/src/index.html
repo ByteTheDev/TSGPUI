@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="badge">GPUI NATIVE RENDERING</div>
+        <h1>TSGPUI</h1>
+        <p class="subtitle">HTML + CSS + TypeScript. No browser engine.</p>
+        <div class="counter-panel">
+          <span class="eyebrow">CLICK COUNTER</span>
+          <span class="count" data-bind="count">0</span>
+          <span class="hint">Click below to update native UI state.</span>
+        </div>
+        <div class="buttons">
+          <button id="decrement" class="secondary" data-onclick="decrement">− Decrease</button>
+          <button id="increment" class="primary" data-onclick="increment">+ Increase</button>
+          <button id="reset" class="ghost" data-onclick="reset">Reset</button>
+        </div>
+        <p class="footer">Backend actions run in embedded QuickJS, not Bun at runtime.</p>
+      </section>
+    </main>
+  </body>
+</html>

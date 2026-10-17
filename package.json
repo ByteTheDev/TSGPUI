@@ -1,0 +1,24 @@
+{
+  "name": "tsgpui-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "gpui": "node packages/cli/bin/tsgpui.mjs build --project examples/counter",
+    "gpui:dev": "node packages/cli/bin/tsgpui.mjs dev --project examples/counter",
+    "gpui:compile": "node packages/cli/bin/tsgpui.mjs compile --project examples/counter",
+    "gpui:host": "node packages/cli/bin/tsgpui.mjs host build",
+    "gpui:doctor": "node packages/cli/bin/tsgpui.mjs doctor",
+    "test": "node --test packages/cli/test/*.test.mjs",
+    "typecheck": "tsc --noEmit -p examples/counter/tsconfig.json",
+    "GPUI": "node packages/cli/bin/tsgpui.mjs build --project examples/counter"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "postcss": "^8.5.6"
+  }
+}

@@ -1,0 +1,42 @@
+name: Compile TSGPUI counter to Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/**'
+      - 'packages/**'
+      - 'examples/**'
+      - 'package.json'
+      - '.github/workflows/windows-app.yml'
+permissions:
+  contents: read
+jobs:
+  windows-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install build dependencies
+        run: bun install
+      - name: Test compiler
+        run: bun run test
+      - name: Type-check TypeScript example
+        run: bun run typecheck
+      - name: Build native GPUI host
+        run: bun run gpui:host
+      - name: Package native Windows EXE
+        run: bun run gpui
+      - name: Generate EXE checksum
+        shell: pwsh
+        run: (Get-FileHash 'examples/counter/dist/tsgpui-counter.exe' -Algorithm SHA256).Hash | Set-Content examples/counter/dist/tsgpui-counter.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsgpui-counter-windows-x64
+          path: |
+            examples/counter/dist/tsgpui-counter.exe
+            examples/counter/dist/tsgpui-counter.exe.sha256
+          if-no-files-found: error
