@@ -1,10 +1,10 @@
-use std::{cell::RefCell, collections::{BTreeMap, HashMap}, io::Read, ops::Range, path::{Path, PathBuf}, rc::Rc, sync::Arc, time::{Duration, SystemTime}};
+use std::{cell::RefCell, collections::{BTreeMap, HashMap}, io::Read, ops::Range, path::{Path, PathBuf}, rc::Rc, sync::Arc, time::{Duration, Instant, SystemTime}};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::io::AsyncReadExt as _;
 use gpui::{
     AbsoluteLength, App, AppContext, AnyElement, Application, Bounds, ClipboardItem, Context, Div,
-    ElementInputHandler, EntityInputHandler, FocusHandle, FontWeight, Hsla, Image, ImageFormat,
+    ElementInputHandler, EntityInputHandler, ExternalPaths, FocusHandle, FontWeight, Hsla, Image, ImageFormat,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point,
     Position, PromptLevel, Rgba, ScrollWheelEvent, ShapedLine, Stateful, TextAlign, TitlebarOptions,
     UTF16Selection, UniformListScrollHandle, Window, WindowBackgroundAppearance, WindowBounds,
@@ -17,6 +17,7 @@ use crate::{
     network::NativeHttpClient,
     package::{self, AppPackage, Node},
     runtime::JsBackend,
+    menus::TSGPUIAction,
     style as styles,
     text_input::{self, Selection},
 };
@@ -34,10 +35,15 @@ pub struct AppView {
     focus_handles: HashMap<String, FocusHandle>,
     geometry: HashMap<String, Rc<RefCell<FieldGeometry>>>,
     selections: HashMap<String, Selection>,
+    edit_history: HashMap<String, FieldHistory>,
     // IME composition: the field and the value range that holds the uncommitted text.
     marked: Option<(String, Range<usize>)>,
+    composition_undo: Option<(String, String, Selection)>,
     focused_field: Option<String>,
+    caret_visible: bool,
+    caret_blink_running: bool,
     dragging_field: Option<String>,
+    active_context_menu: Option<(String, Point<Pixels>)>,
     // Scroll position of each data-virtual list, keyed by node key plus repeat suffix.
     scroll_handles: HashMap<String, UniformListScrollHandle>,
     // Multi-line <textarea> fields. Their scroll offset must survive frames, so the geometry does too.
@@ -132,6 +138,24 @@ struct FieldRef {
     // The value as the last render showed it. Used when neither state nor a local holds one.
     rendered_value: String,
 }
+
+#[derive(Clone)]
+struct EditSnapshot {
+    value: String,
+    selection: Selection,
+}
+
+#[derive(Default)]
+struct FieldHistory {
+    undo: Vec<EditSnapshot>,
+    redo: Vec<EditSnapshot>,
+    last_edit_at: Option<Instant>,
+    last_edit_caret: Option<usize>,
+    last_edit_kind: Option<EditKind>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EditKind { Insert, Delete, Replace }
 
 fn font_weight_for(weight: &str) -> FontWeight {
     match weight {
@@ -353,7 +377,8 @@ fn shortcut_matches(shortcut: &str, event: &gpui::KeyDownEvent) -> bool {
 }
 
 fn find_shortcut<'a>(node: &'a Node, event: &gpui::KeyDownEvent) -> Option<&'a Node> {
-    if !node.attrs.contains_key("disabled") && node.attrs.get("data-shortcut").is_some_and(|shortcut| shortcut_matches(shortcut, event)) {
+    if matches!(node.tag.as_str(), "button" | "menuitem") && !node.attrs.contains_key("disabled")
+        && node.attrs.get("data-shortcut").is_some_and(|shortcut| shortcut_matches(shortcut, event)) {
         return Some(node);
     }
     node.children.iter().find_map(|child| find_shortcut(child, event))
@@ -439,7 +464,9 @@ impl AppView {
             document, backend, bundle_file, local_values: HashMap::new(), cursor_offsets: HashMap::new(),
             selected_all: std::collections::HashSet::new(), validation_errors: HashMap::new(),
             fields: HashMap::new(), focus_handles: HashMap::new(), geometry: HashMap::new(),
-            selections: HashMap::new(), marked: None, focused_field: None, dragging_field: None,
+            selections: HashMap::new(), edit_history: HashMap::new(), marked: None, focused_field: None,
+            composition_undo: None, caret_visible: true, caret_blink_running: false, dragging_field: None,
+            active_context_menu: None,
             scroll_handles: HashMap::new(), areas: HashMap::new(),
         }
     }
@@ -475,15 +502,42 @@ impl AppView {
                     view.fields.clear();
                     view.geometry.clear();
                     view.selections.clear();
+                    view.edit_history.clear();
                     view.marked = None;
+                    view.composition_undo = None;
                     view.focused_field = None;
+                    view.caret_visible = true;
                     view.dragging_field = None;
+                    view.active_context_menu = None;
                     view.scroll_handles.clear();
                     view.areas.clear();
                     cx.notify();
                 }).is_err() {
                     break;
                 }
+            }
+        }).detach();
+    }
+
+    fn start_caret_blink(&mut self, cx: &mut Context<Self>) {
+        if self.caret_blink_running { return; }
+        self.caret_blink_running = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(530)).await;
+                let keep_running = this.update(cx, |view, cx| {
+                    if view.focused_field.is_some() {
+                        view.caret_visible = !view.caret_visible;
+                        cx.notify();
+                        true
+                    } else {
+                        view.caret_visible = true;
+                        view.caret_blink_running = false;
+                        cx.notify();
+                        false
+                    }
+                }).unwrap_or(false);
+                if !keep_running { break; }
             }
         }).detach();
     }
@@ -500,6 +554,9 @@ impl AppView {
         repeat_suffix: &str,
         skip_repeat: bool,
     ) -> AnyElement {
+        if matches!(node.tag.as_str(), "menu" | "menuitem" | "hr") {
+            return div().into_any_element();
+        }
         let mut scoped_locals = locals.clone();
         if !node.props.is_empty() {
             scoped_locals.insert("props".into(), Value::Object(node.props.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect()));
@@ -875,6 +932,11 @@ impl AppView {
 
         if node.key == self.document.root.key {
             element = element.on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("escape") && this.active_context_menu.take().is_some() {
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
                 if event.keystroke.key.eq_ignore_ascii_case("tab") {
                     if event.keystroke.modifiers.shift { window.focus_prev(); } else { window.focus_next(); }
                     cx.stop_propagation();
@@ -887,6 +949,34 @@ impl AppView {
                         cx.stop_propagation();
                     }
                 }
+            }));
+            element = element.on_action(cx.listener(|this, action: &TSGPUIAction, _, cx| {
+                if let Err(error) = this.backend.invoke_with_event(&action.action, serde_json::json!({"type":"menu"})) {
+                    eprintln!("TSGPUI menu action: {error}");
+                }
+                cx.notify();
+            }));
+        }
+        if let Some(menu_id) = node.attrs.get("data-contextmenu") {
+            let menu_id = menu_id.clone();
+            element = element.on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                this.active_context_menu = Some((menu_id.clone(), event.position));
+                cx.notify();
+            }));
+        }
+        if let Some(action) = node.attrs.get("data-ondrop") {
+            let action = action.clone();
+            element = element.on_drop(cx.listener(move |this, paths: &ExternalPaths, _, cx| {
+                let files: Vec<_> = paths.paths().iter().map(|path| {
+                    serde_json::json!({
+                        "path": path.to_string_lossy(),
+                        "name": path.file_name().unwrap_or_default().to_string_lossy()
+                    })
+                }).collect();
+                if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"drop","files":files})) {
+                    eprintln!("TSGPUI file drop action: {error}");
+                }
+                cx.notify();
             }));
         }
 
@@ -947,11 +1037,70 @@ impl AppView {
                 }));
             }
         }
+        if node.key == self.document.root.key {
+            if let Some(overlay) = self.context_menu_overlay(node, cx) { element = element.child(overlay); }
+        }
         element.into_any_element()
     }
 }
 
 impl AppView {
+    fn context_menu_overlay(&self, root: &Node, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (menu_id, at) = self.active_context_menu.clone()?;
+        let menu = crate::menus::context_menu(root, &menu_id)?;
+        fn flatten(node: &Node, depth: usize, out: &mut Vec<(Node, usize)>) {
+            for child in &node.children {
+                if child.tag == "hr" {
+                    out.push((child.clone(), depth));
+                } else if child.tag == "menuitem" {
+                    out.push((child.clone(), depth));
+                    if child.children.iter().any(|grandchild| grandchild.tag == "menuitem") {
+                        flatten(child, depth + 1, out);
+                    }
+                }
+            }
+        }
+        let mut items = Vec::new();
+        flatten(menu, 0, &mut items);
+        let mut popup = div().absolute().left(at.x).top(at.y)
+            .min_w(px(190.0)).p(px(4.0)).bg(rgba(0x252525ff))
+            .border_1().border_color(rgba(0x555555ff)).rounded_md().shadow_lg();
+        for (index, (item, depth)) in items.iter().enumerate() {
+            if item.tag == "hr" {
+                popup = popup.child(div().h(px(1.0)).my(px(3.0)).bg(rgba(0x555555ff)));
+            } else if item.tag == "menuitem" {
+                let title = crate::menus::text_label(item);
+                let disabled = item.attrs.contains_key("disabled");
+                let action = item.attrs.get("data-onclick").cloned();
+                let mut row = div().id(("context-menu-row", index)).pl(px(10.0 + *depth as f32 * 14.0)).pr(px(10.0)).py(px(6.0)).rounded_sm()
+                    .text_color(if disabled { rgba(0x888888ff) } else { rgba(0xf3f3f3ff) })
+                    .child(title);
+                if !disabled {
+                    if let Some(action) = action {
+                        row = row.on_click(cx.listener(move |this, _, _, cx| {
+                            this.active_context_menu = None;
+                            if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"contextmenu"})) {
+                                eprintln!("TSGPUI context menu action: {error}");
+                            }
+                            cx.notify();
+                        }));
+                    }
+                }
+                popup = popup.child(row);
+            }
+        }
+        let mut overlay = div().absolute().top_0().left_0().size_full();
+        overlay = overlay.on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                this.active_context_menu = None;
+                cx.notify();
+            }));
+        popup = popup.on_mouse_down(MouseButton::Left, cx.listener(|_, _: &MouseDownEvent, _, cx| {
+            cx.stop_propagation();
+        }));
+        overlay = overlay.child(popup);
+        Some(overlay.into_any_element())
+    }
+
     // A data-virtual list. The repeated element is the row, and each row must have the height given
     // by data-virtual, so GPUI's uniform list can place rows without measuring them. Only rows near
     // the viewport are built, on each frame, from the current state.
@@ -1059,6 +1208,7 @@ impl AppView {
         let focused = focus.is_focused(window);
         if focused {
             self.focused_field = Some(field_key.clone());
+            self.start_caret_blink(cx);
         }
         let selection = self.selection_in(&field_key, &displayed);
         let area = self.areas.entry(field_key.clone()).or_insert_with(|| Rc::new(RefCell::new(AreaGeometry::default()))).clone();
@@ -1077,6 +1227,7 @@ impl AppView {
         let paint_area = area.clone();
         let paint_focus = focus.clone();
         let paint_selection = selection;
+        let paint_caret_visible = self.caret_visible;
         let overlay = canvas(
             move |bounds: Bounds<Pixels>, window: &mut Window, _: &mut App| {
                 let mut text_style = window.text_style();
@@ -1178,7 +1329,7 @@ impl AppView {
                         let _ = layout.paint(point(origin.x, origin.y + line.top), line_height, TextAlign::Left, Some(bounds), window, cx);
                     }
                 }
-                if focused {
+                if focused && paint_caret_visible {
                     let caret = geometry.point_for_index(paint_selection.head);
                     window.paint_quad(fill(Bounds::new(point(origin.x + caret.x, origin.y + caret.y), size(px(1.5), line_height)), caret_color));
                 }
@@ -1314,6 +1465,7 @@ impl AppView {
         let focused = focus.is_focused(window);
         if focused {
             self.focused_field = Some(field_key.clone());
+            self.start_caret_blink(cx);
         }
         let selection = self.selection_in(&field_key, &displayed);
         let geometry = Rc::new(RefCell::new(FieldGeometry::default()));
@@ -1327,6 +1479,7 @@ impl AppView {
         let layout_geometry = geometry.clone();
         let layout_text = shown.clone();
         let paint_value = displayed.clone();
+        let paint_caret_visible = self.caret_visible;
         let paint_focus = focus.clone();
         let overlay = canvas(
             move |bounds: Bounds<Pixels>, window: &mut Window, _: &mut App| {
@@ -1353,7 +1506,7 @@ impl AppView {
                 (line, line_height)
             },
             move |bounds: Bounds<Pixels>, (line, line_height): (ShapedLine, Pixels), window: &mut Window, cx: &mut App| {
-                if focused {
+                if focused && paint_caret_visible {
                     let origin_x = bounds.origin.x + px(padding);
                     let origin_y = bounds.origin.y + px(padding);
                     let x_at = |index: usize| origin_x + line.x_for_index(text_input::display_offset(&paint_value, index, masked));
@@ -1462,6 +1615,24 @@ impl AppView {
         let mut moved: Option<Selection> = None;
         let mut edit: Option<(Range<usize>, String)> = None;
         match key_name.as_str() {
+            "z" if secondary => {
+                if modifiers.shift { self.redo_field(field_key); } else { self.undo_field(field_key); }
+                cx.notify();
+                return true;
+            }
+            "y" if secondary => {
+                self.redo_field(field_key);
+                cx.notify();
+                return true;
+            }
+            "left" | "right" if secondary => {
+                let target = if key_name == "left" {
+                    text_input::previous_word_boundary(&value, head)
+                } else {
+                    text_input::next_word_boundary(&value, head)
+                };
+                moved = Some(if modifiers.shift { Selection { anchor: selection.anchor, head: target } } else { Selection::caret(target) });
+            }
             "left" | "right" | "home" | "end" if !secondary => {
                 let target = match key_name.as_str() {
                     "left" if !modifiers.shift && !selection.is_empty() => range.start,
@@ -1475,7 +1646,7 @@ impl AppView {
                 };
                 moved = Some(if modifiers.shift { Selection { anchor: selection.anchor, head: target } } else { Selection::caret(target) });
             }
-            "home" | "end" if secondary && field.multiline => {
+            "home" | "end" if secondary => {
                 let target = if key_name == "home" { 0 } else { value.len() };
                 moved = Some(if modifiers.shift { Selection { anchor: selection.anchor, head: target } } else { Selection::caret(target) });
             }
@@ -1500,7 +1671,17 @@ impl AppView {
                     edit = Some((range.clone(), text));
                 }
             }
-            "backspace" | "delete" if !secondary => {
+            "backspace" | "delete" if secondary => {
+                let target = if !selection.is_empty() {
+                    range.clone()
+                } else if key_name == "backspace" {
+                    text_input::previous_word_boundary(&value, head)..head
+                } else {
+                    head..text_input::next_word_boundary(&value, head)
+                };
+                if !target.is_empty() { edit = Some((target, String::new())); }
+            }
+            "backspace" | "delete" => {
                 let target = if !selection.is_empty() {
                     range.clone()
                 } else if key_name == "backspace" {
@@ -1530,13 +1711,80 @@ impl AppView {
         let Some(field) = self.fields.get(field_key).cloned() else { return; };
         let value = self.field_value(&field);
         let text = if field.multiline { text_input::normalize_newlines(text) } else { text_input::single_line(text) };
-        let (updated, caret) = text_input::replace_range(&value, range, &text);
+        let (updated, caret) = text_input::replace_range(&value, range.clone(), &text);
+        if updated != value {
+            self.record_edit(field_key, &value, self.selection_in(field_key, &value), caret, range, &text);
+        }
+        self.composition_undo = None;
         self.marked = None;
         self.selections.insert(field_key.to_string(), Selection::caret(caret));
         if field.multiline { self.follow_caret(field_key); }
         if updated != value {
             self.commit_field(&field, updated);
         }
+    }
+
+    fn record_edit(&mut self, field_key: &str, before: &str, selection: Selection, caret: usize, range: Range<usize>, inserted: &str) {
+        const HISTORY_LIMIT: usize = 100;
+        let kind = if range.is_empty() && !inserted.is_empty() { EditKind::Insert }
+            else if inserted.is_empty() { EditKind::Delete }
+            else { EditKind::Replace };
+        let now = Instant::now();
+        let history = self.edit_history.entry(field_key.to_string()).or_default();
+        let can_coalesce = inserted != "\n" && matches!(kind, EditKind::Insert | EditKind::Delete)
+            && history.last_edit_kind == Some(kind)
+            && history.last_edit_at.is_some_and(|at| now.duration_since(at) < Duration::from_millis(900))
+            && history.last_edit_caret == Some(selection.head);
+        if !can_coalesce {
+            history.undo.push(EditSnapshot { value: before.to_string(), selection });
+            if history.undo.len() > HISTORY_LIMIT { history.undo.remove(0); }
+        }
+        history.redo.clear();
+        history.last_edit_at = Some(now);
+        history.last_edit_caret = Some(caret);
+        history.last_edit_kind = Some(kind);
+    }
+
+    fn undo_field(&mut self, field_key: &str) {
+        let Some(field) = self.fields.get(field_key).cloned() else { return; };
+        let current = self.field_value(&field);
+        let selection = self.selection_in(field_key, &current);
+        let Some(history) = self.edit_history.get_mut(field_key) else { return; };
+        let Some(snapshot) = history.undo.pop() else { return; };
+        history.redo.push(EditSnapshot { value: current, selection });
+        history.last_edit_at = None;
+        history.last_edit_kind = None;
+        self.selections.insert(field_key.to_string(), snapshot.selection);
+        if field.multiline { self.follow_caret(field_key); }
+        self.commit_field(&field, snapshot.value);
+    }
+
+    fn finish_composition(&mut self, field_key: &str) {
+        let Some((key, value, selection)) = self.composition_undo.take() else { return; };
+        if key != field_key { return; }
+        let Some(field) = self.fields.get(field_key) else { return; };
+        let current = self.field_value(field);
+        if current == value { return; }
+        let history = self.edit_history.entry(field_key.to_string()).or_default();
+        history.undo.push(EditSnapshot { value, selection });
+        if history.undo.len() > 100 { history.undo.remove(0); }
+        history.redo.clear();
+        history.last_edit_at = None;
+        history.last_edit_kind = None;
+    }
+
+    fn redo_field(&mut self, field_key: &str) {
+        let Some(field) = self.fields.get(field_key).cloned() else { return; };
+        let current = self.field_value(&field);
+        let selection = self.selection_in(field_key, &current);
+        let Some(history) = self.edit_history.get_mut(field_key) else { return; };
+        let Some(snapshot) = history.redo.pop() else { return; };
+        history.undo.push(EditSnapshot { value: current, selection });
+        history.last_edit_at = None;
+        history.last_edit_kind = None;
+        self.selections.insert(field_key.to_string(), snapshot.selection);
+        if field.multiline { self.follow_caret(field_key); }
+        self.commit_field(&field, snapshot.value);
     }
 
     // The next frame scrolls a textarea so its caret is visible.
@@ -1620,6 +1868,9 @@ impl EntityInputHandler for AppView {
     }
 
     fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
+        let key = self.marked.as_ref().map(|(key, _)| key.clone())
+            .or_else(|| self.composition_undo.as_ref().map(|(key, _, _)| key.clone()));
+        if let Some(key) = key { self.finish_composition(&key); }
         self.marked = None;
     }
 
@@ -1643,6 +1894,9 @@ impl EntityInputHandler for AppView {
     ) {
         let Some((key, field)) = self.focused_field_ref() else { return; };
         let value = self.field_value(&field);
+        if self.composition_undo.is_none() {
+            self.composition_undo = Some((key.clone(), value.clone(), self.selection_in(&key, &value)));
+        }
         let range = self.target_range(&key, &value, range_utf16);
         let (updated, _) = text_input::replace_range(&value, range.clone(), new_text);
         let mark_start = text_input::clamp_to_boundary(&value, range.start);
@@ -1701,6 +1955,7 @@ impl EntityInputHandler for AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&self.document.title);
+        self.focused_field = None;
         let root = self.document.root.clone();
         self.render_node(&root, cx, window, &BTreeMap::new(), &BTreeMap::new(), None, None, "", false)
     }
@@ -1713,6 +1968,7 @@ fn bundle_stamp(path: &std::path::Path) -> Option<(u64, SystemTime)> {
 
 pub fn run(doc: AppPackage, backend: JsBackend, bundle_file: Option<PathBuf>) {
     Application::new().with_http_client(Arc::new(NativeHttpClient::new())).run(move |cx: &mut App| {
+        crate::menus::set_application_menus(&doc.root, cx);
         let fonts = doc.fonts.values().filter_map(|encoded| {
             STANDARD.decode(encoded).ok().map(std::borrow::Cow::Owned)
         }).collect();

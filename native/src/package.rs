@@ -35,6 +35,17 @@ pub struct EmbeddedAsset {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Permissions {
     #[serde(default)] pub network_hosts: Vec<String>,
+    #[serde(default)] pub filesystem: FilesystemPermissions,
+    #[serde(default)] pub processes: Vec<String>,
+    #[serde(default)] pub notifications: bool,
+    #[serde(default)] pub ipc: bool,
+    #[serde(default)] pub window: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FilesystemPermissions {
+    #[serde(default)] pub read: Vec<String>,
+    #[serde(default)] pub write: Vec<String>,
 }
 
 // "system" keeps the OS title bar. "unified" hides it, and the app marks its drag area and window
@@ -57,17 +68,21 @@ impl Default for WindowChrome {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppPackage {
     pub format: String,
+    #[serde(default = "native_renderer")] pub renderer: String,
     pub name: String,
     pub title: String,
     pub width: i32,
     pub height: i32,
     pub root: Node,
     pub backend_js: String,
+    #[serde(default)] pub webview_html: Option<String>,
     #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
     #[serde(default)] pub fonts: BTreeMap<String,String>,
     #[serde(default)] pub permissions: Permissions,
     #[serde(default)] pub window: WindowChrome,
 }
+
+fn native_renderer() -> String { "native".into() }
 
 pub fn load() -> Result<AppPackage,String> {
     if let Some(file) = bundle_path()? {
@@ -99,7 +114,9 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     if !(200..=4096).contains(&doc.width) || !(200..=4096).contains(&doc.height) {
         return Err("Invalid window dimensions".into());
     }
-    if doc.name.is_empty() || doc.root.tag.is_empty() {return Err("Invalid document content".into());}
+    if !["native", "webview"].contains(&doc.renderer.as_str()) {return Err(format!("Unknown renderer: {}",doc.renderer));}
+    if doc.name.is_empty() || doc.renderer == "native" && doc.root.tag.is_empty() {return Err("Invalid document content".into());}
+    if doc.renderer == "webview" && doc.webview_html.as_ref().is_none_or(String::is_empty) {return Err("WebView app bundle is missing webview_html".into());}
     Ok(doc)
 }
 fn read_embedded() -> Result<Vec<u8>,String> {

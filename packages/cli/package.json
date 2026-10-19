@@ -1,7 +1,7 @@
 {
   "name": "@rs/tsgpui",
   "version": "0.1.0",
-  "description": "Compile HTML/CSS and TypeScript applications to a native GPUI host",
+  "description": "Compile HTML/CSS and TypeScript applications for GPUI or a system WebView",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -11,6 +11,7 @@
     "css",
     "typescript",
     "quickjs",
+    "webview",
     "cli"
   ],
   "repository": {

@@ -1,6 +1,6 @@
 # tsgpui
 
-Compile HTML, CSS and TypeScript into a native [GPUI](https://www.gpui.rs) window. There is no browser engine. The app's backend runs in an embedded QuickJS.
+Compile HTML, CSS and TypeScript into a native [GPUI](https://www.gpui.rs) window by default. Projects can select a system WebView renderer to keep browser layout and CSS behavior. Native apps run backend actions in embedded QuickJS; WebView apps run the compiled backend script in their WebView.
 
 ## Install
 
@@ -29,9 +29,11 @@ Each app is packaged by copying a prebuilt native host and appending the app bun
 
 ```sh
 tsgpui host build
+# or, for a project configured with renderer "webview":
+tsgpui host build --renderer webview
 ```
 
-This needs Rust (https://rustup.rs). On Windows it also needs the MSVC C++ build tools. The host is stored in `~/.tsgpui/host/` (override with `TSGPUI_HOME`). You can also point `TSGPUI_HOST` at a host executable you trust.
+This needs Rust (https://rustup.rs). On Windows it also needs the MSVC C++ build tools. The WebView host uses Wry and the platform WebView runtime: WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. Linux builds also need GTK and WebKitGTK development packages. The host is stored in `~/.tsgpui/host/` (override with `TSGPUI_HOME`). You can point `TSGPUI_HOST` or `TSGPUI_WEBVIEW_HOST` at a host executable you trust.
 
 ## Create and run an app
 
@@ -44,6 +46,8 @@ tsgpui build      # produce dist/my-app.exe, which runs without Bun, Node, or Ru
 
 Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `src/backend.ts`. The HTML/CSS subset and the backend API are described in the [TSGPUI docs](https://github.com/ByteTheDev/TSGPUI/tree/main/docs).
 
+Set `"renderer": "webview"` in the project config to select the WebView host. It renders the original HTML and CSS and embeds local image, font, script, and stylesheet resources into the app bundle. It supports the basic `data-bind`, `data-onclick`, `data-oninput`, form, file, clipboard, and `data-fetch` bindings. Compile-time components and `data-repeat` are native-renderer features. WebView pages can use ordinary HTML scripts and browser APIs, so only bundle code you trust; WebView network access follows browser rules and is not limited to `permissions.network` outside the declarative `data-fetch` binding.
+
 ## Commands
 
 | Command | Purpose |
@@ -53,12 +57,12 @@ Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `
 | `tsgpui dev [--project PATH]` | Build, launch the host, and rebuild on change |
 | `tsgpui preview [--project PATH]` | Live preview in a browser at 127.0.0.1 (`--out FILE` writes one HTML file) |
 | `tsgpui build [--project PATH]` | Write a single native executable |
-| `tsgpui host build` | Compile the native host once |
+| `tsgpui host build [--renderer MODE]` | Compile the native or WebView host once |
 | `tsgpui doctor` | Show the toolchain and host status |
 
 ## Limits
 
-TSGPUI is an experimental prototype. It supports a subset of HTML and CSS, has no keyboard or text input yet, and runs backend code without CPU-time limits, so only run backends you trust. See the repository for the full list.
+TSGPUI is an experimental prototype. The native renderer supports a subset of HTML and CSS and runs backend code without CPU-time limits. The WebView renderer uses the system browser engine and lets authored scripts use browser APIs. Only bundle code you trust. See the repository docs for renderer differences and platform requirements.
 
 ## License
 

@@ -1,6 +1,7 @@
 {
   "name": "tsgpui-counter",
   "title": "TSGPUI • Native Counter",
+  "renderer": "native",
   "window": {"width": 900, "height": 600},
   "html": "src/index.html",
   "css": "src/styles.css",

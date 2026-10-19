@@ -1,17 +1,37 @@
 # Supported HTML, CSS, and TypeScript
 
-TSGPUI compiles a documented subset to native GPUI elements. It is not Chromium and rejects browser syntax that the host cannot render.
+The default native renderer compiles a documented subset to GPUI elements. Use the WebView renderer when you need platform browser layout and CSS behavior.
+
+## Renderer selection
+
+Set the project renderer in `tsgpui.config.json`:
+
+```json
+{
+  "renderer": "webview"
+}
+```
+
+`renderer` accepts `native` (the default) or `webview`. `tsgpui dev` and `tsgpui build` select the matching host automatically. Build one explicitly with `tsgpui host build --renderer webview` or `tsgpui host build --renderer native`.
+
+The WebView renderer passes authored HTML and CSS to [Wry](https://github.com/tauri-apps/wry), which uses WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. Windows needs the WebView2 runtime; Linux builds need GTK and WebKitGTK development packages. It embeds referenced local images, scripts, stylesheets, CSS URLs, and configured fonts in the bundle, which has a 16 MiB size limit. The document is loaded from an app-local custom URL. A single HTML document is supported; relative links to other local pages are not packaged as a multi-page site.
+
+It supports `data-bind`, `{{state.path}}` text interpolation, `data-onclick`, `data-oninput`, forms with `data-submit`, `data-fetch`, file selection/read/save, and clipboard bindings. The native renderer's `data-repeat`, `data-virtual`, compile-time components, native window controls, and per-element CSS warnings are not used in WebView mode. WebView state resets when `dev` reloads the document.
+
+WebView pages execute ordinary page JavaScript in the browser context. Their scripts and backend code are trusted application code. `permissions.network` restricts the declarative `data-fetch` binding; it cannot restrict fetches or other network requests made by page scripts. WebView fetches follow browser CORS rules. The WebView host uses the system frame; the native `window.titlebar` and `window.backdrop` options do not apply.
+
+The remaining HTML, CSS, and backend reference describes the native renderer unless a section says otherwise.
 
 ## HTML
 
-Supported elements: `html`, `body`, `main`, `header`, `footer`, `section`, `article`, `div`, `h1`, `h2`, `h3`, `p`, `span`, `strong`, `small`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `template`, `use`, and `slot`.
+Supported elements: `html`, `body`, `main`, `header`, `footer`, `section`, `article`, `div`, `h1`, `h2`, `h3`, `p`, `span`, `strong`, `small`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `menu`, `menuitem`, `hr`, `template`, `use`, and `slot`.
 
 Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabindex`, `name`, and `value`. Controls also support `type`, `placeholder`, `checked`, `selected`, `disabled`, `required`, `min`, `max`, and `step`.
 
 - `data-bind="stateKey"` displays backend state. Text supports `{{stateKey}}` interpolation. Dotted paths work for nested objects and repeated items.
 - `data-onclick="actionName"` runs a button action. `data-oninput="actionName"` runs when an input, textarea, or select value changes. Actions receive an event object with `type` plus fields such as `value`, `checked`, `name`, and `submit`.
 - `<form data-submit="save">` submits through a `button type="submit"`. Required fields and numeric `min`, `max`, and `step` constraints are checked before dispatch.
-- Single-line text inputs support typing through the platform text input (including IME composition), a visible caret, selection by mouse or Shift+arrow, Home/End, Backspace/Delete, Ctrl/Cmd+A/C/X/V, Tab focus traversal, and password masking. The caret does not blink yet. Textareas use the same native text path: multi-line caret and selection, IME, clipboard, wrapping to the field width, scrolling by wheel and by caret, Enter for a new line, Up/Down by visual row, Home/End by line, Ctrl/Cmd+Home/End for the whole text, and double-click to select a word. The default height is about three lines unless the element sets `height`.
+- Single-line text inputs support typing through the platform text input (including IME composition), a blinking caret, selection by mouse or Shift+arrow, Home/End, word-wise movement and deletion, Ctrl/Cmd+A/C/X/V/Z, Shift+Ctrl/Cmd+Z and Ctrl/Cmd+Y, Tab focus traversal, and password masking. Undo history is per field, bounded, and reset on app reload. Textareas use the same native text path: multi-line caret and selection, IME, clipboard, wrapping to the field width, scrolling by wheel and by caret, Enter for a new line, Up/Down by visual row, Home/End by line, Ctrl/Cmd+Home/End for the whole text, and double-click to select a word. The default height is about three lines unless the element sets `height`.
 - A select cycles through its options on click and supports Up/Down keys. It does not use a native dropdown popup yet.
 - `data-repeat="items as item"` renders one node for each array element in backend state. Use `{{item.name}}` for item values. Nested repeats and state-bound inputs use the array index in their state path. Add `data-virtual="36"` (a row height in pixels, from 1 to 1000) to build only the visible rows of a scrolling list. Every row must be exactly that height, and rows fill the list's width unless they set one. Without `data-virtual`, every row is built.
 - `<template data-component="Card">...</template>` and `<use component="Card" data-prop-title="Hello"/>` expand static reusable components at compile time. A component can read string props with `{{props.title}}`. Recursive components and duplicate expanded IDs are rejected.
@@ -22,6 +42,8 @@ Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabinde
 - Built-in library: `Sidebar`, `Toolbar` (slots `start` and `end`; `title` is the fallback text), `SegmentedControl`, `SearchField` (an `<input type="search">`, so `data-bind` and `data-oninput` go on the `<use>`), `ListRow` (`title`, with a default slot for detail text), and `Sheet` (`title`, with slots for the body and `footer`). Use them like any template. An app template with the same name replaces the library one. Library styles are plain `.ts-*` class selectors, and their colors are `--ts-*` custom properties, so `:root` restyles them.
 - `<img src="assets/photo.png" alt="...">` embeds a project-relative PNG, JPEG, GIF, WebP, BMP, or SVG. Each image is limited to 8 MiB; bundles are limited to 16 MiB.
 - `data-shortcut="mod-s"` binds a button action to a key. `mod` means Ctrl on Windows/Linux and Cmd on macOS. `ctrl`, `alt`, `shift`, and `cmd` can also be written explicitly.
+- Native menus use `<menu data-app-menu="File">` for an application menu and `<menu id="edit">` for a context menu. Put `<menuitem data-onclick="actionName">` entries and `<hr>` separators inside. Menu items may contain nested menu items for submenus. Add `data-shortcut="mod-s"` to an item to bind its shortcut. Attach `data-contextmenu="edit"` to an element to show that context menu on right-click. Context menus support disabled entries; native application menu items cannot be disabled. Checked menu items are not supported.
+- `data-ondrop="actionName"` on a rendered container or button dispatches a `drop` event with `files`, an array of `{name, path}` objects for the files the user dropped. The host reports paths only and does not read file contents. File drops are native-renderer behavior; browser preview and WebView support may differ by platform and renderer.
 - `data-confirm="deleteItem"` shows a native confirmation prompt, then runs the action only when confirmed.
 - `data-clipboard-copy="stateKey"` copies a state value from a button. `data-clipboard-paste="stateKey"` reads clipboard text into that state value after a button click.
 - `data-file-open="pathKey"` opens the native file chooser and stores the selected path. Add `data-file-read="textKey"` to read the chosen UTF-8 text file into another state key. `data-file-save="textKey"` opens a native save dialog and writes that state's text. File reads and writes are limited to 1 MiB and require a user-selected path.
@@ -37,7 +59,23 @@ Example network permission:
 }
 ```
 
-ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics.
+The permission schema also reserves explicit grants for the native bridge:
+
+```json
+{
+  "permissions": {
+    "filesystem": { "read": ["./data"], "write": ["./data"] },
+    "processes": ["git"],
+    "notifications": true,
+    "ipc": true,
+    "window": true
+  }
+}
+```
+
+These grants are serialized into the app bundle. Filesystem entries are project-relative directory roots, process entries are executable names, and notifications, IPC, and native window APIs are opt-in booleans. The TypeScript declarations expose the `api.native` contract; the host does not yet dispatch these calls. Existing picker-based file operations, window title-bar controls, and network permissions continue to use their current host paths.
+
+ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics. WebView mode uses the platform browser's accessibility behavior.
 
 Tags must be properly nested and explicitly closed, except void tags such as `input` and `img`, and self-closed `<use .../>`. The document must have one root element.
 
@@ -59,7 +97,7 @@ CSS variables: declare `--name: value` (in `:root` or any rule) and use `var(--n
 
 Units: `px`, `rem`, and `em` (both 16px), and `%` for sizes, insets, and padding and margin. `auto` works for `width`, `height`, `margin`, `flex-basis`, and insets.
 
-Declarations TSGPUI cannot render are skipped with a warning that names the file, line, and property, and the rest of the rule still applies. Set `"strictCss": true` in `tsgpui.config.json` to turn warnings into build errors.
+In the native renderer, declarations GPUI cannot render are skipped with a warning that names the file, line, and property, and the rest of the rule still applies. Set `"strictCss": true` in `tsgpui.config.json` to turn those warnings into build errors. The WebView renderer sends the stylesheet to the platform browser engine instead.
 
 | Property | Values |
 |---|---|
@@ -106,6 +144,6 @@ The preview is a reference for the shared subset, not an exact match. Its layout
 
 ## Backend TypeScript
 
-One `backend.ts` file exports a default `{ state, actions }` object. Type-only imports are allowed; runtime imports, dynamic imports, `require`, Node/Bun APIs, and browser globals are not available. Actions receive `get`, `set`, and `update` plus a read-only event. Actions may return a Promise; QuickJS microtasks are drained during dispatch before the view redraws, so long-running or externally pending promises are not supported.
+One `backend.ts` file exports a default `{ state, actions }` object. Type-only imports are allowed; runtime imports, dynamic imports, and `require` are unsupported. In native mode, Node/Bun APIs and browser globals are not available. Actions receive `get`, `set`, and `update` plus a read-only event. Native actions may return a Promise; QuickJS microtasks are drained during dispatch before the view redraws, so long-running or externally pending promises are not supported. WebView mode executes the compiled backend script in the browser page and therefore uses the platform JavaScript engine and page security model.
 
-There is no general filesystem or `fetch` API in backend JavaScript. File access is limited to native picker events, and network access is limited to the declarative `data-fetch` control with an exact host allowlist.
+The native backend has no general filesystem or `fetch` API. File access is limited to native picker events, and network access is limited to the declarative `data-fetch` control with an exact host allowlist. WebView pages use browser APIs and browser network rules.

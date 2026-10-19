@@ -6,7 +6,7 @@
     <title>TSGPUI · Web markup. Native pixels.</title>
     <meta
       name="description"
-      content="TSGPUI turns a supported subset of HTML and CSS into native GPUI elements and runs TypeScript backend actions in embedded QuickJS. No Chromium, no WebView."
+      content="TSGPUI renders HTML and CSS with native GPUI by default, with an optional system WebView renderer for browser layout and CSS fidelity."
     />
     <meta name="theme-color" content="#05060b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -63,7 +63,7 @@
           </h1>
           <p class="lede reveal" style="--d: 2">
             TSGPUI transforms a supported subset of HTML and CSS into native GPUI
-            elements, and runs your TypeScript backend in embedded QuickJS.
+            elements by default, with an optional system WebView for browser fidelity.
           </p>
           <div class="actions reveal" style="--d: 3">
             <a class="btn btn-primary" href="#quick-start">
@@ -80,7 +80,7 @@
             </div>
             <div>
               <dt>TSGPUI</dt>
-              <dd>Renders with GPUI and runs logic in QuickJS. No browser engine, no WebView</dd>
+              <dd>GPUI is the default renderer; choose WebView when browser layout matters</dd>
             </div>
           </dl>
         </div>
@@ -101,7 +101,7 @@
               <div class="app-card">
                 <span class="app-badge">GPUI NATIVE RENDERING</span>
                 <h3 class="app-title">TSGPUI</h3>
-                <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
+                <p class="app-sub">HTML + CSS + TypeScript. Native GPUI rendering.</p>
                 <div class="app-panel">
                   <span class="app-eyebrow">CLICK COUNTER</span>
                   <span class="app-count" data-count aria-live="polite">0</span>
@@ -153,7 +153,7 @@
       &lt;section class="card"&gt;
         &lt;div class="badge"&gt;GPUI NATIVE RENDERING&lt;/div&gt;
         &lt;h1&gt;TSGPUI&lt;/h1&gt;
-        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. No browser engine.&lt;/p&gt;
+        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. Native GPUI rendering.&lt;/p&gt;
         &lt;div class="counter-panel"&gt;
           &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt;
           &lt;span class="count" data-bind="count"&gt;0&lt;/span&gt;
@@ -225,7 +225,7 @@ export default app;</code></pre>
                 <div class="app-card">
                   <span class="app-badge">GPUI NATIVE RENDERING</span>
                   <h3 class="app-title">TSGPUI</h3>
-                  <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
+                  <p class="app-sub">HTML + CSS + TypeScript. Native GPUI rendering.</p>
                   <div class="app-panel">
                     <span class="app-eyebrow">CLICK COUNTER</span>
                     <span class="app-count" data-count aria-live="polite">0</span>
@@ -390,8 +390,8 @@ export default app;</code></pre>
 
         <div class="facts">
           <div class="fact reveal" style="--d: 0">
-            <h3>No browser engine</h3>
-            <p>No Chromium and no WebView in the runtime path. Rendering goes through GPUI.</p>
+            <h3>Two renderer paths</h3>
+            <p>GPUI is the default. Select a system WebView when your interface depends on browser layout or CSS.</p>
           </div>
           <div class="fact reveal" style="--d: 1">
             <h3>No Node or Bun at runtime</h3>

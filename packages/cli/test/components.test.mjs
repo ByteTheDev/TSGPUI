@@ -85,7 +85,7 @@ test('attributes on <use> go to the component element, and class names merge', (
 });
 
 test('forwarded attributes are checked on the element that receives them', () => {
-  assert.throws(() => parse('<body><use component="SearchField" data-onclick="go"/></body>'), /currently supports <button> only/);
+  assert.throws(() => parse('<body><use component="SearchField" data-onclick="go"/></body>'), /currently supports <button> and <menuitem> only/);
   assert.throws(() => parse('<body><use component="ListRow" data-prop-title="x" data-bind="a" data-shortcut="mod-s"/></body>'), /data-shortcut requires data-onclick/);
 });
 

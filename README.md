@@ -2,7 +2,7 @@
 
 **An experimental, source-first framework prototype**, not a production-ready GUI SDK.
 
-TSGPUI compiles a **supported subset** of HTML and CSS to a GPUI element tree, and transpiles TypeScript backend actions to JavaScript executed by **embedded QuickJS**. Bun or Node is needed for development; the native application is designed to run without either installed. Native rendering is handled by Rust GPUI, **not Chromium or a WebView**.
+TSGPUI offers two renderers. The default **native** renderer compiles a supported subset of HTML and CSS to a GPUI element tree and runs TypeScript backend actions in embedded QuickJS. Set `"renderer": "webview"` in `tsgpui.config.json` to keep the authored HTML and CSS in a system WebView for browser-equivalent layout and styling. Bun or Node is needed for development; packaged apps run without either installed.
 
 The Rust GPUI host is precompiled once. Subsequent `bun run gpui` commands rebuild only the app bundle and **append it to a copy of the native host** to produce a single executable. A host build is still required once per OS/architecture/GPUI version (either locally or via CI). This repository does **not** include a prebuilt Windows `.exe`.
 
@@ -25,7 +25,7 @@ tsgpui host build                  # once per machine: compiles the GPUI host (n
 tsgpui build                       # writes dist/my-app.exe
 ```
 
-`tsgpui host build` puts the host under `~/.tsgpui/` (override with `TSGPUI_HOME`). See [packages/cli/README.md](packages/cli/README.md) for all commands.
+`tsgpui host build` puts the native host under `~/.tsgpui/` (override with `TSGPUI_HOME`). Build the WebView host with `tsgpui host build --renderer webview`. See [packages/cli/README.md](packages/cli/README.md) for all commands.
 
 ## Quick start (from this ZIP's root)
 
@@ -118,7 +118,7 @@ The button event is handled by JavaScript in QuickJS, with the new state rendere
 
 ## Scope and known limitations
 
-- **HTML/CSS subset only**, not browser-standard compatibility. See [CSS reference](docs/SUPPORTED_SYNTAX.md).
+- The native renderer supports a documented HTML/CSS subset. The WebView renderer passes through authored HTML and CSS, with the WebView engine's platform-specific behavior. See [renderer selection and CSS reference](docs/SUPPORTED_SYNTAX.md).
 - Native host has **not been compiled or exercised in this delivery environment** (no Rust compiler or Windows runner present). Its source is provided for a real build/test; do not treat it as a verified Windows executable.
 - `backend.ts` supports **a single file**, synchronous actions and state; runtime imports are unsupported except `import type`. No Bun/Node backend APIs in the executable yet. Future versions can expose explicitly permissioned native APIs.
 - No rich text inputs, video, accessibility semantics, CSS animations, or packaging code signing yet. The built-in component library is small: `Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, and `Sheet`. Custom TTF/OTF fonts can be bundled; see the [CSS reference](docs/SUPPORTED_SYNTAX.md).

@@ -1,11 +1,11 @@
 const ALLOWED_TAGS = new Set([
   'html', 'body', 'main', 'header', 'footer', 'section', 'article', 'div',
   'h1', 'h2', 'h3', 'p', 'span', 'strong', 'small', 'button', 'label',
-  'input', 'textarea', 'select', 'option', 'form', 'ul', 'ol', 'li', 'img',
+  'input', 'textarea', 'select', 'option', 'form', 'ul', 'ol', 'li', 'img', 'menu', 'menuitem', 'hr',
   'template', 'use', 'slot'
 ]);
 // <use> is void when self-closed (<use component="X"/>). With content it takes slot children.
-const VOID_TAGS = new Set(['input', 'img', 'use']);
+const VOID_TAGS = new Set(['input', 'img', 'use', 'hr']);
 const ALLOWED_ATTRS = new Set([
   'id', 'class', 'data-onclick', 'data-oninput', 'data-submit', 'data-bind', 'data-repeat',
   'title', 'aria-label', 'aria-description', 'role', 'tabindex', 'type', 'name', 'value',
@@ -13,7 +13,7 @@ const ALLOWED_ATTRS = new Set([
   'alt', 'src', 'for', 'data-shortcut', 'data-component', 'component', 'selected',
   'data-clipboard-copy', 'data-clipboard-paste', 'data-file-open', 'data-file-read', 'data-file-save',
   'data-confirm', 'data-fetch', 'data-fetch-into', 'slot', 'data-virtual',
-  'data-window-drag', 'data-window-control'
+  'data-window-drag', 'data-window-control', 'data-app-menu', 'data-contextmenu', 'data-ondrop'
 ]);
 const WINDOW_CONTROLS = ['minimize', 'maximize', 'close'];
 const ACTION_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -67,6 +67,7 @@ function readAttributes(src) {
   if (attrs['data-onclick'] && !ACTION_RE.test(attrs['data-onclick'])) throw new Error(`Invalid data-onclick action: ${attrs['data-onclick']}`);
   if (attrs['data-oninput'] && !ACTION_RE.test(attrs['data-oninput'])) throw new Error(`Invalid data-oninput action: ${attrs['data-oninput']}`);
   if (attrs['data-submit'] && !ACTION_RE.test(attrs['data-submit'])) throw new Error(`Invalid data-submit action: ${attrs['data-submit']}`);
+  if (attrs['data-ondrop'] && !ACTION_RE.test(attrs['data-ondrop'])) throw new Error(`Invalid data-ondrop action: ${attrs['data-ondrop']}`);
   if (attrs['data-bind'] && !BIND_RE.test(attrs['data-bind'])) throw new Error(`Invalid data-bind key: ${attrs['data-bind']}`);
   for (const name of ['data-clipboard-copy', 'data-clipboard-paste', 'data-file-open']) {
     if (attrs[name] && !BIND_RE.test(attrs[name])) throw new Error(`Invalid ${name} state key: ${attrs[name]}`);
@@ -99,10 +100,11 @@ function checkNode(node, parent, inComponent) {
     if (!node.attrs.component) throw new Error('<use> requires a component attribute');
     return;
   }
-  if (node.attrs['data-onclick'] && node.tag !== 'button') throw new Error('data-onclick currently supports <button> only');
+  if (node.attrs['data-onclick'] && !['button', 'menuitem'].includes(node.tag)) throw new Error('data-onclick currently supports <button> and <menuitem> only');
   if (node.attrs['data-oninput'] && !['input','textarea','select'].includes(node.tag)) throw new Error('data-oninput only applies to editable controls');
   if (node.attrs['data-submit'] && node.tag !== 'form') throw new Error('data-submit only applies to <form>');
-  if (node.attrs['data-shortcut'] && node.tag !== 'button') throw new Error('data-shortcut only applies to <button>');
+  if (node.attrs['data-ondrop'] && ['menu', 'menuitem', 'hr', 'input', 'textarea', 'select', 'option'].includes(node.tag)) throw new Error('data-ondrop only applies to a rendered container or button');
+  if (node.attrs['data-shortcut'] && !['button', 'menuitem'].includes(node.tag)) throw new Error('data-shortcut only applies to <button> or <menuitem>');
   if (node.attrs['data-shortcut'] && !node.attrs['data-onclick']) throw new Error('data-shortcut requires data-onclick');
   if (node.attrs['data-component'] && node.tag !== 'template') throw new Error('data-component only applies to <template>');
   if (node.attrs.component && node.tag !== 'use') throw new Error('component only applies to <use>');
@@ -121,6 +123,11 @@ function checkNode(node, parent, inComponent) {
   }
   if (node.attrs.step !== undefined && Number(node.attrs.step) <= 0) throw new Error('step must be greater than zero');
   if (node.tag === 'option' && parent?.tag !== 'select') throw new Error('<option> must be inside <select>');
+  if (node.tag === 'menuitem' && parent?.tag !== 'menu' && parent?.tag !== 'menuitem') throw new Error('<menuitem> must be inside <menu> or another <menuitem>');
+  if (node.tag === 'menu' && node.attrs['data-app-menu'] === undefined && node.attrs.id === undefined) throw new Error('<menu> requires an id for a context menu or data-app-menu for an application menu');
+  if (node.attrs['data-app-menu'] !== undefined && (node.tag !== 'menu' || !node.attrs['data-app-menu'].trim())) throw new Error('data-app-menu requires a nonempty label on <menu>');
+  if (node.attrs['data-contextmenu'] !== undefined && !/^[A-Za-z_$][A-Za-z0-9_$-]*$/.test(node.attrs['data-contextmenu'])) throw new Error('data-contextmenu must name a menu id');
+  if (node.tag === 'menuitem' && !node.children.some(child => child.tag === 'menuitem') && !node.attrs['data-onclick']) throw new Error('<menuitem> requires data-onclick unless it contains submenu items');
   if (node.attrs.selected && node.tag !== 'option') throw new Error('selected only applies to <option>');
   if (node.attrs['data-confirm'] && node.attrs['data-onclick']) throw new Error('Use either data-confirm or data-onclick on a button, not both');
   if (node.tag === 'img' && !node.attrs.src) throw new Error('<img> requires src');
@@ -308,6 +315,14 @@ function parseDocument(source, library) {
     return expanded;
   };
   root.children = expandList(root.children, [], {});
+  const validateAppMenus = (node, inAppMenu = false) => {
+    const insideAppMenu = inAppMenu || node.tag === 'menu' && node.attrs['data-app-menu'] !== undefined;
+    if (insideAppMenu && node.tag === 'menuitem' && node.attrs.disabled !== undefined) {
+      throw new Error('disabled menu items are not supported by the native application menu API');
+    }
+    for (const child of node.children) validateAppMenus(child, insideAppMenu);
+  };
+  validateAppMenus(root);
   // On Windows a drag area is caption, so clicks inside it never reach controls. Components are
   // checked too, so this runs after expansion.
   const INTERACTIVE_ATTRS = ['data-onclick', 'data-oninput', 'data-submit', 'data-window-control', 'data-fetch', 'data-file-open', 'data-file-save', 'data-clipboard-copy', 'data-clipboard-paste', 'data-confirm', 'tabindex'];
@@ -331,6 +346,19 @@ function parseDocument(source, library) {
     for (const child of node.children) checkExpandedIds(child);
   };
   checkExpandedIds(root);
+  const menuIds = new Set();
+  const collectMenus = node => {
+    if (node.tag === 'menu' && node.attrs.id) menuIds.add(node.attrs.id);
+    for (const child of node.children) collectMenus(child);
+  };
+  collectMenus(root);
+  const checkContextMenus = node => {
+    if (node.attrs['data-contextmenu'] && !menuIds.has(node.attrs['data-contextmenu'])) {
+      throw new Error(`Unknown context menu '${node.attrs['data-contextmenu']}'`);
+    }
+    for (const child of node.children) checkContextMenus(child);
+  };
+  checkContextMenus(root);
   return { root, definitions };
 }
 

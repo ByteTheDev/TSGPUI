@@ -21,6 +21,48 @@ pub fn next_boundary(text: &str, index: usize) -> usize {
     text[index..].chars().next().map_or(text.len(), |ch| index + ch.len_utf8())
 }
 
+fn word_class(ch: char) -> u8 {
+    if ch.is_alphanumeric() || ch == '_' { 1 }
+    else if ch.is_whitespace() { 2 }
+    else { 3 }
+}
+
+/// Moves left over adjacent whitespace and the preceding word or punctuation run.
+pub fn previous_word_boundary(text: &str, index: usize) -> usize {
+    let mut at = clamp_to_boundary(text, index);
+    while at > 0 {
+        let previous = previous_boundary(text, at);
+        if !text[previous..at].chars().next().is_some_and(char::is_whitespace) { break; }
+        at = previous;
+    }
+    let Some(ch) = text[..at].chars().next_back() else { return at; };
+    let class = word_class(ch);
+    while at > 0 {
+        let previous = previous_boundary(text, at);
+        if word_class(text[previous..at].chars().next().unwrap()) != class { break; }
+        at = previous;
+    }
+    at
+}
+
+/// Moves right over the current word or punctuation run and following whitespace.
+pub fn next_word_boundary(text: &str, index: usize) -> usize {
+    let mut at = clamp_to_boundary(text, index);
+    if at == text.len() { return at; }
+    let class = word_class(text[at..].chars().next().unwrap());
+    while at < text.len() {
+        let next = next_boundary(text, at);
+        if word_class(text[at..next].chars().next().unwrap()) != class { break; }
+        at = next;
+    }
+    while at < text.len() {
+        let next = next_boundary(text, at);
+        if !text[at..next].chars().next().is_some_and(char::is_whitespace) { break; }
+        at = next;
+    }
+    at
+}
+
 /// Converts a UTF-16 offset to a byte offset. An offset inside a surrogate pair rounds up to the
 /// end of that character.
 pub fn utf16_to_byte(text: &str, offset: usize) -> usize {
@@ -62,14 +104,7 @@ pub fn line_end(text: &str, index: usize) -> usize {
 /// The run of word characters, spaces, line breaks, or punctuation around `index`. A double-click
 /// selects this range. Ahead of the caret wins; at the end of the text the character before it is used.
 pub fn word_range(text: &str, index: usize) -> Range<usize> {
-    fn class(ch: char) -> u8 {
-        match ch {
-            '\n' => 4,
-            _ if ch.is_alphanumeric() || ch == '_' => 1,
-            _ if ch.is_whitespace() => 2,
-            _ => 3,
-        }
-    }
+    fn class(ch: char) -> u8 { if ch == '\n' { 4 } else { word_class(ch) } }
     let index = clamp_to_boundary(text, index);
     let ahead = text[index..].chars().next();
     let behind = text[..index].chars().next_back();

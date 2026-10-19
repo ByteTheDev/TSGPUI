@@ -4,6 +4,7 @@ mod network;
 mod runtime;
 mod style;
 mod text_input;
+mod menus;
 mod view;
 
 fn main(){
@@ -15,6 +16,10 @@ fn main(){
         Ok(doc)=>doc,
         Err(err)=>{eprintln!("TSGPUI host: {err}");std::process::exit(2)}
     };
+    if doc.renderer != "native" {
+        eprintln!("TSGPUI host: app bundle selects the '{}' renderer; use tsgpui-webview-host",doc.renderer);
+        std::process::exit(2);
+    }
     let backend=match runtime::JsBackend::new(&doc.backend_js){
         Ok(backend)=>backend,
         Err(err)=>{eprintln!("TSGPUI backend: {err}");std::process::exit(3)}

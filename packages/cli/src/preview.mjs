@@ -170,6 +170,16 @@ function previewRuntime() {
 
   const renderNodes = (node, ctx, skipRepeat) => {
     if (node.tag === '#text') return [doc.createTextNode(interpolate(node.text, ctx))];
+    if (node.tag === 'menu') {
+      const collectShortcuts = item => {
+        if (item.tag === 'menuitem' && item.attrs['data-shortcut'] && item.attrs['data-onclick'] && item.attrs.disabled === undefined) {
+          shortcuts.push({ spec: item.attrs['data-shortcut'], action: item.attrs['data-onclick'] });
+        }
+        item.children.forEach(collectShortcuts);
+      };
+      node.children.forEach(collectShortcuts);
+      return [];
+    }
     if (!skipRepeat && node.attrs['data-repeat']) {
       const [arrayPath, aliasWord, alias = 'item'] = node.attrs['data-repeat'].split(/\s+/);
       const resolved = resolveBinding(arrayPath, ctx);
@@ -216,7 +226,7 @@ function previewRuntime() {
 
   const renderElement = (node, ctx) => {
     const scoped = Object.keys(node.props ?? {}).length ? { ...ctx, locals: { ...ctx.locals, props: node.props } } : ctx;
-    const tag = ['input', 'textarea', 'select', 'option', 'button', 'form', 'label', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'p', 'span', 'strong', 'small', 'section', 'header', 'footer', 'article', 'main', 'div', 'body'].includes(node.tag) ? node.tag : 'div';
+    const tag = ['input', 'textarea', 'select', 'option', 'button', 'menuitem', 'hr', 'form', 'label', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'p', 'span', 'strong', 'small', 'section', 'header', 'footer', 'article', 'main', 'div', 'body'].includes(node.tag) ? node.tag : 'div';
     const element = styled(doc.createElement(tag), node, scoped);
     for (const name of ['title', 'role', 'tabindex', 'name', 'placeholder', 'min', 'max', 'step', 'required', 'disabled', 'selected']) {
       if (node.attrs[name] !== undefined) element.setAttribute(name, node.attrs[name]);
@@ -287,15 +297,15 @@ function previewRuntime() {
     }
     if (node.tag === 'button' && node.children.length === 0 && node.attrs['aria-label']) element.textContent = node.attrs['aria-label'];
 
-    if (node.tag === 'button' && node.attrs['data-shortcut'] && action && enabled) {
+    if (['button', 'menuitem'].includes(node.tag) && node.attrs['data-shortcut'] && action && enabled) {
       shortcuts.push({ spec: node.attrs['data-shortcut'], action });
     }
-    if (node.tag === 'button' && enabled) {
+    if (['button', 'menuitem'].includes(node.tag) && enabled) {
       const confirmMessage = node.attrs['data-confirm'];
       element.addEventListener('click', event => {
         if (node.attrs.type === 'submit') return;
         if (action && !confirmMessage && !node.attrs['data-fetch'] && !node.attrs['data-file-open'] && !node.attrs['data-file-save'] && !node.attrs['data-clipboard-copy'] && !node.attrs['data-clipboard-paste']) {
-          invoke(action, { type: 'click' });
+          invoke(action, { type: node.tag === 'menuitem' ? 'contextmenu' : 'click' });
         }
         if (confirmMessage && action && window.confirm(node.attrs.title || confirmMessage)) invoke(action, { type: 'confirm' });
         const copyKey = node.attrs['data-clipboard-copy'];
@@ -306,6 +316,29 @@ function previewRuntime() {
         if (node.attrs['data-file-save']) saveFile(node);
         if (node.attrs['data-fetch']) fetchInto(node);
         event.preventDefault();
+      });
+    }
+
+    if (node.attrs['data-contextmenu']) {
+      const findMenu = current => current.tag === 'menu' && current.attrs.id === node.attrs['data-contextmenu']
+        ? current : current.children.map(findMenu).find(Boolean);
+      const menu = findMenu(bundle.root);
+      if (menu) element.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        element.querySelector('[data-tsgpui-context-menu]')?.remove();
+        const popup = doc.createElement('div');
+        popup.setAttribute('data-tsgpui-context-menu', '');
+        popup.style.cssText = `position:absolute;z-index:9999;left:${event.offsetX}px;top:${event.offsetY}px;min-width:190px;padding:4px;background:#252525;color:#f3f3f3;border:1px solid #555;border-radius:6px;box-shadow:0 8px 24px #0008`;
+        const menuItems = menu.children.filter(child => child.tag === 'menuitem' || child.tag === 'hr');
+        for (const item of menuItems) {
+          for (const rendered of renderNodes(item, scoped, false)) {
+            rendered.style.display = item.tag === 'hr' ? '' : 'block';
+            if (item.tag === 'menuitem') rendered.style.cssText += ';padding:6px 10px;border-radius:4px;cursor:' + (item.attrs.disabled !== undefined ? 'default' : 'pointer');
+            popup.appendChild(rendered);
+          }
+        }
+        element.style.position = element.style.position || 'relative';
+        element.appendChild(popup);
       });
     }
 
@@ -501,6 +534,14 @@ function escapeHtml(text) {
 
 // A standalone page. `live` is the version to poll, or null for a page with no server behind it.
 export function renderPreviewHTML(bundle, { live = null } = {}) {
+  if (bundle.renderer === 'webview') {
+    if (typeof bundle.webview_html !== 'string') throw new Error('WebView bundle is missing webview_html');
+    if (live === null || live === undefined) return bundle.webview_html;
+    const watcher = `<script>(()=>{let known=${JSON.stringify(live)};setInterval(()=>fetch('/version',{cache:'no-store'}).then(response=>response.json()).then(payload=>{if(payload.version!==known){known=payload.version;location.reload();}}).catch(()=>{}),700);})();</script>`;
+    return /<\/body\s*>/i.test(bundle.webview_html)
+      ? bundle.webview_html.replace(/<\/body\s*>/i,`${watcher}</body>`)
+      : `${bundle.webview_html}${watcher}`;
+  }
   const { fonts, ...rest } = bundle;
   const payload = { ...rest, live };
   // 'self' keeps the live-reload poll working; data-fetch hosts are the same allowlist the native host uses.
