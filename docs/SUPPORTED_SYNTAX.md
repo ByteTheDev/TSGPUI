@@ -4,17 +4,22 @@ TSGPUI compiles a documented subset to native GPUI elements. It is not Chromium 
 
 ## HTML
 
-Supported elements: `html`, `body`, `main`, `header`, `footer`, `section`, `article`, `div`, `h1`, `h2`, `h3`, `p`, `span`, `strong`, `small`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `template`, and `use`.
+Supported elements: `html`, `body`, `main`, `header`, `footer`, `section`, `article`, `div`, `h1`, `h2`, `h3`, `p`, `span`, `strong`, `small`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `template`, `use`, and `slot`.
 
 Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabindex`, `name`, and `value`. Controls also support `type`, `placeholder`, `checked`, `selected`, `disabled`, `required`, `min`, `max`, and `step`.
 
 - `data-bind="stateKey"` displays backend state. Text supports `{{stateKey}}` interpolation. Dotted paths work for nested objects and repeated items.
 - `data-onclick="actionName"` runs a button action. `data-oninput="actionName"` runs when an input, textarea, or select value changes. Actions receive an event object with `type` plus fields such as `value`, `checked`, `name`, and `submit`.
 - `<form data-submit="save">` submits through a `button type="submit"`. Required fields and numeric `min`, `max`, and `step` constraints are checked before dispatch.
-- Text inputs and textareas support typing, backspace/delete, arrow keys, Home/End, Ctrl/Cmd+A, Tab focus traversal, and password masking. They are rendered by the current GPUI host's lightweight text control; IME composition, a visible caret, and full native text selection are not available yet.
+- Single-line text inputs support typing through the platform text input (including IME composition), a visible caret, selection by mouse or Shift+arrow, Home/End, Backspace/Delete, Ctrl/Cmd+A/C/X/V, Tab focus traversal, and password masking. The caret does not blink yet. Textareas use the same native text path: multi-line caret and selection, IME, clipboard, wrapping to the field width, scrolling by wheel and by caret, Enter for a new line, Up/Down by visual row, Home/End by line, Ctrl/Cmd+Home/End for the whole text, and double-click to select a word. The default height is about three lines unless the element sets `height`.
 - A select cycles through its options on click and supports Up/Down keys. It does not use a native dropdown popup yet.
-- `data-repeat="items as item"` renders one node for each array element in backend state. Use `{{item.name}}` for item values. Nested repeats and state-bound inputs use the array index in their state path. The current renderer builds all rows at once; long lists are not virtualized.
+- `data-repeat="items as item"` renders one node for each array element in backend state. Use `{{item.name}}` for item values. Nested repeats and state-bound inputs use the array index in their state path. Add `data-virtual="36"` (a row height in pixels, from 1 to 1000) to build only the visible rows of a scrolling list. Every row must be exactly that height, and rows fill the list's width unless they set one. Without `data-virtual`, every row is built.
 - `<template data-component="Card">...</template>` and `<use component="Card" data-prop-title="Hello"/>` expand static reusable components at compile time. A component can read string props with `{{props.title}}`. Recursive components and duplicate expanded IDs are rejected.
+
+- Slots: `<slot></slot>` inside a template receives the children written between `<use>` tags. `<slot name="footer">Default</slot>` receives children marked `slot="footer"`. Text inside a slot is its fallback, used when the caller gives nothing. Content with no matching slot is an error. `<use .../>` with no children is self-closed, and `<use ...>...</use>` takes slot content.
+- Attributes written on `<use>`, such as `class`, `data-bind`, `data-oninput`, `data-onclick`, `placeholder`, or `title`, go onto the component's first element. `class` names are merged. The element is checked again, so `data-onclick` on a component whose first element is not a `<button>` is an error.
+- Slot content keeps the props of the place where it is written. `{{props.x}}` in content written at the top level is empty, and a nested component's own `{{props.*}}` text shows that component's props.
+- Built-in library: `Sidebar`, `Toolbar` (slots `start` and `end`; `title` is the fallback text), `SegmentedControl`, `SearchField` (an `<input type="search">`, so `data-bind` and `data-oninput` go on the `<use>`), `ListRow` (`title`, with a default slot for detail text), and `Sheet` (`title`, with slots for the body and `footer`). Use them like any template. An app template with the same name replaces the library one. Library styles are plain `.ts-*` class selectors, and their colors are `--ts-*` custom properties, so `:root` restyles them.
 - `<img src="assets/photo.png" alt="...">` embeds a project-relative PNG, JPEG, GIF, WebP, BMP, or SVG. Each image is limited to 8 MiB; bundles are limited to 16 MiB.
 - `data-shortcut="mod-s"` binds a button action to a key. `mod` means Ctrl on Windows/Linux and Cmd on macOS. `ctrl`, `alt`, `shift`, and `cmd` can also be written explicitly.
 - `data-confirm="deleteItem"` shows a native confirmation prompt, then runs the action only when confirmed.
@@ -34,27 +39,70 @@ Example network permission:
 
 ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics.
 
-Tags must be properly nested and explicitly closed, except void tags such as `input`, `img`, and `use`. The document must have one root element.
+Tags must be properly nested and explicitly closed, except void tags such as `input` and `img`, and self-closed `<use .../>`. The document must have one root element.
+
+## Window
+
+`tsgpui.config.json` accepts `"window": { "width": 900, "height": 600, "titlebar": "system", "backdrop": "opaque" }`. `titlebar` is `system` (the OS title bar) or `unified` (the app draws its own). `backdrop` is `opaque` or `blur`.
+
+With `"titlebar": "unified"`, mark the bar's drag area with `data-window-drag`. That element must not contain buttons, inputs, or other interactive elements, because Windows treats its whole area as the title bar, and clicks inside it would never reach the control. Put the window buttons beside the drag area, with `data-window-control="close"`, `"minimize"`, or `"maximize"`. A unified bar without a drag area warns that the window cannot be moved. Window buttons under the system title bar warn that they have no effect.
+
+`"backdrop": "blur"` asks the window for a blurred backdrop. Windows applies it only on some systems, and the root background must be translucent for it to show, for example `body { background: #f5f5f799; }`.
 
 ## CSS
 
-Selectors: element, `.class`, `#id`, compounds such as `button.primary`, comma lists, and whitespace descendants such as `.card h1`. Specificity and source order are respected.
+Selectors: element, `.class`, `#id`, `*`, compounds such as `button.primary`, comma lists, descendant (`.card h1`) and child (`.card > p`) combinators. Specificity, `!important`, and source order are respected.
+
+State pseudo-classes: `:hover`, `:active`, `:focus`, and `:disabled`, on the last compound of a selector (`button.nav:hover`). They can change only `background`, `color`, `border-color`, `border-width`, `border-style`, `box-shadow`, `opacity`, and `cursor`. They do not work inside `@media`.
+
+CSS variables: declare `--name: value` (in `:root` or any rule) and use `var(--name)` or `var(--name, fallback)`. Variables resolve at compile time, and a later declaration of the same name wins. The component library's colors are `--ts-*` variables, so `:root { --ts-accent: #ff375f; }` restyles every library component.
+
+Units: `px`, `rem`, and `em` (both 16px), and `%` for sizes, insets, and padding and margin. `auto` works for `width`, `height`, `margin`, `flex-basis`, and insets.
+
+Declarations TSGPUI cannot render are skipped with a warning that names the file, line, and property, and the rest of the rule still applies. Set `"strictCss": true` in `tsgpui.config.json` to turn warnings into build errors.
 
 | Property | Values |
 |---|---|
 | `display` | `flex`, `block`, `grid` |
 | `flex-direction` | `row`, `column` |
+| `flex`, `flex-grow`, `flex-shrink`, `flex-basis` | numbers, and lengths or `%` for the basis; `flex: 1`, `flex: none`, and `flex: auto` |
 | `align-items` | `center`, `flex-start`, `flex-end`, `stretch` |
 | `justify-content` | `center`, `flex-start`, `flex-end`, `space-between`, `space-around` |
-| `gap`, `column-gap`, `row-gap`, `padding`, `margin`, `border-radius`, `width`, `height`, `font-size` | nonnegative `px` values |
+| `gap`, `row-gap`, `column-gap`, `border-radius`, `font-size` | nonnegative lengths |
+| `padding`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left` | nonnegative lengths or `%`, one to four values |
+| `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | lengths, `%`, or `auto`, one to four values, may be negative |
+| `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height` | lengths or `%`; `auto` and `none` where they apply |
+| `position` | `relative`, `absolute` (`static` is treated as `relative`) |
+| `top`, `right`, `bottom`, `left`, `inset` | lengths or `%` |
 | `grid-template-columns`, `grid-template-rows` | up to 12 space-separated `fr`, `px`, or `auto` tracks |
 | `overflow` | `visible`, `hidden`, `scroll`, `auto` |
 | `opacity` | `0` through `1` |
-| `text-align` | `left`, `center`, `right` |
-| `background`, `background-color`, `color` | `#RGB`, `#RRGGBB` |
+| `background`, `background-color` | a color, or `linear-gradient(<deg>, <color>, <color>)` (exactly two stops; `to top/right/bottom/left` also work) |
+| `color` | `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, `rgb()`, `rgba()`, `transparent`, `white`, `black` |
+| `border`, `border-width`, `border-style`, `border-color` | solid borders with a width and a color; `none` removes the border. `dashed`, `dotted`, and the other styles are not supported |
+| `box-shadow` | comma-separated `x y [blur] [spread] color` entries. `inset` is not supported |
+| `text-align` | `left`, `center`, `right` (`start` and `end` map to left and right) |
+| `line-height` | a length, or a unitless multiplier of `font-size` |
+| `font-style` | `normal`, `italic` (`oblique` maps to italic) |
+| `white-space` | `normal`, `nowrap` |
+| `text-overflow` | `clip`, `ellipsis` (the ellipsis glyph is not drawn yet, so text is clipped) |
+| `cursor` | `default`, `pointer`, `text`, `not-allowed`, `grab`, `move`, `crosshair` |
 | `font-weight` | `normal`, `bold`, `400`, `500`, `600`, `700` |
+| `font-family` | one family name (the first in a list; quotes are optional) |
+
+Accepted with no effect: `box-sizing`, because boxes already size the way `border-box` does. Known but not supported yet (reported as warnings): `transition`, `animation`, `transform`, `filter`, `letter-spacing`, `z-index`, per-side borders, and others.
+
+Custom properties with the same name in different places are global: the last declaration in source order wins.
+
+Custom fonts are bundled with the app. Add entries to `fonts` in `tsgpui.config.json`, for example `{"family":"Inter","src":"assets/Inter-Regular.ttf"}`, then use `font-family: Inter` in CSS. TTF and OTF files up to 8 MiB each are supported. The CSS family must match the configured family name.
 
 `@media` supports `min-width`, `max-width`, `min-height`, and `max-height` in pixels. Rules are reevaluated on window resize. Grid track counts are applied, but GPUI currently lays tracks out at equal sizes, so mixed `fr` and `px` dimensions are not exact.
+
+## Browser preview
+
+`tsgpui preview --project PATH` serves the same bundle in a browser at `http://127.0.0.1:4173/` (`--port` and `--no-open` are optional). It rebuilds on save and reloads the page, and the app's state carries over, merged as the native host merges it. `tsgpui preview --out FILE` writes one self-contained HTML file with no live reload.
+
+The preview is a reference for the shared subset, not an exact match. Its layout follows the host's defaults (column boxes, border-box sizing, no button chrome), but text metrics, flex edge cases, and grid tracks differ. A `data-virtual` list builds every row, `data-window-*` attributes do nothing, file pickers use the browser's own dialogs, and `data-fetch` depends on the browser allowing the request. The backend runs in the page with the host's API and rollback rules, and with the browser's network and storage globals hidden. The page's content security policy permits script from the page itself, which the preview needs, and network requests only to the hosts in `permissions.network`.
 
 ## Backend TypeScript
 

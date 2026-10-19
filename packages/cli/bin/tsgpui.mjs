@@ -7,6 +7,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildPackage,readProject} from '../src/compiler.mjs';
 import {packageExecutable} from '../src/pack.mjs';
+import {startPreview,writePreviewFile} from '../src/preview.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,10 @@ async function init() {
   await writeFile(path.join(destination,'package.json'),JSON.stringify(pkg,null,2)+'\n');
   console.log(`Created ${destination}. Run \`tsgpui dev --project ${folder}\` or \`tsgpui build --project ${folder}\`.`);
 }
+// Skipped CSS declarations are reported, not silent. With strictCss in the config they are errors instead.
+function printWarnings(warnings=[]) {
+  for (const warning of warnings) console.warn(`Warning: ${warning}`);
+}
 function runHost(host,bundleFile) {
   const child=spawn(host,['--bundle',bundleFile],{stdio:'inherit',windowsHide:false});
   child.on('error',e => console.error(`GPUI host failed: ${e.message}`));
@@ -105,6 +110,7 @@ async function dev() {
     refreshing=true;
     try {
       const output=await buildPackage(project.projectRoot);
+      printWarnings(output.warnings);
       await refreshWatchers(Object.keys(output.bundle.assets));
       const launch = !child || child.exitCode !== null;
       if (launch) child=runHost(host,output.bundleFile);
@@ -120,6 +126,20 @@ async function dev() {
   process.on('SIGINT',()=>{clearTimeout(debounceTimer);watchers.forEach(w=>w.close());child?.kill();process.exit(0);});
   console.log('Watching project source directories. The running window reloads rebuilt bundles; Ctrl+C stops the dev host.');
 }
+// Live browser preview of the same bundle. --out writes one HTML file instead, with no live reload.
+async function preview() {
+  const project = projectDir();
+  const out = flag('out', null);
+  if (out) {
+    const result = await writePreviewFile({projectRoot: project, file: path.resolve(out)});
+    printWarnings(result.warnings);
+    console.log(`Wrote ${result.file}`);
+    return;
+  }
+  const session = await startPreview({projectRoot: project, port: Number(flag('port', '4173')), open: !args.includes('--no-open')});
+  console.log('Watching project sources. Ctrl+C stops the preview.');
+  process.on('SIGINT', async () => { await session.close(); process.exit(0); });
+}
 async function doctor() {
   console.log(`tsgpui ${VERSION} | Node: ${process.version} | OS: ${process.platform}/${process.arch}`);
   console.log(`Cargo: ${rustAvailable() ? 'available' : 'not found'}`);
@@ -133,6 +153,7 @@ function help() {
   init [dir]                   Create a starter project
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
   dev [--project PATH]         Build, launch the native host, rebuild on change
+  preview [--project PATH]     Live preview in a browser (--out FILE writes one HTML file)
   build [--project PATH]       Package a single native executable
   host build                   Compile the native host once (needs Rust)
   doctor                       Show toolchain and host status
@@ -146,6 +167,7 @@ async function main() {
   if(command==='host' && args[0]==='build') return buildHost();
   if(command==='compile' || command==='build') {
     const result=await buildPackage(projectDir());
+    printWarnings(result.warnings);
     console.log(`Compiled ${result.bundleFile} (${result.bytes.length} bytes)`);
     if(command==='compile') return;
     const host=await hostPath(true);
@@ -155,6 +177,7 @@ async function main() {
     return;
   }
   if(command==='dev') return dev();
+  if(command==='preview') return preview();
   throw new Error(`Unknown command: ${command}. Run \`tsgpui help\`.`);
 }
 main().catch(error=>{console.error(`TSGPUI: ${error.message}`);process.exitCode=1;});

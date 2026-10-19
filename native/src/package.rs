@@ -12,6 +12,8 @@ pub struct Node {
     #[serde(default)] pub attrs: BTreeMap<String,String>,
     #[serde(default)] pub props: BTreeMap<String,String>,
     #[serde(default)] pub style: BTreeMap<String,String>,
+    // Declarations that apply while a pointer, focus, or disabled state holds: "hover", "active", "focus", "disabled".
+    #[serde(default)] pub states: BTreeMap<String, BTreeMap<String,String>>,
     #[serde(default)] pub responsive: Vec<ResponsiveRule>,
     #[serde(default)] pub children: Vec<Node>,
 }
@@ -35,6 +37,23 @@ pub struct Permissions {
     #[serde(default)] pub network_hosts: Vec<String>,
 }
 
+// "system" keeps the OS title bar. "unified" hides it, and the app marks its drag area and window
+// buttons. "blur" asks for a blurred backdrop; "opaque" is the default.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WindowChrome {
+    #[serde(default = "system_titlebar")] pub titlebar: String,
+    #[serde(default = "opaque_backdrop")] pub backdrop: String,
+}
+
+fn system_titlebar() -> String { "system".into() }
+fn opaque_backdrop() -> String { "opaque".into() }
+
+impl Default for WindowChrome {
+    fn default() -> Self {
+        Self { titlebar: system_titlebar(), backdrop: opaque_backdrop() }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppPackage {
     pub format: String,
@@ -45,7 +64,9 @@ pub struct AppPackage {
     pub root: Node,
     pub backend_js: String,
     #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
+    #[serde(default)] pub fonts: BTreeMap<String,String>,
     #[serde(default)] pub permissions: Permissions,
+    #[serde(default)] pub window: WindowChrome,
 }
 
 pub fn load() -> Result<AppPackage,String> {
@@ -84,7 +105,12 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
 fn read_embedded() -> Result<Vec<u8>,String> {
     let exe: PathBuf = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut f = File::open(&exe).map_err(|e| format!("Unable to open host: {e}"))?;
-    let total = f.metadata().map_err(|e| e.to_string())?.len();
+    read_overlay(&mut f)
+}
+
+// The overlay is `payload ++ count (u64 LE) ++ MAGIC`, so the footer is read first.
+fn read_overlay<R: Read + Seek>(f: &mut R) -> Result<Vec<u8>,String> {
+    let total = f.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
     if total < 16 {return Err("No embedded app bundle. Use --bundle file.tgp".into());}
     f.seek(SeekFrom::End(-16)).map_err(|e| e.to_string())?;
     let mut footer=[0u8;16];
@@ -98,4 +124,89 @@ fn read_embedded() -> Result<Vec<u8>,String> {
     let mut buffer=vec![0;count as usize];
     f.read_exact(&mut buffer).map_err(|e| e.to_string())?;
     Ok(buffer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    const VALID_DOC: &str = r#"{"format":"tsgpui-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
+
+    fn overlay(payload: &[u8], count: u64) -> Vec<u8> {
+        let mut bytes = payload.to_vec();
+        bytes.extend_from_slice(&count.to_le_bytes());
+        bytes.extend_from_slice(MAGIC);
+        bytes
+    }
+
+    #[test]
+    fn overlay_round_trips_payload() {
+        let payload = VALID_DOC.as_bytes();
+        let mut file = Cursor::new(overlay(payload, payload.len() as u64));
+        assert_eq!(read_overlay(&mut file).unwrap(), payload);
+    }
+
+    #[test]
+    fn overlay_ignores_host_bytes_before_payload() {
+        let payload = VALID_DOC.as_bytes();
+        let mut host = b"MZ fake host prefix".to_vec();
+        host.extend(overlay(payload, payload.len() as u64));
+        assert_eq!(read_overlay(&mut Cursor::new(host)).unwrap(), payload);
+    }
+
+    #[test]
+    fn overlay_rejects_missing_magic() {
+        let mut bytes = overlay(b"abc", 3);
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        assert!(read_overlay(&mut Cursor::new(bytes)).unwrap_err().contains("No embedded app bundle"));
+    }
+
+    #[test]
+    fn overlay_rejects_short_file() {
+        assert!(read_overlay(&mut Cursor::new(vec![0u8; 8])).unwrap_err().contains("No embedded app bundle"));
+    }
+
+    #[test]
+    fn overlay_rejects_zero_and_oversized_counts() {
+        assert!(read_overlay(&mut Cursor::new(overlay(b"abc", 0))).unwrap_err().contains("Invalid embedded"));
+        assert!(read_overlay(&mut Cursor::new(overlay(b"abc", 4))).unwrap_err().contains("Invalid embedded"));
+        let huge = MAX_PAYLOAD + 1;
+        assert!(read_overlay(&mut Cursor::new(overlay(b"abc", huge))).unwrap_err().contains("Invalid embedded"));
+    }
+
+    #[test]
+    fn parses_valid_document() {
+        let doc = parse_bundle(VALID_DOC.as_bytes().to_vec()).unwrap();
+        assert_eq!(doc.name, "app");
+        assert_eq!((doc.width, doc.height), (400, 300));
+    }
+
+    #[test]
+    fn rejects_wrong_format_version() {
+        let json = VALID_DOC.replace("tsgpui-1", "tsgpui-2");
+        assert!(parse_bundle(json.into_bytes()).unwrap_err().contains("Incompatible bundle format"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_dimensions() {
+        let small = VALID_DOC.replace("\"width\":400", "\"width\":199");
+        assert!(parse_bundle(small.into_bytes()).unwrap_err().contains("Invalid window dimensions"));
+        let large = VALID_DOC.replace("\"height\":300", "\"height\":4097");
+        assert!(parse_bundle(large.into_bytes()).unwrap_err().contains("Invalid window dimensions"));
+    }
+
+    #[test]
+    fn rejects_empty_name_or_root_tag() {
+        let no_name = VALID_DOC.replace("\"name\":\"app\"", "\"name\":\"\"");
+        assert!(parse_bundle(no_name.into_bytes()).unwrap_err().contains("Invalid document content"));
+        let no_tag = VALID_DOC.replace("\"tag\":\"div\"", "\"tag\":\"\"");
+        assert!(parse_bundle(no_tag.into_bytes()).unwrap_err().contains("Invalid document content"));
+    }
+
+    #[test]
+    fn rejects_malformed_json() {
+        assert!(parse_bundle(b"{not json".to_vec()).unwrap_err().contains("Invalid .tgp document"));
+    }
 }

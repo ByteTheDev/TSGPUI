@@ -14,11 +14,13 @@
 
 Build the native host with `cargo build --release` when Rust host code changes. HTML, CSS, TypeScript, and image changes only rebuild the `.tgp` bundle.
 
-`tsgpui dev` watches the configured source files and rewrites the bundle. The existing GPUI process polls the bundle and replaces the view when it changes, so the window stays open. The backend state resets on each reload; preserving state across edits is not implemented.
+`tsgpui dev` watches the configured source files and rewrites the bundle. The existing GPUI process polls the bundle and replaces the view when it changes, so the window stays open. The backend state is kept across reloads. A value the user changed is kept, a value still equal to its seed takes the new seed, and keys the new backend no longer has are dropped. Per-node UI state (text being edited, caret, selection, scroll position, focus) is reset, because node keys follow document order. `tsgpui preview` reloads its page and keeps the state the same way.
 
 ## Native controls and capabilities
 
-The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Editable text is handled by a small key-driven control; IME composition, visible caret painting, and full native selection behavior are still future work. Selects cycle through options instead of opening a native dropdown.
+The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Single-line `<input>` fields register with GPUI's text input handler, so platform text input and IME composition go through the OS text services. They draw a caret and a selection highlight, support mouse click and drag selection, Shift+arrow, Home/End, Ctrl/Cmd+A/C/X/V, and Backspace/Delete. Caret and selection are measured with the element's inherited text style. Known gaps: the caret does not blink, undo is not implemented, and IME composition has not been checked against a real IME. Double-click selects a word. Multi-line `<textarea>` fields share the same path: each logical line is shaped to the field width in GPUI's text system, and paint draws the selection, text, and caret from that layout, so positions match what is drawn. The field scrolls with the wheel and keeps the caret in view.
+
+Lists marked `data-virtual` become GPUI uniform lists, so only the visible rows are built. A unified title bar is an app-drawn bar with `appears_transparent`. Its drag area and window buttons are reported to Windows as caption and caption-button hit regions, so no control can sit inside a drag area. An optional blurred backdrop uses GPUI's `Blurred` background, which Windows applies only on some systems. Selects cycle through options instead of opening a native dropdown.
 
 The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet.
 
@@ -36,12 +38,12 @@ A packaged application consists of the native executable followed by JSON bytes,
 
 ## Remaining roadmap
 
-1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux.
-2. Replace the lightweight text controls with native text editing and a popup select component.
+1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. The Windows interaction checks so far were done by hand with a screenshot harness and are not yet automated.
+2. Add a popup select component, a caret blink, and undo for text fields.
 3. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
-4. Add list virtualization, exact mixed grid track sizing, and more CSS layout properties.
+4. Add exact mixed grid track sizing, CSS transitions, and more CSS layout properties.
 5. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
-6. Preserve app state across development reloads and add executable signing/update support.
+6. Add a native code editor or terminal component for apps that need one, and executable signing/update support.
 
 ## Alternatives considered
 

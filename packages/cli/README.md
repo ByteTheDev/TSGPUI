@@ -51,6 +51,7 @@ Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `
 | `tsgpui init [dir]` | Create a starter project |
 | `tsgpui compile [--project PATH]` | Write `dist/<name>.tgp` |
 | `tsgpui dev [--project PATH]` | Build, launch the host, and rebuild on change |
+| `tsgpui preview [--project PATH]` | Live preview in a browser at 127.0.0.1 (`--out FILE` writes one HTML file) |
 | `tsgpui build [--project PATH]` | Write a single native executable |
 | `tsgpui host build` | Compile the native host once |
 | `tsgpui doctor` | Show the toolchain and host status |

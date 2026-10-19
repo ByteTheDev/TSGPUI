@@ -121,7 +121,7 @@ The button event is handled by JavaScript in QuickJS, with the new state rendere
 - **HTML/CSS subset only**, not browser-standard compatibility. See [CSS reference](docs/SUPPORTED_SYNTAX.md).
 - Native host has **not been compiled or exercised in this delivery environment** (no Rust compiler or Windows runner present). Its source is provided for a real build/test; do not treat it as a verified Windows executable.
 - `backend.ts` supports **a single file**, synchronous actions and state; runtime imports are unsupported except `import type`. No Bun/Node backend APIs in the executable yet. Future versions can expose explicitly permissioned native APIs.
-- No images, rich text inputs, video, accessibility semantics, high-level component library, CSS Grid, `@media`, CSS animations, fonts loading, or packaging code signing yet.
+- No rich text inputs, video, accessibility semantics, CSS animations, or packaging code signing yet. The built-in component library is small: `Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, and `Sheet`. Custom TTF/OTF fonts can be bundled; see the [CSS reference](docs/SUPPORTED_SYNTAX.md).
 - Windows `.exe` overlay packaging works conceptually with PE files but **must be tested** on Windows. Appending bytes may invalidate signatures; do not patch signed executables.
 - No actual RAM/startup benchmarks have been performed. Don't assume the ~50 MB observed for other GPUI apps applies here.
 - The CLI is currently a **local workspace package**, not a published `bun add tsgpui` dependency. Publishing to npm is required for `bun add -d tsgpui` to work on an ordinary machine.

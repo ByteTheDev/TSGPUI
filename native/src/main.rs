@@ -2,6 +2,8 @@
 mod package;
 mod network;
 mod runtime;
+mod style;
+mod text_input;
 mod view;
 
 fn main(){

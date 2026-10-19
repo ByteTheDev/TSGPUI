@@ -1,10 +1,12 @@
-import { readFile, writeFile, mkdir, realpath, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, realpath, rename, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isIP } from 'node:net';
-import { parseHTML } from './html.mjs';
-import { compileCSS, styleTree } from './css.mjs';
+import { parseComponentLibrary, parseHTML } from './html.mjs';
+import { compileStylesheet, styleTree } from './css.mjs';
 import { compileBackend } from './backend.mjs';
+import { COMPONENT_LIBRARY_CSS, COMPONENT_LIBRARY_HTML } from './library.mjs';
 
+const COMPONENT_LIBRARY = parseComponentLibrary(COMPONENT_LIBRARY_HTML);
 const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const HOST_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i;
 export function validateConfig(raw) {
@@ -22,7 +24,22 @@ export function validateConfig(raw) {
     throw new Error('permissions.network must contain exact public host names (no wildcards or IP addresses)');
   }
   const networkHosts = [...new Set(network.map(host => host.toLowerCase()))];
-  return {name:raw.name,title:raw.title || raw.name,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',permissions:{networkHosts}};
+  const fontFiles = raw.fonts ?? [];
+  if (!Array.isArray(fontFiles)) throw new Error('fonts must be an array of {family, src} entries');
+  const families = new Set();
+  for (const font of fontFiles) {
+    if (!font || typeof font.family !== 'string' || !font.family.trim() || typeof font.src !== 'string' || !font.src) throw new Error('Each font must have a nonempty family and src');
+    if (families.has(font.family.trim())) throw new Error(`Duplicate font family '${font.family.trim()}'`);
+    families.add(font.family.trim());
+  }
+  if (raw.strictCss !== undefined && typeof raw.strictCss !== 'boolean') throw new Error('strictCss must be true or false');
+  // "unified" hides the system title bar; the app draws one and marks its drag area with data-window-drag.
+  // "blur" asks the window for a blurred backdrop, which Windows supports only on some systems.
+  const titlebar = raw.window?.titlebar ?? 'system';
+  const backdrop = raw.window?.backdrop ?? 'opaque';
+  if (!['system','unified'].includes(titlebar)) throw new Error('window.titlebar must be "system" or "unified"');
+  if (!['opaque','blur'].includes(backdrop)) throw new Error('window.backdrop must be "opaque" or "blur"');
+  return {name:raw.name,title:raw.title || raw.name,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,fontFiles,permissions:{networkHosts},window:{titlebar,backdrop}};
 }
 function inProject(root, relative) {
   if (path.isAbsolute(relative)) throw new Error(`Absolute file path forbidden in project config: ${relative}`);
@@ -30,11 +47,32 @@ function inProject(root, relative) {
   if (p !== root && !p.startsWith(root+path.sep)) throw new Error(`Path outside project is forbidden: ${relative}`);
   return p;
 }
+// Lexical checks in inProject do not see symlinks, so also resolve the real path. A file that
+// does not exist yet (such as outDir) is checked through its nearest existing ancestor.
+export async function assertRealInside(projectRoot, file, label) {
+  const actualRoot = await realpath(projectRoot);
+  let probe = file;
+  for (;;) {
+    try {
+      const actual = await realpath(probe);
+      if (actual !== actualRoot && !actual.startsWith(actualRoot+path.sep)) {
+        throw new Error(`${label} resolves outside the project: ${path.relative(projectRoot,file)}`);
+      }
+      return;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      if ((await lstat(probe).catch(() => null))?.isSymbolicLink()) {
+        throw new Error(`${label} is a dangling symlink: ${path.relative(projectRoot,file)}`);
+      }
+      const parent = path.dirname(probe);
+      if (parent === probe) throw error;
+      probe = parent;
+    }
+  }
+}
 async function readAsset(projectRoot, source) {
   const file = inProject(projectRoot,source);
-  const actualRoot = await realpath(projectRoot);
-  const actualFile = await realpath(file);
-  if (actualFile !== actualRoot && !actualFile.startsWith(actualRoot+path.sep)) throw new Error(`Image asset resolves outside the project: ${source}`);
+  await assertRealInside(projectRoot,file,'Image asset');
   const ext = path.extname(file).toLowerCase();
   const formats = {'.png':'png','.jpg':'jpeg','.jpeg':'jpeg','.gif':'gif','.webp':'webp','.bmp':'bmp','.svg':'svg'};
   const format = formats[ext];
@@ -42,6 +80,18 @@ async function readAsset(projectRoot, source) {
   const bytes = await readFile(file);
   if (bytes.length > 8*1024*1024) throw new Error(`Image asset exceeds 8 MiB: ${source}`);
   return {format, data:bytes.toString('base64')};
+}
+async function readFont(projectRoot, font) {
+  if (!font || typeof font.family !== 'string' || !font.family.trim() || typeof font.src !== 'string' || !font.src) {
+    throw new Error('Each font must have a nonempty family and src');
+  }
+  const file = inProject(projectRoot, font.src);
+  await assertRealInside(projectRoot,file,'Font file');
+  const ext = path.extname(file).toLowerCase();
+  if (!['.ttf','.otf'].includes(ext)) throw new Error(`Unsupported font format '${ext}' for ${font.src}; use .ttf or .otf`);
+  const bytes = await readFile(file);
+  if (!bytes.length || bytes.length > 8*1024*1024) throw new Error(`Font file must be between 1 byte and 8 MiB: ${font.src}`);
+  return [font.family.trim(), bytes.toString('base64')];
 }
 function collectImagePaths(node, paths = new Set()) {
   if (node.tag === 'img' && node.attrs.src) paths.add(node.attrs.src);
@@ -51,16 +101,21 @@ function collectImagePaths(node, paths = new Set()) {
 export async function readProject(projectPath) {
   const projectRoot = path.resolve(projectPath);
   const configFile = path.join(projectRoot,'tsgpui.config.json');
+  await assertRealInside(projectRoot,configFile,'tsgpui.config.json');
   const config = validateConfig(JSON.parse(await readFile(configFile,'utf8')));
   const paths = {
     html:inProject(projectRoot,config.html), css:inProject(projectRoot,config.css),
     backend:inProject(projectRoot,config.backend), outDir:inProject(projectRoot,config.outDir)
   };
+  for (const [label,file] of [['HTML',paths.html],['CSS',paths.css],['Backend',paths.backend],['Output directory',paths.outDir]]) {
+    await assertRealInside(projectRoot,file,label);
+  }
   return {projectRoot,config,configFile,paths};
 }
-export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree}) {
+// `warnings` collects messages for CSS declarations that were skipped. They are not part of the bundle.
+export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[]}) {
   let root;
-  try { root = compiledTree ?? parseHTML(html); }
+  try { root = compiledTree ?? parseHTML(html, {library: COMPONENT_LIBRARY}); }
   catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
   try {
     const allowedHosts = new Set(config.permissions?.networkHosts ?? []);
@@ -76,9 +131,20 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     };
     checkNetwork(root);
   } catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
+  const windowChrome = {titlebar:config.window?.titlebar ?? 'system', backdrop:config.window?.backdrop ?? 'opaque'};
+  const hasAttribute = (node, name) => node.attrs[name] !== undefined || node.children.some(child => hasAttribute(child, name));
+  if (windowChrome.titlebar === 'unified' && !hasAttribute(root, 'data-window-drag')) {
+    warnings.push(`${sourceFiles.html ?? 'HTML'}: window.titlebar is "unified" but no element has data-window-drag, so the window cannot be moved`);
+  }
+  if (windowChrome.titlebar !== 'unified' && hasAttribute(root, 'data-window-control')) {
+    warnings.push(`${sourceFiles.html ?? 'HTML'}: data-window-control has no effect unless window.titlebar is "unified"`);
+  }
   let rules;
-  try { rules = compileCSS(css, {width:config.width,height:config.height}); }
-  catch (error) { throw new Error(`${sourceFiles.css ?? 'CSS'}: ${error.message}`, {cause:error}); }
+  try {
+    const stylesheet = compileStylesheet(css, {strict:config.strictCss === true, prelude:COMPONENT_LIBRARY_CSS});
+    rules = stylesheet.rules;
+    for (const warning of stylesheet.warnings) warnings.push(`${sourceFiles.css ?? 'CSS'}: ${warning}`);
+  } catch (error) { throw new Error(`${sourceFiles.css ?? 'CSS'}: ${error.message}`, {cause:error}); }
   root = styleTree(root,rules);
   let backend_js;
   try { backend_js = compileBackend(backend); }
@@ -87,8 +153,9 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     format:'tsgpui-1',
     name:config.name,title:config.title,
     width:config.width,height:config.height,
-    root,backend_js,assets,
-    permissions:{network_hosts:config.permissions?.networkHosts ?? []}
+    root,backend_js,assets,fonts:config.fonts ?? {},
+    permissions:{network_hosts:config.permissions?.networkHosts ?? []},
+    window:windowChrome
   };
 }
 export async function buildPackage(projectPath) {
@@ -97,18 +164,23 @@ export async function buildPackage(projectPath) {
     readFile(project.paths.html,'utf8'),readFile(project.paths.css,'utf8'),readFile(project.paths.backend,'utf8')
   ]);
   let root;
-  try { root = parseHTML(html); }
+  try { root = parseHTML(html, {library: COMPONENT_LIBRARY}); }
   catch (error) { throw new Error(`${project.config.html}: ${error.message}`, {cause:error}); }
   const imagePaths = collectImagePaths(root);
   const assets = Object.fromEntries(await Promise.all([...imagePaths].map(async source=>[source,await readAsset(project.projectRoot,source)])));
-  const built = compileProject({html,css,backend,config:project.config,assets,compiledTree:root,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
+  const fonts = Object.fromEntries(await Promise.all((project.config.fontFiles ?? []).map(font=>readFont(project.projectRoot,font))));
+  const warnings = [];
+  const built = compileProject({html,css,backend,config:{...project.config,fonts},assets,compiledTree:root,warnings,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
   const json = JSON.stringify(built);
   const bytes = Buffer.from(json,'utf8');
   if (bytes.length > 16 * 1024 * 1024) throw new Error('App bundle exceeds 16 MiB safety limit');
   await mkdir(project.paths.outDir,{recursive:true});
   const output = path.join(project.paths.outDir,`${project.config.name}.tgp`);
   const temporary = `${output}.tmp`;
+  for (const file of [output,temporary]) {
+    if ((await lstat(file).catch(() => null))?.isSymbolicLink()) throw new Error(`Refusing to write through symlink: ${path.relative(project.projectRoot,file)}`);
+  }
   await writeFile(temporary,bytes);
   await rename(temporary,output);
-  return {...project,bundle:built,bundleFile:output,bytes};
+  return {...project,bundle:built,bundleFile:output,bytes,warnings};
 }
