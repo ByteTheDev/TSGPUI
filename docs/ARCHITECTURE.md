@@ -11,7 +11,7 @@ Both paths transpile the single-file TypeScript backend and emit a UTF-8 JSON `.
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle.
+Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle.
 
 `tsgpui dev` watches the configured source files and rewrites the bundle. Both host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads; the WebView host currently resets page and backend state. Native `tsgpui preview` preserves state on reload; a WebView preview reloads the raw document and resets state.
 

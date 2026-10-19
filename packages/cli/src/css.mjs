@@ -22,10 +22,7 @@ const UNSUPPORTED = new Set([
   'transition', 'transform', 'animation', 'filter', 'backdrop-filter', 'letter-spacing', 'z-index',
   'visibility', 'pointer-events', 'user-select', 'text-decoration', 'text-transform', 'outline',
   'will-change', 'vertical-align', 'float', 'clear', 'overflow-x', 'overflow-y',
-  'border-top', 'border-right', 'border-bottom', 'border-left', 'border-top-width', 'border-top-color',
-  'border-right-width', 'border-right-color', 'border-bottom-width', 'border-bottom-color',
-  'border-left-width', 'border-left-color', 'border-top-style', 'border-right-style', 'border-bottom-style',
-  'border-left-style',
+  'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
 ]);
 // Accepted without effect. TSGPUI already sizes boxes the way box-sizing: border-box does.
 const IGNORED = new Set(['box-sizing']);
@@ -163,6 +160,20 @@ function border(value) {
   return out;
 }
 
+function borderSide(value) {
+  let width, style, borderColor;
+  for (const token of words(value)) {
+    const lower = token.toLowerCase();
+    if (BORDER_WIDTHS[lower]) width = BORDER_WIDTHS[lower];
+    else if (/^-?\d*\.?\d+(px|rem|em)?$/.test(lower)) width = length('border', lower);
+    else if (['solid', 'none', 'hidden'].includes(lower)) style = borderStyle(lower);
+    else if (['dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset'].includes(lower)) throw new Error(`border style '${lower}' is not supported; use solid`);
+    else borderColor = color('border', token);
+  }
+  if (style === 'none') width = '0px';
+  return [width, style, borderColor];
+}
+
 // Expands one to four values in CSS order: top, right, bottom, left.
 function fourValues(values) {
   const [top, right = top, bottom = top, left = right] = values;
@@ -266,9 +277,16 @@ const HANDLERS = {
   background: v => [['background', background('background', v)]],
   'background-color': v => [['background', color('background-color', v)]],
   border: v => border(v),
+  ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}`, v => {
+    const [width, style, borderColor] = borderSide(v);
+    return [[`border-${side}-width`, width ?? (style === 'none' ? '0px' : BORDER_WIDTHS.medium)], [`border-${side}-style`, style ?? 'solid'], ...(borderColor ? [[`border-${side}-color`, borderColor]] : [])];
+  }])),
   'border-width': v => [['border-width', length('border-width', v)]],
+  ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}-width`, v => [['border-' + side + '-width', length('border-width', v)]]])),
   'border-color': v => [['border-color', color('border-color', v)]],
+  ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}-color`, v => [['border-' + side + '-color', color('border-color', v)]]])),
   'border-style': v => [['border-style', borderStyle(v)]],
+  ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}-style`, v => [['border-' + side + '-style', borderStyle(v)]]])),
   'box-shadow': v => (v === 'none' ? [] : [['box-shadow', shadows(v)]]),
   position: v => {
     const position = oneOf('position', v, ['static', 'relative', 'absolute']);

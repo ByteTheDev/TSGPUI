@@ -41,8 +41,10 @@ This needs Rust (https://rustup.rs). On Windows it also needs the MSVC C++ build
 tsgpui init my-app
 cd my-app
 tsgpui dev        # build, launch, and rebuild on every save
-tsgpui build      # produce dist/my-app.exe, which runs without Bun, Node, or Rust
+tsgpui build      # produce a native executable, which runs without Bun, Node, or Rust
 ```
+
+On macOS, the output is an unsigned `.app` bundle. The host must be compiled for the target Mac architecture. TSGPUI does not yet sign or notarize bundles; the repository workflow builds separate x64 and Apple Silicon `.app` bundles.
 
 Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `src/backend.ts`. The HTML/CSS subset and the backend API are described in the [TSGPUI docs](https://github.com/ByteTheDev/TSGPUI/tree/main/docs).
 
@@ -62,7 +64,7 @@ Set `"renderer": "webview"` in the project config to select the WebView host. It
 
 ## Limits
 
-TSGPUI is an experimental prototype. The native renderer supports a subset of HTML and CSS and runs backend code without CPU-time limits. The WebView renderer uses the system browser engine and lets authored scripts use browser APIs. Only bundle code you trust. See the repository docs for renderer differences and platform requirements.
+TSGPUI is an experimental prototype. Native executable packaging supports Windows PE, Linux ELF, and macOS Mach-O hosts. The native renderer supports a subset of HTML and CSS. The WebView renderer uses the system browser engine and lets authored scripts use browser APIs. Only bundle code you trust. See the repository docs for renderer differences and platform requirements.
 
 ## License
 

@@ -1,6 +1,8 @@
 const ALLOWED_TAGS = new Set([
   'html', 'body', 'main', 'header', 'footer', 'section', 'article', 'div',
-  'h1', 'h2', 'h3', 'p', 'span', 'strong', 'small', 'button', 'label',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'strong', 'small', 'button', 'label',
+  'nav', 'aside', 'main', 'blockquote', 'pre', 'code', 'figure', 'figcaption',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'details', 'summary',
   'input', 'textarea', 'select', 'option', 'form', 'ul', 'ol', 'li', 'img', 'menu', 'menuitem', 'hr',
   'template', 'use', 'slot'
 ]);

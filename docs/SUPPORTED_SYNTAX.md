@@ -24,7 +24,9 @@ The remaining HTML, CSS, and backend reference describes the native renderer unl
 
 ## HTML
 
-Supported elements: `html`, `body`, `main`, `header`, `footer`, `section`, `article`, `div`, `h1`, `h2`, `h3`, `p`, `span`, `strong`, `small`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `menu`, `menuitem`, `hr`, `template`, `use`, and `slot`.
+Supported elements: `html`, `body`, `main`, `header`, `footer`, `nav`, `aside`, `section`, `article`, `div`, `h1` through `h6`, `p`, `span`, `strong`, `small`, `blockquote`, `pre`, `code`, `figure`, `figcaption`, `details`, `summary`, `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `button`, `label`, `input`, `textarea`, `select`, `option`, `form`, `ul`, `ol`, `li`, `img`, `menu`, `menuitem`, `hr`, `template`, `use`, and `slot`.
+
+Semantic and table elements currently render through the native container layout; use CSS flex or grid to control their layout. The renderer does not yet provide browser table algorithms, disclosure behavior, or heading defaults.
 
 Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabindex`, `name`, and `value`. Controls also support `type`, `placeholder`, `checked`, `selected`, `disabled`, `required`, `min`, `max`, and `step`.
 
@@ -118,6 +120,7 @@ In the native renderer, declarations GPUI cannot render are skipped with a warni
 | `background`, `background-color` | a color, or `linear-gradient(<deg>, <color>, <color>)` (exactly two stops; `to top/right/bottom/left` also work) |
 | `color` | `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, `rgb()`, `rgba()`, `transparent`, `white`, `black` |
 | `border`, `border-width`, `border-style`, `border-color` | solid borders with a width and a color; `none` removes the border. `dashed`, `dotted`, and the other styles are not supported |
+| `border-top`, `border-right`, `border-bottom`, `border-left` and their `-width` and `-style` properties | solid per-edge borders. Per-edge colors are not supported because GPUI paints one border color per element |
 | `box-shadow` | comma-separated `x y [blur] [spread] color` entries. `inset` is not supported |
 | `text-align` | `left`, `center`, `right` (`start` and `end` map to left and right) |
 | `line-height` | a length, or a unitless multiplier of `font-size` |
@@ -128,7 +131,7 @@ In the native renderer, declarations GPUI cannot render are skipped with a warni
 | `font-weight` | `normal`, `bold`, `400`, `500`, `600`, `700` |
 | `font-family` | one family name (the first in a list; quotes are optional) |
 
-Accepted with no effect: `box-sizing`, because boxes already size the way `border-box` does. Known but not supported yet (reported as warnings): `transition`, `animation`, `transform`, `filter`, `letter-spacing`, `z-index`, per-side borders, and others.
+Accepted with no effect: `box-sizing`, because boxes already size the way `border-box` does. Known but not supported yet (reported as warnings): `transition`, `animation`, `transform`, `filter`, `letter-spacing`, `z-index`, and others.
 
 Custom properties with the same name in different places are global: the last declaration in source order wins.
 

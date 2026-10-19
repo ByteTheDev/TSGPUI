@@ -1,6 +1,6 @@
 [package]
 name = "tsgpui-host"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Native GPUI and system WebView hosts for TSGPUI bundles"
@@ -41,5 +41,5 @@ codegen-units = 1
 strip = "symbols"
 opt-level = "s"
 
-# Windows: native host uses the GPUI Windows platform backend.
-# Build tools (MSVC + Rust) are required ONLY to build the host, not each app.
+# The host is compiled for the target OS and architecture. Windows builds use MSVC; macOS builds
+# use the Apple toolchain provided by Xcode. End users need neither Rust nor Bun/Node to run a bundle.

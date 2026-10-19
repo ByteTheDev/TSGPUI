@@ -239,15 +239,20 @@ fn apply_extended<S: Styled>(mut target: S, style: &BTreeMap<String, String>, cu
     let border_width = style.get("border-width").and_then(|value| styles::px_value(value));
     let border_hidden = style.get("border-style").is_some_and(|value| value == "none");
     let border_px = if border_hidden { Some(0.0) } else { border_width };
-    if let Some(width) = border_px {
-        let width = AbsoluteLength::Pixels(px(width));
-        refinement.border_widths.top = Some(width);
-        refinement.border_widths.right = Some(width);
-        refinement.border_widths.bottom = Some(width);
-        refinement.border_widths.left = Some(width);
+    let side_widths = ["top", "right", "bottom", "left"].map(|side| {
+        let width = style.get(&format!("border-{side}-width")).and_then(|value| styles::px_value(value));
+        let hidden = style.get(&format!("border-{side}-style")).is_some_and(|value| value == "none");
+        if hidden { Some(0.0) } else { width }
+    });
+    let mut widths = [border_px; 4];
+    for (index, side_width) in side_widths.into_iter().enumerate() {
+        if side_width.is_some() { widths[index] = side_width; }
+    }
+    for (target, width) in [&mut refinement.border_widths.top, &mut refinement.border_widths.right, &mut refinement.border_widths.bottom, &mut refinement.border_widths.left].into_iter().zip(widths) {
+        if let Some(width) = width { *target = Some(AbsoluteLength::Pixels(px(width))); }
     }
     if let Some(color) = style.get("border-color").and_then(|value| styles::color(value)).or(current_color) {
-        if border_width.is_some_and(|width| width > 0.0) && !border_hidden {
+        if widths.iter().any(|width| width.is_some_and(|width| width > 0.0)) {
             refinement.border_color = Some(Hsla::from(color));
         }
     }

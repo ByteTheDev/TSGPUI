@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildPackage,readProject} from '../src/compiler.mjs';
-import {packageExecutable} from '../src/pack.mjs';
+import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
@@ -187,8 +187,11 @@ async function main() {
     console.log(`Compiled ${result.bundleFile} (${result.bytes.length} bytes)`);
     if(command==='compile') return;
     const host=await hostPath(true,result.bundle.renderer);
-    const output=path.join(result.paths.outDir,`${result.config.name}${suffix}`);
-    const info=await packageExecutable(host,result.bundleFile,output);
+    const isMacApp = process.platform === 'darwin';
+    const output=path.join(result.paths.outDir,`${result.config.name}${isMacApp ? '.app' : suffix}`);
+    const info=isMacApp
+      ? await packageMacApp(host,result.bundleFile,output)
+      : await packageExecutable(host,result.bundleFile,output);
     console.log(`Built native application: ${info.file}`);
     return;
   }
