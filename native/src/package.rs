@@ -3,6 +3,8 @@ use serde::Deserialize;
 
 pub const MAGIC: &[u8;8] = b"TSGPUI01";
 pub const MAX_PAYLOAD: u64 = 16 * 1024 * 1024;
+/// Persisted backend state is small by design; larger values are not written.
+pub const MAX_STATE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Node {
@@ -78,6 +80,10 @@ pub struct AppPackage {
     #[serde(default)] pub webview_html: Option<String>,
     #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
     #[serde(default)] pub fonts: BTreeMap<String,String>,
+    // Preferences for the development overlay and for persisting backend state between runs.
+    #[serde(default)] pub persist: bool,
+    #[serde(default)] pub dev: bool,
+    #[serde(default)] pub diagnostics: Vec<String>,
     #[serde(default)] pub permissions: Permissions,
     #[serde(default)] pub window: WindowChrome,
 }
@@ -100,6 +106,24 @@ pub fn bundle_path() -> Result<Option<PathBuf>,String> {
     } else {
         Ok(None)
     }
+}
+
+/// Per-user location for opt-in persisted backend state. The app name is sanitized so a bundle
+/// cannot escape the configuration directory.
+pub fn state_file(name: &str) -> Option<PathBuf> {
+    let safe: String = name.chars()
+        .map(|character| if character.is_ascii_alphanumeric() || character == '_' || character == '-' { character } else { '_' })
+        .collect();
+    let safe = if safe.is_empty() { "app".to_string() } else { safe };
+    let root = if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support"))
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+    };
+    root.map(|root| root.join("tsgpui").join(safe).join("state.json"))
 }
 
 pub fn load_bundle(file: &std::path::Path) -> Result<AppPackage,String> {
