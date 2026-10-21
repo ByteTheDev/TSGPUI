@@ -1,0 +1,14 @@
+{
+  "name": "tsgpui-notes-example",
+  "version": "0.3.0-beta.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gpui": "tsgpui build",
+    "gpui:dev": "tsgpui dev",
+    "gpui:compile": "tsgpui compile"
+  },
+  "devDependencies": {
+    "@rs/tsgpui": "workspace:*"
+  }
+}

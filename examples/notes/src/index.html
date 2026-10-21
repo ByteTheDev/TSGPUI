@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <body>
+    <main class="shell">
+      <header class="top">
+        <h1>Notes</h1>
+        <p class="status">{{status}}</p>
+      </header>
+
+      <section class="row">
+        <input type="text" placeholder="note name" data-bind="draftName" />
+        <button class="primary" data-onclick="saveNote">Save</button>
+        <button class="ghost" data-onclick="openNote">Open</button>
+        <button class="ghost" data-onclick="deleteNote">Delete</button>
+        <button class="ghost" data-onclick="refresh">Refresh</button>
+      </section>
+
+      <textarea class="editor" placeholder="Write something" data-bind="draftText"></textarea>
+
+      <section class="files">
+        <p class="label">Saved notes</p>
+        <ul>
+          <li data-repeat="files as file">{{file.name}} · {{file.size}} bytes</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
