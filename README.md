@@ -1,104 +1,94 @@
-# TSGPUI — HTML + CSS + TypeScript → Native GPUI
+# TSGPUI
 
-**An experimental, source-first framework prototype**, not a production-ready GUI SDK.
+### Build desktop apps with HTML, CSS, and TypeScript. Ship them as native executables.
 
-TSGPUI offers two renderers. The default **native** renderer compiles a supported subset of HTML and CSS to a GPUI element tree and runs TypeScript backend actions in embedded QuickJS. Set `"renderer": "webview"` in `tsgpui.config.json` to keep the authored HTML and CSS in a system WebView for browser-equivalent layout and styling. Bun or Node is needed for development; packaged apps run without either installed.
+TSGPUI is an **experimental, source-first framework prototype**. It turns a supported subset of HTML and CSS into a [GPUI](https://github.com/zed-industries/zed) interface, then runs TypeScript actions inside embedded QuickJS. Choose the native renderer for a Rust-rendered UI, or the WebView renderer for browser-style HTML and CSS.
 
-The Rust GPUI host is precompiled once. Subsequent `bun run gpui` commands rebuild only the app bundle and **append it to a copy of the native host** to produce a single executable. A host build is still required once per OS/architecture/GPUI version (either locally or via CI). The packager accepts PE hosts on Windows, ELF hosts on Linux, and Mach-O hosts on macOS.
+> **Early-stage software:** this is not a production-ready GUI SDK. Native builds and packaging still need broader validation; see [current limitations](#known-limitations).
 
-## Install the CLI globally
+<p align="center">
+  <img src="https://img.shields.io/badge/status-experimental-orange" alt="Experimental" />
+  <img src="https://img.shields.io/badge/UI-GPUI%20%7C%20WebView-6f42c1" alt="GPUI and WebView renderers" />
+  <img src="https://img.shields.io/badge/logic-TypeScript%20%2B%20QuickJS-3178c6" alt="TypeScript and QuickJS" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" />
+</p>
 
-The CLI is published as the `tsgpui` package (`packages/cli`). Its dependencies are bundled into one file, so a global install does not depend on anything else in your environment.
+## The idea
 
-```sh
-bun add -g ./packages/cli          # from a checkout of this repository
-# or, once published to npm:
-bun add -g tsgpui
+```text
+HTML + CSS + TypeScript  →  .tgp app bundle  →  one desktop executable
 ```
 
-Then, from any folder:
+The `.tgp` bundle contains the validated app document and transpiled backend. At runtime, the native host renders the UI and embeds QuickJS for actions—there is no separate JavaScript process. Bun or Node is needed for development and building, but not to run a packaged app.
 
-```sh
-tsgpui init my-app
-cd my-app
-tsgpui host build                  # once per machine: compiles the GPUI host (needs Rust)
-tsgpui build                       # writes dist/my-app.exe
+The host is compiled once per OS, architecture, and renderer. Later builds compile the app bundle and append it to a copy of the matching host. The packager supports PE on Windows, ELF on Linux, and Mach-O on macOS. A host build is still required locally or through CI; this repository does not ship prebuilt hosts.
+
+## Pick a renderer
+
+| Renderer | What it does | Choose it for |
+|---|---|---|
+| **Native (default)** | Compiles the supported HTML/CSS subset into GPUI elements. | A native-rendered interface and native host controls. |
+| **WebView** | Loads authored HTML and CSS in the system WebView through Wry. | Browser layout, broader CSS behavior, or motion. |
+
+Set the renderer in your project's `tsgpui.config.json`:
+
+```json
+{ "renderer": "webview" }
 ```
 
-`tsgpui host build` puts the native host under `~/.tsgpui/` (override with `TSGPUI_HOME`). Build the WebView host with `tsgpui host build --renderer webview`. See [packages/cli/README.md](packages/cli/README.md) for all commands.
+Use `"native"` or omit the setting for the default. The WebView uses WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. See the [renderer and syntax reference](docs/SUPPORTED_SYNTAX.md) for platform requirements and behavior.
 
-On macOS, `tsgpui build` produces an unsigned `.app` bundle. The [macOS workflow](.github/workflows/macos-app.yml) builds x64 and Apple Silicon artifacts. They are not signed or notarized, so macOS Gatekeeper may require the user to approve them before first launch.
+## Get started
 
-## Quick start (from this ZIP's root)
+### From this checkout
 
 Requires Bun or Node 20+ for the developer CLI.
 
-```powershell
+```sh
 bun install
 bun run test
 bun run gpui:compile
 ```
 
-That produces `examples/counter/dist/tsgpui-counter.tgp` (a validated app document plus transpiled backend). This step does **not** need Rust.
+This builds `examples/counter/dist/tsgpui-counter.tgp` without Rust. To create a Windows executable, use a compatible prebuilt host or build one locally:
 
-To create a native `.exe` on Windows, choose **one** of these paths:
-
-### A. Prebuilt host — fastest developer workflow
-
-Build the host using this repository's `.github/workflows/windows-host.yml` on GitHub Actions or obtain a trusted compatible build of this exact host. Check its provenance and SHA-256.
+**Use a prebuilt host:** build it with the [Windows host workflow](.github/workflows/windows-host.yml), or obtain a trusted compatible build and verify its provenance and SHA-256.
 
 ```powershell
 $env:TSGPUI_HOST = 'C:\path\to\tsgpui-host.exe'
 bun run gpui
 ```
 
-Output: `examples/counter/dist/tsgpui-counter.exe`.
-
-### B. Compile the host once locally
-
-Install Rust/MSVC build tools **only if you choose local native compilation**:
+**Build the host locally:** install Rust and MSVC build tools, then run:
 
 ```powershell
 bun run gpui:host
 bun run gpui
 ```
 
-The first GPUI build is substantial. Later changes to HTML/CSS/TypeScript do not rebuild GPUI or Rust, unless you modify the host itself.
+Both routes produce `examples/counter/dist/tsgpui-counter.exe`. The first GPUI host build is substantial; app-only changes do not rebuild Rust.
 
-### Development
+### Install the CLI
 
-```powershell
-bun run gpui:dev
+The CLI lives in [`packages/cli`](packages/cli). Its dependencies are bundled into one file.
+
+```sh
+bun add -g ./packages/cli   # from this checkout
+# bun add -g tsgpui         # after publication to npm
 ```
 
-The dev command watches the sample HTML/CSS/TS files, recompiles the `.tgp`, and restarts the host. This is a **fast reload**, not state-preserving HMR.
+Then create and build a project:
 
-### In your own example project
-
-Once published or installed locally, scripts can be:
-
-```json
-{
-  "scripts": {
-    "gpui": "tsgpui build",
-    "gpui:dev": "tsgpui dev"
-  }
-}
+```sh
+tsgpui init my-app
+cd my-app
+tsgpui host build           # once per machine; requires Rust
+tsgpui build                # writes dist/my-app.exe on Windows
 ```
 
-Then `bun run gpui` (or `bun run GPUI`, both aliases are included) produces a native build if `TSGPUI_HOST` points to a precompiled host.
+The host is stored under `~/.tsgpui/`; set `TSGPUI_HOME` to change that location. Build the WebView host with `tsgpui host build --renderer webview`. See the [CLI guide](packages/cli/README.md) for commands and options.
 
-## Project layout
-
-```text
-packages/cli/      Bun/Node-compatible compiler, CLI, tests, types
-native/            Rust GPUI host + embedded QuickJS actions
-examples/counter/  Complete HTML/CSS/TypeScript example
-docs/              Architecture, CSS subset, security, limitations
-.github/workflows/ Windows GPUI host build through GitHub Actions
-```
-
-## Example
+## A tiny app
 
 ```html
 <button data-onclick="increment">Increase</button>
@@ -109,40 +99,72 @@ docs/              Architecture, CSS subset, security, limitations
 export default {
   state: { count: 0 },
   actions: {
-    increment(api: {get(key: string): number; set(key: string, value: number): void}) {
+    increment(api: { get(key: string): number; set(key: string, value: number): void }) {
       api.set('count', api.get('count') + 1);
     }
   }
 };
 ```
 
-The button event is handled by JavaScript in QuickJS, with the new state rendered as native GPUI elements. No extra JavaScript **process** remains after packaging: the JS engine runs **inside** the one native executable.
+The compiler connects the button to the action and the span to state. In the native renderer, the host runs the action in QuickJS, updates state, and renders the resulting GPUI element tree.
 
-## Scope and known limitations
+## Development loop
 
-- The native renderer supports a documented HTML/CSS subset. The WebView renderer passes through authored HTML and CSS, with the WebView engine's platform-specific behavior. See [renderer selection and CSS reference](docs/SUPPORTED_SYNTAX.md).
-- Native hosts and packaged apps have not been built or exercised in this delivery environment. Windows and macOS build workflows are provided, but need to run successfully before their artifacts can be treated as verified.
-- `backend.ts` supports **a single file**, synchronous actions and state; runtime imports are unsupported except `import type`. No Bun/Node backend APIs in the executable yet. Future versions can expose explicitly permissioned native APIs.
-- No rich text inputs, video, accessibility semantics, CSS animations, or packaging code signing yet. The built-in component library is small: `Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, and `Sheet`. Custom TTF/OTF fonts can be bundled; see the [CSS reference](docs/SUPPORTED_SYNTAX.md).
-- Appending the bundle may invalidate existing signatures. Package an unsigned host, then sign the finished artifact; do not patch a signed executable.
-- No actual RAM/startup benchmarks have been performed. Don't assume the ~50 MB observed for other GPUI apps applies here.
-- The CLI is currently a **local workspace package**, not a published `bun add tsgpui` dependency. Publishing to npm is required for `bun add -d tsgpui` to work on an ordinary machine.
+```sh
+bun run gpui:dev
+```
 
-## Useful commands
+The sample's HTML, CSS, and TypeScript are watched and rebuilt. The running host reloads the new bundle in place, preserving native state or WebView session state. A failed build shows an in-window error panel while the last good build keeps running. Press `F12` or `Ctrl+Shift+I` to open the problems/inspector panel. This is fast reload, not state-preserving HMR.
+
+To use the CLI from another project, add scripts like these:
+
+```json
+{
+  "scripts": {
+    "gpui": "tsgpui build",
+    "gpui:dev": "tsgpui dev"
+  }
+}
+```
+
+Point `TSGPUI_HOST` to a compatible precompiled host when building without a local Rust toolchain.
+
+## Repository map
+
+| Path | What's inside |
+|---|---|
+| `packages/cli/` | Compiler, CLI, tests, and type definitions |
+| `native/` | Rust host, GPUI rendering, and embedded QuickJS actions |
+| `examples/counter/` | Complete HTML/CSS/TypeScript example |
+| `docs/` | Architecture, syntax support, security, and limitations |
+| `.github/workflows/` | Host and platform build workflows |
+
+## Commands
 
 | Command | Purpose |
 |---|---|
-| `bun run gpui:compile` | Build the `.tgp` bundle without Rust |
-| `bun run gpui:host` | Build native host once with Cargo |
-| `bun run gpui` | Package one native executable (requires host) |
-| `bun run gpui:dev` | Watch, compile and launch through host |
-| `bun run test` | Run CLI/compiler tests |
-| `bun run gpui:doctor` | Show host/tool availability |
+| `bun run gpui:compile` | Compile the example bundle without Rust |
+| `bun run gpui:host` | Build the native host once with Cargo |
+| `bun run gpui` | Package one executable (requires a compatible host) |
+| `bun run gpui:dev` | Watch, compile, and launch the example |
+| `bun run test` | Run compiler and CLI tests |
+| `bun run gpui:doctor` | Check host and tool availability |
+
+## Known limitations
+
+- This is an experimental prototype, and native hosts and packaged apps have not been exercised in this delivery environment. The Windows and macOS workflows need successful runs before their artifacts can be considered verified.
+- Native rendering supports a documented HTML/CSS subset; it is not browser-compatible. WebView behavior follows the platform engine. See the [supported syntax reference](docs/SUPPORTED_SYNTAX.md).
+- `backend.ts` is a single file with synchronous actions and state. Runtime imports are unsupported except `import type`; Bun and Node APIs are not available inside the packaged app.
+- There is no rich text input, video, accessibility semantics, CSS transitions or animations, or code signing. GPUI 0.2.2 lacks element transform and animation primitives; the native renderer warns on `transition`, `animation`, and `transform`. Use WebView when motion is required.
+- Mixed `px`/`fr` grid tracks are emulated; pure `fr` tracks remain equal-width. The built-in component library is small (`Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, and `Sheet`). Custom TTF/OTF fonts can be bundled.
+- Appending a bundle can invalidate executable signatures. Package an unsigned host, then sign the finished artifact.
+- No RAM or startup benchmarks have been performed. Do not assume results reported for other GPUI apps apply here.
+- The CLI is a local workspace package, not yet published to npm. `bun add -g tsgpui` works once publication is available.
+
+## Build a Windows EXE in GitHub Actions
+
+Push this source to a GitHub repository, then run **Actions → Compile TSGPUI counter to Windows EXE → Run workflow**. The workflow installs dependencies, runs compiler tests, builds the GPUI host, and packages the counter executable on a GitHub-hosted Windows runner. Download the artifact after the workflow succeeds; no local Rust installation is needed. This workflow has not yet been executed, and upstream dependency or API changes may require fixes.
 
 ## License
 
-MIT. GPUI and the Rust/JS dependencies have their own licenses; audit dependency obligations before commercial redistribution.
-
-## Build a Windows EXE without installing Rust locally
-
-Push the ZIP's source into a GitHub repository and run **Actions → Compile TSGPUI counter to Windows EXE → Run workflow**. The workflow installs dependencies on the GitHub-hosted Windows runner, runs the compiler tests, builds GPUI and packages the counter executable. Download the Windows artifact when the workflow succeeds. No Rust toolchain is required on your own PC. **This workflow has not yet been executed**, and upstream GPUI dependencies or API changes may need fixes first.
+This project is licensed under the [MIT License](LICENSE). GPUI and the Rust/JavaScript dependencies have their own licenses; review their obligations before commercial redistribution.

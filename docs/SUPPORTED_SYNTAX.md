@@ -16,7 +16,7 @@ Set the project renderer in `tsgpui.config.json`:
 
 The WebView renderer passes authored HTML and CSS to [Wry](https://github.com/tauri-apps/wry), which uses WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. Windows needs the WebView2 runtime; Linux builds need GTK and WebKitGTK development packages. It embeds referenced local images, scripts, stylesheets, CSS URLs, and configured fonts in the bundle, which has a 16 MiB size limit. The document is loaded from an app-local custom URL. A single HTML document is supported; relative links to other local pages are not packaged as a multi-page site.
 
-It supports `data-bind`, `{{state.path}}` text interpolation, `data-onclick`, `data-oninput`, forms with `data-submit`, `data-fetch`, file selection/read/save, and clipboard bindings. The native renderer's `data-repeat`, `data-virtual`, compile-time components, native window controls, and per-element CSS warnings are not used in WebView mode. WebView state resets when `dev` reloads the document.
+It supports `data-bind`, `{{state.path}}` text interpolation, `data-onclick`, `data-oninput`, forms with `data-submit`, `data-fetch`, file selection/read/save, and clipboard bindings. The native renderer's `data-repeat`, `data-virtual`, compile-time components, native window controls, and per-element CSS warnings are not used in WebView mode. WebView backend state survives a `dev` reload in `sessionStorage`; with `"persist": true` it is kept across app restarts in `localStorage`.
 
 WebView pages execute ordinary page JavaScript in the browser context. Their scripts and backend code are trusted application code. `permissions.network` restricts the declarative `data-fetch` binding; it cannot restrict fetches or other network requests made by page scripts. WebView fetches follow browser CORS rules. The WebView host uses the system frame; the native `window.titlebar` and `window.backdrop` options do not apply.
 
@@ -34,7 +34,7 @@ Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabinde
 - `data-onclick="actionName"` runs a button action. `data-oninput="actionName"` runs when an input, textarea, or select value changes. Actions receive an event object with `type` plus fields such as `value`, `checked`, `name`, and `submit`.
 - `<form data-submit="save">` submits through a `button type="submit"`. Required fields and numeric `min`, `max`, and `step` constraints are checked before dispatch.
 - Single-line text inputs support typing through the platform text input (including IME composition), a blinking caret, selection by mouse or Shift+arrow, Home/End, word-wise movement and deletion, Ctrl/Cmd+A/C/X/V/Z, Shift+Ctrl/Cmd+Z and Ctrl/Cmd+Y, Tab focus traversal, and password masking. Undo history is per field, bounded, and reset on app reload. Textareas use the same native text path: multi-line caret and selection, IME, clipboard, wrapping to the field width, scrolling by wheel and by caret, Enter for a new line, Up/Down by visual row, Home/End by line, Ctrl/Cmd+Home/End for the whole text, and double-click to select a word. The default height is about three lines unless the element sets `height`.
-- A select cycles through its options on click and supports Up/Down keys. It does not use a native dropdown popup yet.
+- A select opens a native dropdown popup on click. Up/Down keys also change the value, and Escape closes the popup.
 - `data-repeat="items as item"` renders one node for each array element in backend state. Use `{{item.name}}` for item values. Nested repeats and state-bound inputs use the array index in their state path. Add `data-virtual="36"` (a row height in pixels, from 1 to 1000) to build only the visible rows of a scrolling list. Every row must be exactly that height, and rows fill the list's width unless they set one. Without `data-virtual`, every row is built.
 - `<template data-component="Card">...</template>` and `<use component="Card" data-prop-title="Hello"/>` expand static reusable components at compile time. A component can read string props with `{{props.title}}`. Recursive components and duplicate expanded IDs are rejected.
 
@@ -49,7 +49,7 @@ Common attributes include `id`, `class`, `title`, `aria-label`, `role`, `tabinde
 - `data-confirm="deleteItem"` shows a native confirmation prompt, then runs the action only when confirmed.
 - `data-clipboard-copy="stateKey"` copies a state value from a button. `data-clipboard-paste="stateKey"` reads clipboard text into that state value after a button click.
 - `data-file-open="pathKey"` opens the native file chooser and stores the selected path. Add `data-file-read="textKey"` to read the chosen UTF-8 text file into another state key. `data-file-save="textKey"` opens a native save dialog and writes that state's text. File reads and writes are limited to 1 MiB and require a user-selected path.
-- `data-fetch="https://api.example.com/path" data-fetch-into="result"` performs a user-initiated HTTPS GET and stores its text response. The exact host must be listed in `permissions.network` in `tsgpui.config.json`. Redirects are disabled, requests time out after 15 seconds, and responses are limited to 1 MiB.
+- `data-fetch="https://api.example.com/path" data-fetch-into="result"` performs a user-initiated HTTPS GET and stores its text response. Add `data-fetch-method="POST"` to send a request; the body is the state key named by `data-fetch-body`. Strings are sent as text, and non-string values are serialized as JSON when `data-fetch-content-type="application/json"` is set. `data-fetch-status-into="status"` stores the numeric HTTP status, and `data-fetch-error-into="error"` stores an empty string on success or the error message on failure. The exact host must be listed in `permissions.network` in `tsgpui.config.json`. Redirects are disabled, requests and bodies time out after 15 seconds, and response bodies are limited to 1 MiB.
 
 Example network permission:
 
@@ -75,7 +75,17 @@ The permission schema also reserves explicit grants for the native bridge:
 }
 ```
 
-These grants are serialized into the app bundle. Filesystem entries are project-relative directory roots, process entries are executable names, and notifications, IPC, and native window APIs are opt-in booleans. The TypeScript declarations expose the `api.native` contract; the host does not yet dispatch these calls. Existing picker-based file operations, window title-bar controls, and network permissions continue to use their current host paths.
+These grants are serialized into the app bundle. Filesystem entries are directory roots relative to the app's folder (the executable's folder, or the `.tgp` file's folder for `--bundle` runs). Process entries are executable names. Notifications, IPC, and native window APIs are opt-in booleans. Existing picker-based file operations, window title-bar controls, and network permissions continue to use their current host paths.
+
+`api.native` is the typed host API, and every call returns a promise. Host work runs on background threads, so a slow call does not freeze the window, and the action resumes when the result arrives. While an action waits, other actions and state writes queue behind it, so each one starts from committed state and rolls back cleanly.
+
+- `filesystem` (`readText`, `writeText`, `readBytes`, `writeBytes`, `list`, `stat`, `mkdir`, `remove`, `rename`): paths are relative to a granted root. `..`, absolute paths and symlinks that lead outside the root are refused. Reads need a `read` root, and changes need a `write` root. Writable roots are created at startup. `''` or `.` names the root itself, for `list` and `stat` only. Each call moves at most 1 MiB.
+- `process.spawn(command, args)`: runs only listed executables, without a shell, in the app's folder, with a 10 second limit and 1 MiB of output per stream. On Windows, `npm` resolves to `npm.cmd` through `PATHEXT`. Batch files take only the arguments Rust can quote safely.
+- `window`: `setTitle`, `close`, `minimize`, `maximize` and `restore`, each needing `permissions.window`. The window changes on the UI thread.
+- `notifications.show({ title, body })`: needs `permissions.notifications`. It shows a desktop toast, or a notification on macOS and Linux.
+- `ipc`: needs `permissions.ipc`. `ipc.send(channel, payload)` reaches the app's own `ipc.on(channel, listener)` listeners and every connected peer. Peers are other local processes. The host listens on `127.0.0.1` on a free port and requires a random token. A child process started by `process.spawn` gets `TSGPUI_IPC_ADDR` and `TSGPUI_IPC_TOKEN`. The peer connects, sends `{"token":"<token>"}` as its first line, then sends and receives newline-delimited `{"channel":"name","payload":...}` JSON. Messages from peers reach the app's listeners, not other peers. Each backend load gets a new port, so reloading the app disconnects peers.
+
+In the browser preview (`tsgpui preview`), file and process calls run through the preview server with the same grants and path rules. The page's token and the `Host` header are checked, so other websites cannot make these calls. `window.setTitle` and `window.close` work in the page. `minimize`, `maximize` and `restore` need the native host. IPC works only within the page, with no peers. Batch files do not run in the preview, because Node cannot start them without a shell.
 
 ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics. WebView mode uses the platform browser's accessibility behavior.
 
@@ -89,6 +99,12 @@ With `"titlebar": "unified"`, mark the bar's drag area with `data-window-drag`. 
 
 `"backdrop": "blur"` asks the window for a blurred backdrop. Windows applies it only on some systems, and the root background must be translucent for it to show, for example `body { background: #f5f5f799; }`.
 
+## Persistence and the development overlay
+
+Set `"persist": true` in `tsgpui.config.json` to keep backend state across app restarts. The host writes state when it changes, at most as JSON of 256 KiB, to the per-user configuration directory (`%APPDATA%\tsgpui\<name>\state.json` on Windows, `~/Library/Application Support/tsgpui/<name>/state.json` on macOS, and `$XDG_CONFIG_HOME/tsgpui/<name>/state.json` or `~/.config/tsgpui/<name>/state.json` on Linux). On startup, values the user changed are merged into the current defaults the same way a hot reload merges them; new state keys appear with their defaults, and keys the app no longer declares are dropped. Invalid or oversized files are ignored.
+
+The development bundle includes compile diagnostics. Press `F12` or `Ctrl+Shift+I` in the native renderer to open the development panel. The **Problems** tab lists build warnings and any failed hot-reload error, while the last successful build stays runnable. The **Inspector** tab turns the pointer into a selector: click any element to see its tag, id, classes, attributes, computed style, and state styles. Clicking controls selects them instead of running them. `Escape` closes the popup, then the panel. `tsgpui build` does not embed development diagnostics, but the panel and inspector remain available.
+
 ## CSS
 
 Selectors: element, `.class`, `#id`, `*`, compounds such as `button.primary`, comma lists, descendant (`.card h1`) and child (`.card > p`) combinators. Specificity, `!important`, and source order are respected.
@@ -97,7 +113,7 @@ State pseudo-classes: `:hover`, `:active`, `:focus`, and `:disabled`, on the las
 
 CSS variables: declare `--name: value` (in `:root` or any rule) and use `var(--name)` or `var(--name, fallback)`. Variables resolve at compile time, and a later declaration of the same name wins. The component library's colors are `--ts-*` variables, so `:root { --ts-accent: #ff375f; }` restyles every library component.
 
-Units: `px`, `rem`, and `em` (both 16px), and `%` for sizes, insets, and padding and margin. `auto` works for `width`, `height`, `margin`, `flex-basis`, and insets.
+Units: `px`, `rem`, and `em` (both 16px), `%` for sizes, insets, and padding and margin, and `vw`, `vh`, `vmin`, and `vmax` relative to the window. `auto` works for `width`, `height`, `margin`, `flex-basis`, and insets.
 
 In the native renderer, declarations GPUI cannot render are skipped with a warning that names the file, line, and property, and the rest of the rule still applies. Set `"strictCss": true` in `tsgpui.config.json` to turn those warnings into build errors. The WebView renderer sends the stylesheet to the platform browser engine instead.
 
@@ -113,6 +129,7 @@ In the native renderer, declarations GPUI cannot render are skipped with a warni
 | `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | lengths, `%`, or `auto`, one to four values, may be negative |
 | `width`, `height`, `min-width`, `min-height`, `max-width`, `max-height` | lengths or `%`; `auto` and `none` where they apply |
 | `position` | `relative`, `absolute` (`static` is treated as `relative`) |
+| `z-index` | an integer or `auto`, used as paint order for absolutely positioned siblings; it does not create a stacking context |
 | `top`, `right`, `bottom`, `left`, `inset` | lengths or `%` |
 | `grid-template-columns`, `grid-template-rows` | up to 12 space-separated `fr`, `px`, or `auto` tracks |
 | `overflow` | `visible`, `hidden`, `scroll`, `auto` |
@@ -126,18 +143,18 @@ In the native renderer, declarations GPUI cannot render are skipped with a warni
 | `line-height` | a length, or a unitless multiplier of `font-size` |
 | `font-style` | `normal`, `italic` (`oblique` maps to italic) |
 | `white-space` | `normal`, `nowrap` |
-| `text-overflow` | `clip`, `ellipsis` (the ellipsis glyph is not drawn yet, so text is clipped) |
+| `text-overflow` | `clip`, `ellipsis` (GPUI draws the ellipsis when the text is clipped) |
 | `cursor` | `default`, `pointer`, `text`, `not-allowed`, `grab`, `move`, `crosshair` |
 | `font-weight` | `normal`, `bold`, `400`, `500`, `600`, `700` |
 | `font-family` | one family name (the first in a list; quotes are optional) |
 
-Accepted with no effect: `box-sizing`, because boxes already size the way `border-box` does. Known but not supported yet (reported as warnings): `transition`, `animation`, `transform`, `filter`, `letter-spacing`, `z-index`, and others.
+Accepted with no effect: `box-sizing`, because boxes already size the way `border-box` does. Known but not supported yet (reported as warnings): `transition`, `animation`, `transform`, `filter`, `letter-spacing`, and others. GPUI 0.2.2 has no element transform, transition, or animation primitive; the native renderer cannot emulate them without a custom animation loop and a different drawing model. Use the WebView renderer when CSS motion is required.
 
 Custom properties with the same name in different places are global: the last declaration in source order wins.
 
 Custom fonts are bundled with the app. Add entries to `fonts` in `tsgpui.config.json`, for example `{"family":"Inter","src":"assets/Inter-Regular.ttf"}`, then use `font-family: Inter` in CSS. TTF and OTF files up to 8 MiB each are supported. The CSS family must match the configured family name.
 
-`@media` supports `min-width`, `max-width`, `min-height`, and `max-height` in pixels. Rules are reevaluated on window resize. Grid track counts are applied, but GPUI currently lays tracks out at equal sizes, so mixed `fr` and `px` dimensions are not exact.
+`@media` supports `min-width`, `max-width`, `min-height`, and `max-height` in pixels. Rules are reevaluated on window resize. Grid templates with fixed or mixed `px`/`fr`/`auto` columns are laid out as flex rows with one cell per track, so a `240px 1fr` sidebar/content layout keeps its proportions. Pure `fr` templates use GPUI's equal-track grid, which gives every track the same width even when the `fr` values differ; explicit `grid-column` and `grid-row` placement is not supported.
 
 ## Browser preview
 
@@ -149,4 +166,4 @@ The preview is a reference for the shared subset, not an exact match. Its layout
 
 One `backend.ts` file exports a default `{ state, actions }` object. Type-only imports are allowed; runtime imports, dynamic imports, and `require` are unsupported. In native mode, Node/Bun APIs and browser globals are not available. Actions receive `get`, `set`, and `update` plus a read-only event. Native actions may return a Promise; QuickJS microtasks are drained during dispatch before the view redraws, so long-running or externally pending promises are not supported. WebView mode executes the compiled backend script in the browser page and therefore uses the platform JavaScript engine and page security model.
 
-The native backend has no general filesystem or `fetch` API. File access is limited to native picker events, and network access is limited to the declarative `data-fetch` control with an exact host allowlist. WebView pages use browser APIs and browser network rules.
+The native backend has no general `fetch` API. Network access is limited to the declarative `data-fetch` control with an exact host allowlist. File access is available through `api.native.filesystem` inside the granted roots, and through native picker events. WebView pages use browser APIs and browser network rules.
