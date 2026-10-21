@@ -11,14 +11,21 @@
     },
     "examples/counter": {
       "name": "tsgpui-counter-example",
-      "version": "0.2.0",
+      "version": "0.3.0-beta.1",
+      "devDependencies": {
+        "@rs/tsgpui": "workspace:*",
+      },
+    },
+    "examples/notes": {
+      "name": "tsgpui-notes-example",
+      "version": "0.3.0-beta.1",
       "devDependencies": {
         "@rs/tsgpui": "workspace:*",
       },
     },
     "packages/cli": {
       "name": "@rs/tsgpui",
-      "version": "0.2.0",
+      "version": "0.3.0-beta.1",
       "bin": {
         "tsgpui": "dist/tsgpui.mjs",
       },
@@ -40,6 +47,8 @@
     "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
 
     "tsgpui-counter-example": ["tsgpui-counter-example@workspace:examples/counter"],
+
+    "tsgpui-notes-example": ["tsgpui-notes-example@workspace:examples/notes"],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
   }

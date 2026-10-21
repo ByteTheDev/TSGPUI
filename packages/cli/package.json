@@ -1,6 +1,6 @@
 {
   "name": "@rs/tsgpui",
-  "version": "0.2.0",
+  "version": "0.3.0-beta.1",
   "description": "Compile HTML/CSS and TypeScript applications for GPUI or a system WebView",
   "type": "module",
   "license": "MIT",
