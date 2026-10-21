@@ -11,21 +11,21 @@
     },
     "examples/counter": {
       "name": "tsgpui-counter-example",
-      "version": "0.3.0-beta.1",
+      "version": "0.3.0",
       "devDependencies": {
         "@rs/tsgpui": "workspace:*",
       },
     },
     "examples/notes": {
       "name": "tsgpui-notes-example",
-      "version": "0.3.0-beta.1",
+      "version": "0.3.0",
       "devDependencies": {
         "@rs/tsgpui": "workspace:*",
       },
     },
     "packages/cli": {
       "name": "@rs/tsgpui",
-      "version": "0.3.0-beta.1",
+      "version": "0.3.0",
       "bin": {
         "tsgpui": "dist/tsgpui.mjs",
       },
