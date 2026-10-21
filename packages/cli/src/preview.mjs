@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { buildPackage } from './compiler.mjs';
+import { createNativeGrants, performNative } from './native.mjs';
 
 // Browser preview. It renders the same bundle the native host runs, with the DOM, so browser tools
 // (devtools, screenshots, a live reload) can be used on the subset the host supports. It is a
@@ -78,19 +80,119 @@ function previewRuntime() {
     }
   };
 
-  const api = Object.freeze({
-    get: key => app.state[key],
-    set: (key, value) => { if (!has(app.state, key)) throw new Error('Unknown state key: ' + key); app.state[key] = value; },
-    update: (key, modify) => { if (!has(app.state, key)) throw new Error('Unknown state key: ' + key); app.state[key] = modify(app.state[key]); },
-  });
+  // One task runs at a time, as on the host, so a wait on a host call never lets another action see
+  // partial writes. A synchronous task still finishes before the event that started it returns.
+  const waiting = [];
+  let taskRunning = false;
+  const runTask = work => {
+    if (taskRunning) { waiting.push(work); return; }
+    taskRunning = true;
+    work(() => {
+      taskRunning = false;
+      const next = waiting.shift();
+      if (next) runTask(next);
+    });
+  };
 
-  // Actions roll the state back when they throw or reject, as the native host does.
-  const invoke = (name, event) => {
-    if (!has(app.actions, name) || typeof app.actions[name] !== 'function') { report(new Error('No action: ' + name)); return; }
+  // Host operations for `api.native`. The page cannot reach files or processes itself, so file and
+  // process calls go to `tsgpui preview`, which checks each one against the bundle's grants. The
+  // token and the Host header are checked there, so another website cannot make these calls.
+  const grant = (flag, name) => {
+    if (!bundle.permissions || !bundle.permissions[flag]) throw new Error(`${name} is not granted: set permissions.${flag} to true`);
+  };
+  const hostCall = async (operation, args) => {
+    if (!bundle.nativeToken) throw new Error('Native operations need tsgpui preview; a saved preview file has no host');
+    let response;
+    try {
+      response = await fetch('/__tsgpui/native', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-tsgpui-token': bundle.nativeToken },
+        body: JSON.stringify({ operation, args }),
+      });
+    } catch (error) {
+      throw new Error('Native operation failed: ' + ((error && error.message) || error));
+    }
+    const envelope = await response.json();
+    if (!envelope.ok) throw new Error(envelope.error);
+    return envelope.value;
+  };
+
+  // IPC listeners run as one task, so a listener that writes state rolls back when it fails.
+  const subscribers = new Map();
+  const deliver = (channel, payload) => runTask(done => {
+    const listeners = Array.from(subscribers.get(channel) ?? []);
+    if (listeners.length === 0) { done(); return; }
     const before = JSON.stringify(app.state);
     const finish = error => {
       if (error) { app.state = JSON.parse(before); report(error); }
       render();
+      done();
+    };
+    (async () => { for (const listener of listeners) await listener(payload); })().then(() => finish(null), finish);
+  });
+
+  const native = Object.freeze({
+    window: Object.freeze({
+      minimize: async () => { grant('window', 'Window control'); throw new Error('Window minimize is available only in the native host'); },
+      maximize: async () => { grant('window', 'Window control'); throw new Error('Window maximize is available only in the native host'); },
+      restore: async () => { grant('window', 'Window control'); throw new Error('Window restore is available only in the native host'); },
+      close: async () => { grant('window', 'Window control'); window.close(); },
+      setTitle: async title => { grant('window', 'Window control'); document.title = String(title); },
+    }),
+    filesystem: Object.freeze({
+      readText: path => hostCall('filesystem.readText', [path]),
+      writeText: (path, contents) => hostCall('filesystem.writeText', [path, contents]),
+      readBytes: async path => new Uint8Array(await hostCall('filesystem.readBytes', [path])),
+      writeBytes: (path, bytes) => hostCall('filesystem.writeBytes', [path, Array.from(bytes)]),
+      list: path => hostCall('filesystem.list', [path]),
+      stat: path => hostCall('filesystem.stat', [path]),
+      mkdir: path => hostCall('filesystem.mkdir', [path]),
+      remove: path => hostCall('filesystem.remove', [path]),
+      rename: (from, to) => hostCall('filesystem.rename', [from, to]),
+    }),
+    process: Object.freeze({
+      spawn: (command, args) => hostCall('process.spawn', [command, args ?? []]),
+    }),
+    notifications: Object.freeze({
+      show: async options => {
+        grant('notifications', 'Notifications');
+        if (typeof Notification === 'undefined') throw new Error('This browser has no notifications');
+        const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+        if (permission !== 'granted') throw new Error('Notification permission was not granted');
+        new Notification(String(options.title), { body: options.body ?? '' });
+      },
+    }),
+    ipc: Object.freeze({
+      send: async (channel, payload) => {
+        grant('ipc', 'IPC');
+        deliver(String(channel), payload === undefined ? null : payload);
+      },
+      on: (channel, listener) => {
+        grant('ipc', 'IPC');
+        if (typeof listener !== 'function') throw new Error('IPC listener must be a function');
+        const set = subscribers.get(channel) ?? new Set();
+        subscribers.set(channel, set);
+        set.add(listener);
+        return () => { set.delete(listener); };
+      },
+    }),
+  });
+
+  const api = Object.freeze({
+    get: key => app.state[key],
+    set: (key, value) => { if (!has(app.state, key)) throw new Error('Unknown state key: ' + key); app.state[key] = value; },
+    update: (key, modify) => { if (!has(app.state, key)) throw new Error('Unknown state key: ' + key); app.state[key] = modify(app.state[key]); },
+    native,
+  });
+
+  // Actions roll the state back when they throw or reject, as the native host does.
+  const invoke = (name, event) => runTask(done => {
+    if (!has(app.actions, name) || typeof app.actions[name] !== 'function') { report(new Error('No action: ' + name)); done(); return; }
+    const before = JSON.stringify(app.state);
+    const finish = error => {
+      if (error) { app.state = JSON.parse(before); report(error); }
+      render();
+      done();
     };
     // A synchronous action finishes before the click returns, as it does on the host. A promise
     // finishes when it settles.
@@ -98,7 +200,7 @@ function previewRuntime() {
     try { result = app.actions[name](api, Object.freeze(event)); } catch (error) { finish(error); return; }
     if (result && typeof result.then === 'function') result.then(() => finish(null), finish);
     else finish(null);
-  };
+  });
 
   const writeState = (key, value) => {
     try { setPath(key, value); } catch (error) { report(error); return false; }
@@ -533,7 +635,8 @@ function escapeHtml(text) {
 }
 
 // A standalone page. `live` is the version to poll, or null for a page with no server behind it.
-export function renderPreviewHTML(bundle, { live = null } = {}) {
+// `nativeToken` lets the page call the preview server's host operations. It is null for a saved file.
+export function renderPreviewHTML(bundle, { live = null, nativeToken = null } = {}) {
   if (bundle.renderer === 'webview') {
     if (typeof bundle.webview_html !== 'string') throw new Error('WebView bundle is missing webview_html');
     if (live === null || live === undefined) return bundle.webview_html;
@@ -543,7 +646,7 @@ export function renderPreviewHTML(bundle, { live = null } = {}) {
       : `${bundle.webview_html}${watcher}`;
   }
   const { fonts, ...rest } = bundle;
-  const payload = { ...rest, live };
+  const payload = { ...rest, live, nativeToken };
   // 'self' keeps the live-reload poll working; data-fetch hosts are the same allowlist the native host uses.
   const hosts = (bundle.permissions?.network_hosts ?? []).map(host => `https://${host}`);
   const csp = `${CSP}; connect-src 'self' ${hosts.join(' ')}`.trim();
@@ -579,6 +682,10 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
   let building = false;
   let queued = false;
   let timer = null;
+  // The page presents this token to call host operations. Another website cannot read it, because
+  // the page is served only to this origin.
+  const nativeToken = randomBytes(24).toString('hex');
+  let grants = null;
   const rebuild = async () => {
     if (building) { queued = true; return; }
     building = true;
@@ -586,7 +693,8 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
       const built = await buildPackage(projectRoot);
       for (const warning of built.warnings) warn(`Warning: ${warning}`);
       version += 1;
-      current = renderPreviewHTML(built.bundle, { live: version });
+      current = renderPreviewHTML(built.bundle, { live: version, nativeToken });
+      grants = createNativeGrants(built.bundle.permissions, path.dirname(built.bundleFile));
       log(`Preview updated (${built.bundleFile})`);
     } catch (error) {
       log(`Build failed: ${error.message}`);
@@ -597,6 +705,33 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
   };
   await rebuild();
   if (!current) throw new Error('The preview could not be built');
+  const MAX_NATIVE_REQUEST_BYTES = 2 * 1024 * 1024;
+  // Host operations for the page. A request needs the token and the exact Host header. The Host
+  // check stops a rebound DNS name from reaching this endpoint, even if it learns the token.
+  const handleNative = async (request, response) => {
+    const send = (status, body) => {
+      response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      response.end(JSON.stringify(body));
+    };
+    if (request.method !== 'POST') return send(405, { ok: false, error: 'Method not allowed' });
+    const expectedHost = `127.0.0.1:${server.address().port}`;
+    if (request.headers.host !== expectedHost || request.headers['x-tsgpui-token'] !== nativeToken || grants === null) {
+      return send(403, { ok: false, error: 'Forbidden' });
+    }
+    try {
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > MAX_NATIVE_REQUEST_BYTES) throw new Error('Request is too large');
+        chunks.push(chunk);
+      }
+      const { operation, args } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      send(200, { ok: true, value: await performNative(grants, operation, args) });
+    } catch (error) {
+      send(200, { ok: false, error: error.message });
+    }
+  };
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     if (url.pathname === '/') {
@@ -605,6 +740,8 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
     } else if (url.pathname === '/version') {
       response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       response.end(JSON.stringify({ version }));
+    } else if (url.pathname === '/__tsgpui/native') {
+      void handleNative(request, response);
     } else {
       response.writeHead(404, { 'content-type': 'text/plain' });
       response.end('Not found');
