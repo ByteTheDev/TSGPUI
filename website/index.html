@@ -8,28 +8,24 @@
       name="description"
       content="TSGPUI renders HTML and CSS with native GPUI by default, with an optional system WebView renderer for browser layout and CSS fidelity."
     />
-    <meta name="theme-color" content="#05060b" />
+    <meta name="theme-color" content="#0b0a09" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <div class="ambient" aria-hidden="true">
-      <span class="orb orb-indigo"></span>
-      <span class="orb orb-violet"></span>
-      <span class="orb orb-blue"></span>
-    </div>
+    <div class="ambient" aria-hidden="true"></div>
 
     <header class="site-nav">
       <div class="nav-inner">
         <a class="brand" href="#top" aria-label="TSGPUI home">
-          <span class="brand-mark" aria-hidden="true"></span>
+          <img class="brand-mark" src="assets/tsgpui-logo.png" alt="" aria-hidden="true" />
           <span>TSGPUI</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
@@ -38,6 +34,7 @@
           <a href="#pipeline">Pipeline</a>
           <a href="#architecture">Architecture</a>
           <a href="#quick-start">Quick start</a>
+          <a href="#docs">Docs</a>
           <a href="#status">Status</a>
         </nav>
         <a
@@ -45,9 +42,19 @@
           href="https://github.com/ByteTheDev/TSGPUI"
           target="_blank"
           rel="noopener"
+          aria-label="GitHub"
+          title="GitHub"
         >
-          GitHub
-          <span aria-hidden="true">↗</span>
+          <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            focusable="false"
+            fill="currentColor"
+          >
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
         </a>
       </div>
     </header>
@@ -59,7 +66,7 @@
           <p class="kicker reveal">Experimental native framework</p>
           <h1 class="reveal" style="--d: 1">
             Web markup.<br />
-            <span class="gradient-text">Native pixels.</span>
+            <span class="accent">Native pixels.</span>
           </h1>
           <p class="lede reveal" style="--d: 2">
             TSGPUI transforms a supported subset of HTML and CSS into native GPUI
@@ -477,13 +484,33 @@ tsgpui dev</code></pre>
         </div>
 
         <p class="docs-links reveal">
-          Read the full
-          <a href="https://github.com/ByteTheDev/TSGPUI/tree/main/docs" target="_blank" rel="noopener">docs</a>,
-          the
+          Read the
+          <a href="#docs">full docs</a> below, the
           <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
           and the
           <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">repository</a>.
         </p>
+      </section>
+
+      <!-- Docs -->
+      <section id="docs" class="section">
+        <header class="section-head reveal">
+          <p class="kicker">Docs</p>
+          <h2>The reference, rendered here.</h2>
+          <p class="section-lede">
+            The architecture, supported syntax and safety model, read directly on this page.
+          </p>
+        </header>
+
+        <div class="tabs reveal" role="tablist" aria-label="Documentation">
+          <button type="button" role="tab" data-doc="docs/ARCHITECTURE.md" aria-selected="true" tabindex="0">Architecture</button>
+          <button type="button" role="tab" data-doc="docs/SUPPORTED_SYNTAX.md" aria-selected="false" tabindex="-1">Supported syntax</button>
+          <button type="button" role="tab" data-doc="docs/SAFETY.md" aria-selected="false" tabindex="-1">Safety</button>
+        </div>
+
+        <article class="doc-body reveal" id="doc-content" aria-live="polite">
+          <p>Loading…</p>
+        </article>
       </section>
 
       <!-- Status -->
@@ -536,20 +563,22 @@ tsgpui dev</code></pre>
       <div class="footer-inner">
         <div class="footer-brand">
           <a class="brand" href="#top" aria-label="Back to top">
-            <span class="brand-mark" aria-hidden="true"></span>
+            <img class="brand-mark" src="assets/tsgpui-logo.png" alt="" aria-hidden="true" />
             <span>TSGPUI</span>
           </a>
           <p>Web markup. Native pixels. An experimental framework.</p>
         </div>
         <nav class="footer-links" aria-label="Project links">
           <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/ByteTheDev/TSGPUI/tree/main/docs" target="_blank" rel="noopener">Docs</a>
+          <a href="#docs">Docs</a>
           <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
           <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
         </nav>
       </div>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
     <script src="script.js"></script>
+    <script src="docs.js"></script>
   </body>
 </html>
