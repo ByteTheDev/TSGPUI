@@ -51,6 +51,8 @@ export function validateConfig(raw) {
     families.add(font.family.trim());
   }
   if (raw.strictCss !== undefined && typeof raw.strictCss !== 'boolean') throw new Error('strictCss must be true or false');
+  // Opt-in persistence of the backend state across app restarts.
+  if (raw.persist !== undefined && typeof raw.persist !== 'boolean') throw new Error('persist must be true or false');
   const renderer = raw.renderer ?? 'native';
   if (!['native','webview'].includes(renderer)) throw new Error('renderer must be "native" or "webview"');
   // "unified" hides the system title bar; the app draws one and marks its drag area with data-window-drag.
@@ -60,7 +62,7 @@ export function validateConfig(raw) {
   if (!['system','unified'].includes(titlebar)) throw new Error('window.titlebar must be "system" or "unified"');
   if (!['opaque','blur'].includes(backdrop)) throw new Error('window.backdrop must be "opaque" or "blur"');
   const normalizeRoots = roots => [...new Set(roots.map(root => path.posix.normalize(root.replaceAll('\\', '/')).replace(/^\.\//, '')))];
-  return {name:raw.name,title:raw.title || raw.name,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,renderer,fontFiles,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow},window:{titlebar,backdrop}};
+  return {name:raw.name,title:raw.title || raw.name,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,fontFiles,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow},window:{titlebar,backdrop}};
 }
 function inProject(root, relative) {
   if (path.isAbsolute(relative)) throw new Error(`Absolute file path forbidden in project config: ${relative}`);
@@ -195,12 +197,15 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     name:config.name,title:config.title,
     width:config.width,height:config.height,
     root,backend_js,assets,fonts:config.fonts ?? {},
+    persist:config.persist === true,
+    dev:config.dev === true,
+    diagnostics:config.dev === true ? [...warnings] : [],
     ...(config.renderer === 'webview' ? {webview_html:webviewHtml ?? ''} : {}),
     permissions:{network_hosts:config.permissions?.networkHosts ?? [],filesystem:config.permissions?.filesystem ?? {read:[],write:[]},processes:config.permissions?.processes ?? [],notifications:config.permissions?.notifications ?? false,ipc:config.permissions?.ipc ?? false,window:config.permissions?.window ?? false},
     window:windowChrome
   };
 }
-export async function buildPackage(projectPath) {
+export async function buildPackage(projectPath, options = {}) {
   const project = await readProject(projectPath);
   const [html,css,backend] = await Promise.all([
     readFile(project.paths.html,'utf8'),readFile(project.paths.css,'utf8'),readFile(project.paths.backend,'utf8')
@@ -223,10 +228,11 @@ export async function buildPackage(projectPath) {
     }]));
     webviewHtml = await prepareWebviewHtml(html,css,{
       backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,fonts:webviewFonts,
+      persist:project.config.persist === true,
       projectRoot:project.projectRoot,htmlFile:project.paths.html,cssFile:project.paths.css,watchedAssets:watchAssets
     });
   }
-  const built = compileProject({html,css,backend,config:{...project.config,fonts},assets,compiledTree:root,warnings,webviewHtml,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
+  const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,webviewHtml,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
   const json = JSON.stringify(built);
   const bytes = Buffer.from(json,'utf8');
   if (bytes.length > 16 * 1024 * 1024) throw new Error('App bundle exceeds 16 MiB safety limit');

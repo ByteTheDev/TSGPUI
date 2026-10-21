@@ -65,6 +65,24 @@ test('Compiler creates strict package schema',()=>{
   assert.equal(doc.root.tag,'body');
   assert.ok(doc.backend_js.includes('__tsgpui_app'));
 });
+test('Compiler records dev, persistence, and diagnostics',()=>{
+  const doc=compileProject({html,css,backend,config:{...config,persist:true,dev:true},warnings:['line 1: warning']});
+  assert.equal(doc.persist,true);
+  assert.equal(doc.dev,true);
+  assert.deepEqual(doc.diagnostics,['line 1: warning']);
+  assert.equal(compileProject({html,css,backend,config}).persist,false);
+});
+test('data-fetch POST options are validated',()=>{
+  const root=parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-method="POST" data-fetch-body="payload" data-fetch-content-type="application/json" data-fetch-status-into="status" data-fetch-error-into="error">Send</button></body>');
+  assert.equal(root.children[0].attrs['data-fetch-method'],'POST');
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-body="payload">Send</button></body>'),/requires data-fetch-method/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-method="PUT">Send</button></body>'),/GET or POST/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-content-type="json">Send</button></body>'),/Invalid data-fetch-content-type/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-status-into="bad key">Send</button></body>'),/Invalid data-fetch-status-into/);
+});
+test('Config rejects a non-boolean persist option',()=>{
+  assert.throws(()=>validateConfig({name:'Good',html:'x',css:'y',backend:'z',persist:'yes'}),/persist must be true or false/);
+});
 test('Config rejects invalid paths/name/window sizes',()=>{
   assert.throws(()=>validateConfig({name:'../bad',html:'x',css:'y',backend:'z'}),/Invalid name/);
   assert.throws(()=>validateConfig({name:'Good',html:'x',css:'y',backend:'z',window:{width:-1,height:500}}),/Window dimensions/);

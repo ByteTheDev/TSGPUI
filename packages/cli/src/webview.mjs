@@ -27,13 +27,37 @@ async function assertRealInside(projectRoot, file, label) {
   }
 }
 
-function webviewRuntime() {
+function webviewRuntime(store, savedState) {
   const app = globalThis.__tsgpui_app;
   if (!app || !app.state || !app.actions) throw new Error('Backend must export { state, actions }');
   const has = (object, key) => object !== null && typeof object === 'object' && Object.prototype.hasOwnProperty.call(object, key);
   const asText = value => value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
   const report = error => console.error('TSGPUI WebView: ' + ((error && error.message) || error));
   const networkHosts = new Set(globalThis.__tsgpui_network_hosts ?? []);
+  // Keep user-changed values across a reload (session) or across restarts (persisted projects).
+  // The merge mirrors the native host: a value the user changed is kept when the new script still
+  // declares that key with the same kind of value.
+  const mergeSaved = (fresh, seed, current) => {
+    if (JSON.stringify(seed) === JSON.stringify(current)) return fresh;
+    if (Array.isArray(fresh) && Array.isArray(current)) return current;
+    if (fresh !== null && typeof fresh === 'object' && current !== null && typeof current === 'object'
+        && !Array.isArray(fresh) && !Array.isArray(current)) {
+      const merged = {};
+      for (const key of Object.keys(fresh)) {
+        merged[key] = has(current,key) ? mergeSaved(fresh[key], seed && has(seed,key) ? seed[key] : undefined, current[key]) : fresh[key];
+      }
+      return merged;
+    }
+    // A shape change (object to array, or array to object) keeps the new default.
+    if (Array.isArray(fresh) !== Array.isArray(current)) return fresh;
+    return typeof fresh === typeof current ? current : fresh;
+  };
+  const saved = savedState && typeof savedState === 'object' ? mergeSaved(app.state, app.state, savedState) : null;
+  if (saved) app.state = saved;
+  const saveState = () => {
+    if (!store) return;
+    try { store.setItem('tsgpui:state', JSON.stringify(app.state)); } catch (_error) { /* quota or disabled storage */ }
+  };
   const getPath = key => key.split('.').reduce((value, part) => {
     if (Array.isArray(value)) return /^\d+$/.test(part) ? value[Number(part)] : undefined;
     return value !== null && typeof value === 'object' ? value[part] : undefined;
@@ -93,6 +117,7 @@ function webviewRuntime() {
         if (element.value !== text) element.value = text;
       } else element.textContent = asText(value);
     }
+    saveState();
   }
   const eventValue = element => element instanceof HTMLInputElement && element.type === 'checkbox'
     ? element.checked
@@ -184,20 +209,45 @@ function webviewRuntime() {
       event.preventDefault();
       const target = button.getAttribute('data-fetch-into');
       if (!target) { report(new Error('data-fetch requires data-fetch-into')); return; }
+      const method = (button.getAttribute('data-fetch-method') || 'GET').toUpperCase();
+      if (method !== 'GET' && method !== 'POST') { report(new Error('data-fetch-method must be GET or POST')); return; }
+      const bodyKey = button.getAttribute('data-fetch-body');
+      const contentType = button.getAttribute('data-fetch-content-type');
+      const statusKey = button.getAttribute('data-fetch-status-into');
+      const errorKey = button.getAttribute('data-fetch-error-into');
       let url;
       try { url = new URL(fetchUrl); } catch (_error) { report(new Error('Invalid fetch URL')); return; }
       if (url.protocol !== 'https:' || url.port && url.port !== '443' || url.username || url.password || url.hash || !networkHosts.has(url.hostname.toLowerCase())) {
         report(new Error('Network host is not permitted: ' + fetchUrl)); return;
       }
+      const setKey = (key, value) => {
+        if (!key) return;
+        try { setPath(key, value); } catch (error) { report(error); }
+      };
       const controller = new AbortController(), timer = setTimeout(() => controller.abort(),15000);
-      fetch(url.href, {redirect:'error',credentials:'omit',signal:controller.signal}).then(response => {
+      const init = {method, redirect:'error', credentials:'omit', signal:controller.signal};
+      if (method === 'POST') {
+        let body = '';
+        if (bodyKey) {
+          const value = getPath(bodyKey);
+          body = typeof value === 'string' ? value : JSON.stringify(value ?? null);
+        }
+        if (new TextEncoder().encode(body).length > 1024 * 1024) { report(new Error('Network request body exceeds 1 MiB')); clearTimeout(timer); return; }
+        init.body = body;
+        if (contentType) init.headers = {'Content-Type': contentType};
+      }
+      fetch(url.href, init).then(response => {
+        setKey(statusKey, response.status);
         if (!response.ok) throw new Error('HTTP status ' + response.status);
         if (Number(response.headers.get('content-length')) > 1024 * 1024) throw new Error('Network response exceeds 1 MiB');
         return response.text();
       }).then(text => {
         if (new TextEncoder().encode(text).length > 1024 * 1024) throw new Error('Network response exceeds 1 MiB');
-        setPath(target, text); render();
-      }).catch(report).finally(() => clearTimeout(timer));
+        setKey(target, text); setKey(errorKey, ''); render();
+      }).catch(error => {
+        setKey(errorKey, String((error && error.message) || error)); render();
+        report(error);
+      }).finally(() => clearTimeout(timer));
     }
   });
   render();
@@ -323,7 +373,7 @@ async function inlineHtmlUrls(html, options) {
 }
 
 /** Inline local web assets so the packaged document renders without a project directory. */
-export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, projectRoot, htmlFile, cssFile, watchedAssets} = {}) {
+export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, persist = false, projectRoot, htmlFile, cssFile, watchedAssets} = {}) {
   const cache = new Map();
   if (projectRoot && htmlFile) html = await inlineHtmlUrls(html,{projectRoot,baseFile:htmlFile,cache,watchedAssets});
   if (projectRoot && cssFile) css = await inlineCssUrls(css,{projectRoot,baseFile:cssFile,cache,watchedAssets});
@@ -360,7 +410,7 @@ export async function prepareWebviewHtml(html, css, {backendJs, title, networkHo
     return `@font-face{font-family:"${safeFamily}";src:url(data:${mime};base64,${data}) format("${format}")}`;
   }).join('\n');
   const style = `<style data-tsgpui="source-css">${escapeStyleEnd(`${embeddedFonts}\n${css}`)}</style>`;
-  const bootstrap = `<script data-tsgpui="backend">(()=>{document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];new Function(...hidden,source)(...hidden.map(()=>undefined));(${webviewRuntime.toString()})();})();</script>`;
+  const bootstrap = `<script data-tsgpui="backend">(()=>{document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];const store=(()=>{try{return ${persist ? 'window.localStorage' : 'window.sessionStorage'}}catch(_error){return null}})();let saved=null;try{saved=JSON.parse(store&&store.getItem('tsgpui:state')||'null')}catch(_error){}new Function(...hidden,source)(...hidden.map(()=>undefined));window.addEventListener('beforeunload',()=>{try{store&&store.setItem('tsgpui:state',JSON.stringify(globalThis.__tsgpui_app.state))}catch(_error){}});(${webviewRuntime.toString()})(store,saved);})();</script>`;
   const headEnd = findHtmlTag(html,'head',true), headStart = findHtmlTag(html,'head'), htmlStart = findHtmlTag(html,'html');
   if (headEnd) html = html.slice(0,headEnd.index) + style + html.slice(headEnd.index);
   else if (headStart) {

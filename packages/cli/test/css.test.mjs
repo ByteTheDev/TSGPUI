@@ -218,3 +218,21 @@ test('margin accepts auto for centering, padding does not', () => {
   assert.equal(firstChild(root).style['margin-right'], 'auto');
   assert.match(warnings[0], /needs a length in px, rem, em or %/);
 });
+
+test('viewport units are preserved for the host to resolve', () => {
+  const { root, warnings } = style('main { width: 50vw; height: 25vh; font-size: 2vmin; gap: 3vmax; }');
+  const main = firstChild(root).style;
+  assert.equal(main.width, '50vw');
+  assert.equal(main.height, '25vh');
+  assert.equal(main['font-size'], '2vmin');
+  assert.equal(main.gap, '3vmax');
+  assert.deepEqual(warnings, []);
+});
+
+test('z-index is accepted and auto is omitted', () => {
+  const { root, warnings } = style('main { z-index: 4; } .x { z-index: -2; } .y { z-index: auto; }', '<body><main><p class="x">One</p><p class="y">Two</p></main></body>');
+  assert.equal(firstChild(root).style['z-index'], '4');
+  assert.deepEqual(warnings, []);
+  assert.equal(firstChild(root).children[0].style['z-index'], '-2');
+  assert.equal(firstChild(root).children[1].style['z-index'], undefined);
+});

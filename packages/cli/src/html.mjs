@@ -15,6 +15,7 @@ const ALLOWED_ATTRS = new Set([
   'alt', 'src', 'for', 'data-shortcut', 'data-component', 'component', 'selected',
   'data-clipboard-copy', 'data-clipboard-paste', 'data-file-open', 'data-file-read', 'data-file-save',
   'data-confirm', 'data-fetch', 'data-fetch-into', 'slot', 'data-virtual',
+  'data-fetch-method', 'data-fetch-body', 'data-fetch-content-type', 'data-fetch-status-into', 'data-fetch-error-into',
   'data-window-drag', 'data-window-control', 'data-app-menu', 'data-contextmenu', 'data-ondrop'
 ]);
 const WINDOW_CONTROLS = ['minimize', 'maximize', 'close'];
@@ -78,6 +79,15 @@ function readAttributes(src) {
   if (attrs['data-fetch-into'] && !BIND_RE.test(attrs['data-fetch-into'])) throw new Error(`Invalid data-fetch-into state key: ${attrs['data-fetch-into']}`);
   if (attrs['data-fetch'] && !attrs['data-fetch-into']) throw new Error('data-fetch requires data-fetch-into');
   if (attrs['data-fetch-into'] && !attrs['data-fetch']) throw new Error('data-fetch-into requires data-fetch');
+  for (const name of ['data-fetch-body', 'data-fetch-status-into', 'data-fetch-error-into']) {
+    if (attrs[name] && !BIND_RE.test(attrs[name])) throw new Error(`Invalid ${name} state key: ${attrs[name]}`);
+  }
+  if (attrs['data-fetch-method'] && !['GET', 'POST'].includes(attrs['data-fetch-method'].toUpperCase())) throw new Error('data-fetch-method must be GET or POST');
+  if (attrs['data-fetch-content-type'] && !/^[-\w.+]+\/[-\w.+]+(?:\s*;\s*charset=[-\w]+)?$/i.test(attrs['data-fetch-content-type'].trim())) throw new Error(`Invalid data-fetch-content-type: ${attrs['data-fetch-content-type']}`);
+  const fetchModifiers = ['data-fetch-method', 'data-fetch-body', 'data-fetch-content-type', 'data-fetch-status-into', 'data-fetch-error-into'];
+  const usedFetchModifier = fetchModifiers.find(name => attrs[name] !== undefined);
+  if (usedFetchModifier && !attrs['data-fetch']) throw new Error(`${usedFetchModifier} requires data-fetch`);
+  if (attrs['data-fetch-body'] && (attrs['data-fetch-method'] ?? 'GET').toUpperCase() !== 'POST') throw new Error('data-fetch-body requires data-fetch-method="POST"');
   if (attrs['data-file-read'] && !BIND_RE.test(attrs['data-file-read'])) throw new Error(`Invalid data-file-read state key: ${attrs['data-file-read']}`);
   if (attrs['data-file-save'] && !BIND_RE.test(attrs['data-file-save'])) throw new Error(`Invalid data-file-save state key: ${attrs['data-file-save']}`);
   if (attrs['data-file-read'] && !attrs['data-file-open']) throw new Error('data-file-read requires data-file-open');
@@ -111,7 +121,7 @@ function checkNode(node, parent, inComponent) {
   if (node.attrs['data-component'] && node.tag !== 'template') throw new Error('data-component only applies to <template>');
   if (node.attrs.component && node.tag !== 'use') throw new Error('component only applies to <use>');
   if (Object.keys(node.attrs).some(name => name.startsWith('data-prop-')) && node.tag !== 'use') throw new Error('data-prop-* attributes only apply to <use>');
-  for (const name of ['data-clipboard-copy', 'data-clipboard-paste', 'data-file-open', 'data-file-read', 'data-file-save', 'data-confirm', 'data-fetch', 'data-fetch-into']) {
+  for (const name of ['data-clipboard-copy', 'data-clipboard-paste', 'data-file-open', 'data-file-read', 'data-file-save', 'data-confirm', 'data-fetch', 'data-fetch-into', 'data-fetch-method', 'data-fetch-body', 'data-fetch-content-type', 'data-fetch-status-into', 'data-fetch-error-into']) {
     if (node.attrs[name] && node.tag !== 'button') throw new Error(`${name} only applies to <button>`);
   }
   if (node.tag === 'button' && node.attrs.type && !['button','submit'].includes(node.attrs.type)) throw new Error(`Unsupported button type '${node.attrs.type}'`);

@@ -19,7 +19,7 @@ const STATE_PROPERTIES = new Set(['background', 'color', 'border-color', 'border
 const INHERITED = ['color', 'font-size', 'font-weight', 'font-family', 'font-style', 'line-height', 'text-align', 'cursor', 'white-space'];
 // Known web properties that TSGPUI does not render yet. They are reported, never silently dropped.
 const UNSUPPORTED = new Set([
-  'transition', 'transform', 'animation', 'filter', 'backdrop-filter', 'letter-spacing', 'z-index',
+  'transition', 'transform', 'animation', 'filter', 'backdrop-filter', 'letter-spacing',
   'visibility', 'pointer-events', 'user-select', 'text-decoration', 'text-transform', 'outline',
   'will-change', 'vertical-align', 'float', 'clear', 'overflow-x', 'overflow-y',
   'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
@@ -78,14 +78,14 @@ function oneOf(prop, value, allowed) {
 function length(prop, value, { percent = false, auto = false, negative = false } = {}) {
   if (auto && value === 'auto') return 'auto';
   if (value === '0') return '0px';
-  const match = /^(-?\d*\.?\d+)(px|rem|em|%)$/.exec(value);
-  if (!match) throw new Error(`'${prop}: ${value}' needs a length in px, rem, em${percent ? ' or %' : ''}`);
+  const match = /^(-?\d*\.?\d+)(px|rem|em|%|vw|vh|vmin|vmax)$/.exec(value);
+  if (!match) throw new Error(`'${prop}: ${value}' needs a length in px, rem, em or % (vw, vh, vmin and vmax are also accepted)`);
   let amount = Number(match[1]);
   const unit = match[2];
   if (unit === '%' && !percent) throw new Error(`'${prop}' does not accept %`);
   if (amount < 0 && !negative) throw new Error(`'${prop}: ${value}' must not be negative`);
-  if (unit === 'rem' || unit === 'em') amount *= ROOT_FONT_PX;
-  return `${num(amount)}${unit === '%' ? '%' : 'px'}`;
+  if (unit === 'rem' || unit === 'em') return `${num(amount * ROOT_FONT_PX)}px`;
+  return `${num(amount)}${unit}`;
 }
 
 function number(prop, value) {
@@ -268,6 +268,13 @@ const HANDLERS = {
   overflow: v => [['overflow', oneOf('overflow', v, ['visible', 'hidden', 'scroll', 'auto'])]],
   'grid-template-columns': v => [['grid-template-columns', gridTracks('grid-template-columns', v)]],
   'grid-template-rows': v => [['grid-template-rows', gridTracks('grid-template-rows', v)]],
+  // The native renderer paints absolutely positioned siblings in z-index order. It does not create
+  // stacking contexts, so the value is a sibling ordering hint rather than full CSS stacking.
+  'z-index': v => {
+    if (v === 'auto') return [];
+    if (!/^-?\d+$/.test(v)) throw new Error(`'z-index: ${v}' needs an integer or auto`);
+    return [['z-index', String(Number(v))]];
+  },
   opacity: v => {
     const amount = Number(v);
     if (!/^(\d*\.?\d+|1(\.0+)?)$/.test(v) || amount < 0 || amount > 1) throw new Error(`Unsupported opacity '${v}'`);

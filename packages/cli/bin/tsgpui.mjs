@@ -94,6 +94,20 @@ function runHost(host,bundleFile) {
   child.on('error',e => console.error(`TSGPUI host failed: ${e.message}`));
   return child;
 }
+// A failed compile cannot replace the bundle, so leave a sidecar that the running host watches.
+function buildErrorPath(project,bundleFile) {
+  return bundleFile ? `${bundleFile}.error` : path.join(project.paths.outDir,`${project.config.name}.tgp.error`);
+}
+async function writeBuildError(file,error) {
+  try {
+    await mkdir(path.dirname(file),{recursive:true});
+    await writeFile(file,error?.message || String(error));
+  } catch(e) {console.error(`Unable to write build error: ${e.message}`);}
+}
+async function clearBuildError(file) {
+  try {await fs.promises.unlink(file);}
+  catch(e) {if(e.code !== 'ENOENT') console.error(`Unable to clear build error: ${e.message}`);}
+}
 async function dev() {
   const project = await readProject(projectDir());
   let activeRenderer = project.config.renderer;
@@ -116,8 +130,11 @@ async function dev() {
   async function rebuild() {
     if (refreshing) {queued=true;return;}
     refreshing=true;
+    let errorFile=buildErrorPath(project);
     try {
-      const output=await buildPackage(project.projectRoot);
+      const output=await buildPackage(project.projectRoot,{dev:true});
+      errorFile=buildErrorPath(output,output.bundleFile);
+      await clearBuildError(errorFile);
       printWarnings(output.warnings);
       await refreshWatchers(output.watchAssets ?? Object.keys(output.bundle.assets));
       const rendererChanged = output.bundle.renderer !== activeRenderer;
@@ -129,7 +146,21 @@ async function dev() {
       const launch = rendererChanged || !child || child.exitCode !== null;
       if (launch) child=runHost(host,output.bundleFile);
       console.log(`${activeRenderer} dev: ${launch ? 'launched' : 'updated'} ${output.bundleFile}`);
-    } catch(e) {console.error(`Build failed: ${e.message}`);}
+    } catch(e) {
+      console.error(`Build failed: ${e.message}`);
+      await writeBuildError(errorFile,e);
+      // With no running window yet, open the last good bundle so the error is visible in-app.
+      if (!child && errorFile.endsWith('.error')) {
+        const lastBundle=errorFile.slice(0,-'.error'.length);
+        if (fs.existsSync(lastBundle)) {
+          try {
+            host=await hostPath(true,activeRenderer);
+            child=runHost(host,lastBundle);
+            console.log(`Build failed; showing the last successful build from ${lastBundle}.`);
+          } catch(hostError) {console.error(`Unable to open the last build: ${hostError.message}`);}
+        }
+      }
+    }
     finally {refreshing=false;if(queued){queued=false;await rebuild();}}
   }
   await rebuild();
