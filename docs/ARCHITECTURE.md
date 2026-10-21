@@ -2,27 +2,38 @@
 
 ## Source pipeline
 
-1. Parse the supported HTML subset into a keyed tree. Expand static components and collect image paths.
-2. Parse CSS with PostCSS, reject unknown syntax, resolve selector specificity, and retain media rules for native resize handling.
-3. Transpile the single-file TypeScript backend to JavaScript.
-4. Emit a UTF-8 JSON `.tgp` bundle containing the tree, styles, embedded images, backend script, and explicit network host permissions.
-5. The GPUI host loads the bundle, initializes embedded QuickJS, and renders the tree with native GPU-backed elements.
-6. Controls dispatch actions and immutable event data to QuickJS. State changes redraw the native view.
-7. Release packaging appends `[bundle][u64 LE length][TSGPUI01]` to a prebuilt host executable. The packaged app does not need Node or Bun at runtime.
+The `renderer` setting selects one of two paths:
+
+- `native` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render GPUI elements. Actions run in embedded QuickJS.
+- `webview`: keep the original HTML and CSS, inline local assets, and render them with the operating system's WebView engine through Wry. The compiled backend script runs in that page, which also supports the basic TSGPUI data bindings.
+
+Both paths transpile the single-file TypeScript backend and emit a UTF-8 JSON `.tgp` bundle. Release packaging appends `[bundle][u64 LE length][TSGPUI01]` to the matching prebuilt host executable. Packaged apps do not need Node or Bun at runtime.
+
+## Native host modules
+
+The GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`.
 
 ## Build and development
 
-Build the native host with `cargo build --release` when Rust host code changes. HTML, CSS, TypeScript, and image changes only rebuild the `.tgp` bundle.
+Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle.
 
-`tsgpui dev` watches the configured source files and rewrites the bundle. The existing GPUI process polls the bundle and replaces the view when it changes, so the window stays open. The backend state resets on each reload; preserving state across edits is not implemented.
+`tsgpui dev` watches the configured source files and rewrites the bundle. Both host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the WebView host stores state in `sessionStorage` and restores it after the page reloads (or in `localStorage` when `persist` is enabled). A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. Native `tsgpui preview` preserves state on reload; a WebView preview reloads the raw document and resets state.
 
 ## Native controls and capabilities
 
-The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Editable text is handled by a small key-driven control; IME composition, visible caret painting, and full native selection behavior are still future work. Selects cycle through options instead of opening a native dropdown.
+The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Single-line `<input>` fields register with GPUI's text input handler, so platform text input and IME composition go through the OS text services. They draw a blinking caret and selection highlight, support mouse click and drag selection, Shift+arrow, Home/End, word-wise navigation and deletion, Ctrl/Cmd+A/C/X/V/Z, Shift+Ctrl/Cmd+Z, Ctrl/Cmd+Y, and Backspace/Delete. Undo history is bounded and kept per field. Caret and selection are measured with the element's inherited text style. Double-click selects a word. Multi-line `<textarea>` fields share the same path: each logical line is shaped to the field width in GPUI's text system, and paint draws the selection, text, and caret from that layout, so positions match what is drawn. The field scrolls with the wheel and keeps the caret in view.
 
-The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet.
+Application menus are declared in the document and installed through GPUI's application menu API. Menu actions and shortcuts dispatch through the backend action path. Context menus render as host popups; disabled entries work there. Native application menu items cannot currently be disabled, and checked menu items are not supported. Elements with `data-ondrop` receive user-dropped local file paths and names through GPUI's `ExternalPaths`; the host does not read file contents.
 
-Clipboard actions run only after a button click. File reads and writes require the native file picker/save dialog, operate on the user-selected path, and are limited to 1 MiB. Network actions are user-initiated HTTPS GETs to exact hosts listed in `permissions.network`; redirects are disabled, requests time out after 15 seconds, and responses are limited to 1 MiB. Backend JavaScript does not receive a general filesystem or `fetch` API.
+Lists marked `data-virtual` become GPUI uniform lists, so only the visible rows are built. A unified title bar is an app-drawn bar with `appears_transparent`. Its drag area and window buttons are reported to Windows as caption and caption-button hit regions, so no control can sit inside a drag area. An optional blurred backdrop uses GPUI's `Blurred` background, which Windows applies only on some systems. Selects open a positioned native popup with the current option marked; Up/Down keys change the value directly.
+
+The development overlay is host UI drawn above the document. `F12` or `Ctrl+Shift+I` toggles it, and the inspector mode disables app controls while a click selects the deepest element and records its attributes, computed style, and state styles. A stale element selection is cleared on reload.
+
+With `"persist": true`, a background task serializes backend state every 400 ms when it changes, caps it at 256 KiB, and writes it through a temporary file plus rename. Startup merges the saved values with the script's current defaults through the same compatibility rules as hot reload.
+
+The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet. The WebView path uses the platform browser accessibility behavior.
+
+Clipboard actions run only after a button click. File reads and writes require the native file picker/save dialog, operate on the user-selected path, and are limited to 1 MiB. Network actions are user-initiated HTTPS requests to exact hosts listed in `permissions.network`; GET and POST are supported, callers can send a state value as JSON or text, redirects are disabled, requests time out after 15 seconds, and request and response bodies are limited to 1 MiB. Backend JavaScript does not receive a general filesystem or `fetch` API.
 
 ## Backend design
 
@@ -36,18 +47,17 @@ A packaged application consists of the native executable followed by JSON bytes,
 
 ## Remaining roadmap
 
-1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux.
-2. Replace the lightweight text controls with native text editing and a popup select component.
-3. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
-4. Add list virtualization, exact mixed grid track sizing, and more CSS layout properties.
-5. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
-6. Preserve app state across development reloads and add executable signing/update support.
+1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. The Windows interaction checks so far were done by hand with a screenshot harness and are not yet automated.
+2. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
+3. Improve the native layout model: exact `fr` proportions and placement, stacking contexts beyond sibling paint order, and more CSS layout properties. CSS transitions, animations, and element transforms need a GPUI animation/drawing primitive that 0.2.2 does not expose, so the native renderer reports them as unsupported; use the WebView renderer for motion.
+4. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
+5. Add a native code editor or terminal component for apps that need one, and executable signing/update support.
 
 ## Alternatives considered
 
 - Rewriting GPUI in TypeScript would abandon the existing native renderer and require a complete GUI toolkit.
 - Transpiling arbitrary TypeScript to Rust is not practical with broad JavaScript semantics.
-- Embedding a WebView would defeat the native rendering goal.
+- A WebView cannot provide the native-rendering benefits of the GPUI path; it is available as an opt-in choice when browser fidelity matters more.
 - Recompiling Rust for every developer edit is much slower than reusing one host executable.
 
-The current design keeps the renderer native and keeps app iteration fast, with a small documented browser subset and explicit host capabilities.
+The default design keeps rendering native and iteration fast, with a documented browser subset and explicit host capabilities. The optional WebView path trades native rendering for browser-level layout and CSS support.

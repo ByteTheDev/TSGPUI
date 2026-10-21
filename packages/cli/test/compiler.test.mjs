@@ -5,7 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
 import { parseHTML } from '../src/html.mjs';
-import { compileCSS, styleTree } from '../src/css.mjs';
+import { compileCSS, compileStylesheet, styleTree } from '../src/css.mjs';
 import { compileBackend } from '../src/backend.mjs';
 import { compileProject, buildPackage, validateConfig } from '../src/compiler.mjs';
 import {packageExecutable,extractEmbeddedBundleForTest,MAGIC} from '../src/pack.mjs';
@@ -32,17 +32,19 @@ test('HTML decodes text entities',()=>{
 });
 test('CSS class and descendant selectors apply with CSS specificity and inherited color',()=>{
   const root=styleTree(parseHTML(html),compileCSS(css));
-  assert.equal(root.style.color,'#fff');
+  assert.equal(root.style.color,'#ffffff');
   const main=root.children[0],btn=main.children[1];
   assert.equal(main.style.gap,'12px');
   assert.equal(btn.style.color,'#abcdef');
   assert.equal(btn.style.padding,'10px');
-  assert.equal(main.children[0].style.color,'#fff');
+  assert.equal(main.children[0].style.color,'#ffffff');
 });
-test('CSS unsupported properties and selectors fail loudly',()=>{
-  assert.throws(()=>compileCSS('p{position: absolute}'),/Unsupported CSS property/);
-  assert.throws(()=>compileCSS('p:hover{color:#ffffff}'),/Unsupported CSS selector/);
-  assert.throws(()=>compileCSS('p{padding:calc(3px + 2px)}'),/needs a nonnegative px/);
+test('CSS unsupported declarations are warnings by default and errors in strict mode',()=>{
+  const lenient=compileStylesheet('p{transition: all 1s; color: #fff} p{calc: nope}');
+  assert.equal(lenient.rules.length,2);
+  assert.match(lenient.warnings[0],/line 1: 'transition' is not supported yet/);
+  assert.match(lenient.warnings[1],/unknown CSS property 'calc'/);
+  assert.throws(()=>compileStylesheet('p{transition: all 1s}',{strict:true}),/'transition' is not supported yet/);
 });
 test('Backend transpiles TS and actions mutate state in a JS VM',()=>{
   const js=compileBackend(`type S = {count:number}; const app: S = {count:0}; export default {state:app,actions:{increment(api: any){api.set('count',api.get('count')+1)}}};`);
@@ -62,6 +64,24 @@ test('Compiler creates strict package schema',()=>{
   assert.equal(doc.format,'tsgpui-1');
   assert.equal(doc.root.tag,'body');
   assert.ok(doc.backend_js.includes('__tsgpui_app'));
+});
+test('Compiler records dev, persistence, and diagnostics',()=>{
+  const doc=compileProject({html,css,backend,config:{...config,persist:true,dev:true},warnings:['line 1: warning']});
+  assert.equal(doc.persist,true);
+  assert.equal(doc.dev,true);
+  assert.deepEqual(doc.diagnostics,['line 1: warning']);
+  assert.equal(compileProject({html,css,backend,config}).persist,false);
+});
+test('data-fetch POST options are validated',()=>{
+  const root=parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-method="POST" data-fetch-body="payload" data-fetch-content-type="application/json" data-fetch-status-into="status" data-fetch-error-into="error">Send</button></body>');
+  assert.equal(root.children[0].attrs['data-fetch-method'],'POST');
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-body="payload">Send</button></body>'),/requires data-fetch-method/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-method="PUT">Send</button></body>'),/GET or POST/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-content-type="json">Send</button></body>'),/Invalid data-fetch-content-type/);
+  assert.throws(()=>parseHTML('<body><button data-fetch="https://api.example.com/x" data-fetch-into="out" data-fetch-status-into="bad key">Send</button></body>'),/Invalid data-fetch-status-into/);
+});
+test('Config rejects a non-boolean persist option',()=>{
+  assert.throws(()=>validateConfig({name:'Good',html:'x',css:'y',backend:'z',persist:'yes'}),/persist must be true or false/);
 });
 test('Config rejects invalid paths/name/window sizes',()=>{
   assert.throws(()=>validateConfig({name:'../bad',html:'x',css:'y',backend:'z'}),/Invalid name/);

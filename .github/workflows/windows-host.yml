@@ -20,6 +20,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      - name: Test GPUI host
+        run: cargo test --manifest-path native/Cargo.toml
       - name: Build GPUI host
         run: cargo build --manifest-path native/Cargo.toml --release
       - name: Save SHA-256 hash

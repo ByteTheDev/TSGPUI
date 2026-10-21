@@ -1,19 +1,40 @@
 [package]
 name = "tsgpui-host"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
-description = "Reusable GPU-native host for HTML/CSS/TypeScript TSGPUI bundles"
+description = "Native GPUI and system WebView hosts for TSGPUI bundles"
+
+[features]
+default = ["native-host"]
+native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest"]
+webview-host = ["dep:gtk", "dep:tao", "dep:wry"]
+
+[[bin]]
+name = "tsgpui-host"
+path = "src/main.rs"
+required-features = ["native-host"]
+
+[[bin]]
+name = "tsgpui-webview-host"
+path = "src/webview_main.rs"
+required-features = ["webview-host"]
 
 [dependencies]
-base64 = "=0.22.1"
+base64 = { version = "=0.22.1", optional = true }
 anyhow = "=1.0.104"
-futures = "=0.3.34"
-gpui = "=0.2.2"
-rquickjs = "=0.14.0"
+futures = { version = "=0.3.34", optional = true }
+gpui = { version = "=0.2.2", optional = true }
+notify-rust = { version = "=4.18.2", optional = true }
+rquickjs = { version = "=0.14.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zed-reqwest = { version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"] }
+zed-reqwest = { version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+tao = { version = "=0.37.1", optional = true }
+wry = { version = "=0.57.0", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "=0.18.2", optional = true }
 
 [profile.release]
 lto = "thin"
@@ -21,5 +42,5 @@ codegen-units = 1
 strip = "symbols"
 opt-level = "s"
 
-# Windows: native host uses the GPUI Windows platform backend.
-# Build tools (MSVC + Rust) are required ONLY to build the host, not each app.
+# The host is compiled for the target OS and architecture. Windows builds use MSVC; macOS builds
+# use the Apple toolchain provided by Xcode. End users need neither Rust nor Bun/Node to run a bundle.

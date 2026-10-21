@@ -1,0 +1,13 @@
+{
+  "name": "tsgpui-notes",
+  "title": "TSGPUI • Notes",
+  "renderer": "native",
+  "window": {"width": 900, "height": 600},
+  "html": "src/index.html",
+  "css": "src/styles.css",
+  "backend": "src/backend.ts",
+  "outDir": "dist",
+  "permissions": {
+    "filesystem": {"read": ["notes"], "write": ["notes"]}
+  }
+}

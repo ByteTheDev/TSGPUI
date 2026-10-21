@@ -1,0 +1,54 @@
+name: Build TSGPUI macOS app
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/**'
+      - 'packages/**'
+      - 'examples/**'
+      - 'package.json'
+      - '.github/workflows/macos-app.yml'
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'packages/**'
+      - 'examples/**'
+      - 'package.json'
+      - '.github/workflows/macos-app.yml'
+permissions:
+  contents: read
+jobs:
+  macos-app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install dependencies
+        run: bun install
+      - name: Build and package native host
+        run: |
+          bun run gpui:host
+          bun run gpui
+      - name: Archive app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent examples/counter/dist/tsgpui-counter.app examples/counter/dist/tsgpui-counter-macos-${{ matrix.arch }}.zip
+      - name: Generate SHA-256 checksum
+        run: shasum -a 256 examples/counter/dist/tsgpui-counter-macos-${{ matrix.arch }}.zip > examples/counter/dist/tsgpui-counter-macos-${{ matrix.arch }}.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsgpui-counter-macos-${{ matrix.arch }}
+          path: |
+            examples/counter/dist/tsgpui-counter-macos-${{ matrix.arch }}.zip
+            examples/counter/dist/tsgpui-counter-macos-${{ matrix.arch }}.zip.sha256
+          if-no-files-found: error
