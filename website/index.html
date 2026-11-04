@@ -79,6 +79,7 @@
               <span class="arrow" aria-hidden="true">→</span>
             </a>
             <a class="btn btn-ghost" href="#demo">See the demo</a>
+            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/tsgpui" target="_blank" rel="noopener">Install from npm</a>
           </div>
 
           <dl class="compare reveal" style="--d: 4">
@@ -469,6 +470,20 @@ bun run gpui:compile</code></pre>
           </div>
 
           <div class="step reveal">
+            <h3>Or install the CLI from npm</h3>
+            <div class="codeblock">
+              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/tsgpui&#10;tsgpui --version" aria-label="Copy install command">Copy</button>
+              <pre><code>bun install -g @bytethedeveloper/tsgpui
+tsgpui --version</code></pre>
+            </div>
+            <p>
+              <code>-g</code> installs <code>tsgpui</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
+              npm works too: <code>npm install -g @bytethedeveloper/tsgpui</code>.
+              <a href="https://www.npmjs.com/package/@bytethedeveloper/tsgpui" target="_blank" rel="noopener">View the package on npm</a>.
+            </p>
+          </div>
+
+          <div class="step reveal">
             <h3>Or start a new project with the CLI</h3>
             <div class="codeblock">
               <button type="button" class="copy" data-copy-text="tsgpui init my-app&#10;cd my-app&#10;tsgpui dev" aria-label="Copy CLI commands">Copy</button>
@@ -530,9 +545,13 @@ tsgpui dev</code></pre>
             <h3>Works today</h3>
             <ul>
               <li>Strict HTML subset with <code>class</code>, <code>id</code>, <code>data-bind</code> and <code>data-onclick</code></li>
+              <li>Forms, text inputs, textareas and keyboard editing</li>
+              <li>Images, repeated data lists and optional virtual scrolling</li>
+              <li>Media queries that update when the window is resized</li>
               <li>CSS with element, class, id and compound selectors, specificity and inheritance</li>
-              <li>Flex and grid layout, px sizing, hex colours and bold weights</li>
+              <li>Flex and grid layout, including mixed <code>px</code>/<code>fr</code> tracks</li>
               <li>Synchronous backend actions with <code>get</code>, <code>set</code> and <code>update</code></li>
+              <li>Confirmation prompts, clipboard, file access and allowlisted network requests</li>
               <li>Compile-time <code>&lt;template&gt;</code> components</li>
               <li>Single-executable packaging with the appended bundle</li>
             </ul>
@@ -540,21 +559,19 @@ tsgpui dev</code></pre>
           <div class="status-col reveal" style="--d: 1">
             <h3>Not yet</h3>
             <ul>
-              <li>Forms, text input and keyboard handling</li>
-              <li>Images and dynamic data lists</li>
-              <li>Media queries that respond to window resizing</li>
-              <li>Exact mixed <code>fr</code> and <code>px</code> grid sizing</li>
-              <li>Dialogs, clipboard, file access and network requests</li>
-              <li>Hard CPU-time limits, or isolation for untrusted backend code</li>
-              <li>Signed, encrypted or tamper-proof packages</li>
+              <li>General-purpose native dialogs beyond confirmation and file picker prompts</li>
+              <li>Unequal sizing for pure <code>fr</code> grid tracks and explicit grid placement</li>
+              <li>Sandbox isolation for untrusted backend code; execution time and heap limits are not a sandbox</li>
+              <li>Built-in signing, encryption or tamper-proof packages</li>
             </ul>
           </div>
         </div>
 
         <div class="notice reveal">
           <p>
-            Only run backend code you trust. The container format is a prototype, and
-            the Windows host is still being validated through CI.
+            Only run backend code you trust: execution limits are not a sandbox. The
+            container format is a prototype, and the Windows host is still being
+            validated through CI.
           </p>
         </div>
       </section>

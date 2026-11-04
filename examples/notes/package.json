@@ -9,6 +9,6 @@
     "gpui:compile": "tsgpui compile"
   },
   "devDependencies": {
-    "@rs/tsgpui": "workspace:*"
+    "@bytethedeveloper/tsgpui": "workspace:*"
   }
 }

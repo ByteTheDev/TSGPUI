@@ -8,7 +8,7 @@ import { parseHTML } from '../src/html.mjs';
 import { compileCSS, compileStylesheet, styleTree } from '../src/css.mjs';
 import { compileBackend } from '../src/backend.mjs';
 import { compileProject, buildPackage, validateConfig } from '../src/compiler.mjs';
-import {packageExecutable,extractEmbeddedBundleForTest,MAGIC} from '../src/pack.mjs';
+import {packageExecutable,packageMacApp,extractEmbeddedBundleForTest,MAGIC} from '../src/pack.mjs';
 
 const html='<body><main class="card"><h1>Hi</h1><button id="go" data-onclick="increment">Go</button><span data-bind="count">0</span></main></body>';
 const css='body { color:#fff; } .card { display:flex; gap:12px; } .card button { color:#abcdef; } #go { padding:10px; }';
@@ -29,6 +29,13 @@ test('HTML rejects scripts, duplicate IDs, and unsupported attributes',()=>{
 test('HTML decodes text entities',()=>{
   const root=parseHTML('<body><p>A &amp; B &#10003;</p></body>');
   assert.equal(root.children[0].children[0].text,'A & B ✓');
+});
+test('a > inside a quoted attribute value does not end the tag',()=>{
+  const root=parseHTML('<body><button title="Next > page" data-onclick="next">Next</button><p aria-label=\'a > b\'>3 &gt; 2</p></body>');
+  assert.equal(root.children[0].attrs.title,'Next > page');
+  assert.equal(root.children[0].attrs['data-onclick'],'next');
+  assert.equal(root.children[1].attrs['aria-label'],'a > b');
+  assert.equal(root.children[1].children[0].text,'3 > 2');
 });
 test('CSS class and descendant selectors apply with CSS specificity and inherited color',()=>{
   const root=styleTree(parseHTML(html),compileCSS(css));
@@ -107,4 +114,55 @@ test('Compiles project from files, then packages and extracts native overlay',as
     assert.equal(extractEmbeddedBundleForTest(binary).title,'Test');
     assert.equal((await readFile(host)).length,1024);
   } finally {await rm(temp,{recursive:true,force:true});}
+});
+
+
+test('bundles and watches local backend modules for native and webview', async()=>{
+  const temp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-modules-'));
+  try {
+    await mkdir(path.join(temp,'src'));
+    const cfg={...config,html:'src/index.html',css:'src/style.css',backend:'src/backend.ts'};
+    await writeFile(path.join(temp,'src/index.html'),html);
+    await writeFile(path.join(temp,'src/style.css'),css);
+    await writeFile(path.join(temp,'src/backend.ts'),`import { next } from './helper'; export default {state:{count:0},actions:{increment(api){api.set('count',next(api.get('count')))}}};`);
+    await writeFile(path.join(temp,'src/helper.ts'),`export { next } from './nested';`);
+    await writeFile(path.join(temp,'src/nested.ts'),`export function next(n: number) { return n + 1; }`);
+    for (const renderer of ['native','webview']) {
+      await writeFile(path.join(temp,'tsgpui.config.json'),JSON.stringify({...cfg,renderer}));
+      const built=await buildPackage(temp);
+      assert.ok(built.watchAssets.includes(path.join('src','nested.ts')));
+      const context=vm.createContext({});
+      vm.runInContext(built.bundle.backend_js,context,{timeout:1000});
+      const app=context.__tsgpui_app;
+      app.actions.increment({get:k=>app.state[k],set:(k,v)=>app.state[k]=v});
+      assert.equal(app.state.count,1);
+      if (renderer==='webview') assert.ok(built.bundle.webview_html.includes('Unknown backend module'));
+    }
+    await writeFile(path.join(temp,'src/backend.ts'),`import x from 'node:fs'; export default {state:{},actions:{}}`);
+    await assert.rejects(buildPackage(temp),/runtime imports must be relative/);
+    await writeFile(path.join(temp,'src/backend.ts'),`import x from '../../outside'; export default {state:{},actions:{}}`);
+    await assert.rejects(buildPackage(temp),/outside project/);
+    await writeFile(path.join(temp,'src/backend.ts'),`import x from './missing'; export default {state:{},actions:{}}`);
+    await assert.rejects(buildPackage(temp),/src[\\/]backend.ts:1:15: Cannot resolve backend module/);
+    await writeFile(path.join(temp,'src/backend.ts'),`export default { state: { broken: }, actions: {} };`);
+    await assert.rejects(buildPackage(temp),/src[\\/]backend.ts:1:\d+:/);
+  } finally {await rm(temp,{recursive:true,force:true});}
+});
+
+
+test('macOS app puts payload and icon in resources and records version metadata', async()=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'tsgpui-mac-'));
+  try {
+    const host=path.join(dir,'host'), bundle=path.join(dir,'app.tgp'), icon=path.join(dir,'icon.icns'), output=path.join(dir,'App.app');
+    const macho=Buffer.alloc(1024); macho.writeUInt32BE(0xfeedfacf); await writeFile(host,macho);
+    const doc={format:'tsgpui-1',name:'App',title:'App & Co',version:'2.3.4',bundle_id:'com.example.app'};
+    await writeFile(bundle,JSON.stringify(doc)); await writeFile(icon,'icon');
+    await packageMacApp(host,bundle,output,{iconFile:icon});
+    assert.deepEqual(await readFile(path.join(output,'Contents/MacOS/App')),macho);
+    assert.deepEqual(JSON.parse(await readFile(path.join(output,'Contents/Resources/tsgpui.tgp'),'utf8')),doc);
+    assert.equal(await readFile(path.join(output,'Contents/Resources/AppIcon.icns'),'utf8'),'icon');
+    const plist=await readFile(path.join(output,'Contents/Info.plist'),'utf8');
+    assert.match(plist,/com.example.app/); assert.match(plist,/2.3.4/); assert.match(plist,/App &amp; Co/); assert.match(plist,/AppIcon.icns/);
+    assert.throws(()=>validateConfig({name:'App',html:'x',css:'x',backend:'x',version:'1.2'}),/version must/);
+  } finally { await rm(dir,{recursive:true,force:true}); }
 });

@@ -1,5 +1,6 @@
 import { readFile, realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 const MIME = {
   '.avif':'image/avif','.bmp':'image/bmp','.css':'text/css','.gif':'image/gif','.htm':'text/html','.html':'text/html','.ico':'image/x-icon',
@@ -52,12 +53,21 @@ function webviewRuntime(store, savedState) {
     if (Array.isArray(fresh) !== Array.isArray(current)) return fresh;
     return typeof fresh === typeof current ? current : fresh;
   };
-  const saved = savedState && typeof savedState === 'object' ? mergeSaved(app.state, app.state, savedState) : null;
+  // The saved record keeps the defaults of the script that wrote it, so the merge can tell a value the
+  // user changed from one still at its old default, as the native host does. A record without those
+  // defaults comes from an older build, and every saved value is kept, as before.
+  const defaults = JSON.parse(JSON.stringify(app.state));
+  const record = savedState && typeof savedState === 'object' ? savedState : null;
+  let saved = null;
+  if (record && has(record, '__tsgpui_state')) saved = mergeSaved(app.state, has(record, '__tsgpui_seed') ? record.__tsgpui_seed : app.state, record.__tsgpui_state);
+  else if (record) saved = mergeSaved(app.state, app.state, record);
   if (saved) app.state = saved;
   const saveState = () => {
     if (!store) return;
-    try { store.setItem('tsgpui:state', JSON.stringify(app.state)); } catch (_error) { /* quota or disabled storage */ }
+    try { store.setItem('tsgpui:state', JSON.stringify({__tsgpui_seed: defaults, __tsgpui_state: app.state})); } catch (_error) { /* quota or disabled storage */ }
   };
+  // The unload handler in the bootstrap saves through this, so both paths write the same record.
+  globalThis.__tsgpui_save = saveState;
   const getPath = key => key.split('.').reduce((value, part) => {
     if (Array.isArray(value)) return /^\d+$/.test(part) ? value[Number(part)] : undefined;
     return value !== null && typeof value === 'object' ? value[part] : undefined;
@@ -372,12 +382,58 @@ async function inlineHtmlUrls(html, options) {
   return html;
 }
 
-/** Inline local web assets so the packaged document renders without a project directory. */
-export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, persist = false, projectRoot, htmlFile, cssFile, watchedAssets} = {}) {
+/** Collect statically identifiable local references, following CSS and JS dependencies. */
+export async function collectWebviewFiles(html, css, {projectRoot, htmlFile, cssFile, watchedAssets} = {}) {
+  const files = {};
+  const seen = new Set();
+  const local = value => value && !/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(value);
+  async function visit(value, base) {
+    if (!local(value)) return;
+    let decoded;
+    try { decoded = decodeURIComponent(value.split(/[?#]/, 1)[0]); } catch { throw new Error(`Invalid WebView URL: ${value}`); }
+    if (!decoded) return;
+    const root = path.resolve(projectRoot);
+    const file = path.resolve(decoded.startsWith('/') ? root : path.dirname(base), decoded.replace(/^\/+/, ''));
+    if (!file.startsWith(root + path.sep)) throw new Error(`Local WebView asset is outside the project: ${value}`);
+    await assertRealInside(root, file, 'WebView asset');
+    if (seen.has(file)) return;
+    seen.add(file);
+    const bytes = await readFile(file);
+    const key = '/' + path.relative(root, file).split(path.sep).join('/');
+    watchedAssets?.add(path.relative(root, file));
+    const ext = path.extname(file).toLowerCase();
+    files[key] = {mime:MIME[ext] ?? 'application/octet-stream', data:bytes.toString('base64')};
+    if (ext === '.css' || ext === '.js' || ext === '.mjs') await scan(bytes.toString('utf8'), file, ext);
+  }
+  async function scan(source, base, type) {
+    const refs = [];
+    if (type === 'html') {
+      for (const tag of source.matchAll(/<(?:script|link|img|source|video|audio|iframe)\b[^>]*>/gi)) {
+        for (const attr of tag[0].matchAll(/\b(?:src|href|poster)\s*=\s*["']([^"']+)["']/gi)) refs.push(attr[1]);
+        for (const attr of tag[0].matchAll(/\bsrcset\s*=\s*["']([^"']+)["']/gi)) refs.push(...attr[1].split(',').map(item => item.trim().split(/\s+/)[0]));
+      }
+      for (const style of source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>|\bstyle\s*=\s*["']([^"']*)["']/gi)) await scan(style[1] ?? style[2], base, '.css');
+      for (const script of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) await scan(script[1], base, '.js');
+    } else if (type === '.css') {
+      for (const match of source.matchAll(/url\(\s*["']?([^"'\s)]+)["']?\s*\)|@import\s*["']([^"']+)["']/gi)) refs.push(match[1] ?? match[2]);
+    } else {
+      for (const match of source.matchAll(/\b(?:import\s*(?:\(\s*)?|export\s+[^;]*?\s+from\s+|import\s+[^;]*?\s+from\s+)["']([^"']+)["']/g)) {
+        if (match[1].startsWith('.') || match[1].startsWith('/')) refs.push(match[1]);
+      }
+    }
+    for (const ref of refs) await visit(ref, base);
+  }
+  await scan(html, htmlFile, 'html');
+  await scan(css, cssFile, '.css');
+  return files;
+}
+
+/** Prepare the page while preserving local URLs for the app-local protocol. */
+export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, persist = false, projectRoot, htmlFile, cssFile, watchedAssets, preserveUrls = false} = {}) {
   const cache = new Map();
-  if (projectRoot && htmlFile) html = await inlineHtmlUrls(html,{projectRoot,baseFile:htmlFile,cache,watchedAssets});
+  if (!preserveUrls && projectRoot && htmlFile) html = await inlineHtmlUrls(html,{projectRoot,baseFile:htmlFile,cache,watchedAssets});
   if (projectRoot && cssFile) css = await inlineCssUrls(css,{projectRoot,baseFile:cssFile,cache,watchedAssets});
-  if (projectRoot && htmlFile) {
+  if (!preserveUrls && projectRoot && htmlFile) {
     const styleBlocks = [...html.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi)]
       .filter(match => !insideComment(html,match.index,'<!--','-->'));
     for (const match of styleBlocks.reverse()) {
@@ -409,18 +465,34 @@ export async function prepareWebviewHtml(html, css, {backendJs, title, networkHo
     const format = mime === 'font/otf' ? 'opentype' : 'truetype';
     return `@font-face{font-family:"${safeFamily}";src:url(data:${mime};base64,${data}) format("${format}")}`;
   }).join('\n');
+  const nonce = randomBytes(16).toString('base64');
+  // Author-provided script elements are part of the trusted application. Inline
+  // event handlers remain blocked because a nonce only authorizes script tags.
+  let scriptCursor = 0;
+  for (;;) {
+    const found = findHtmlTag(html.slice(scriptCursor), 'script');
+    if (!found) break;
+    const start = scriptCursor + found.index;
+    const external = /\bsrc\s*=/i.test(html.slice(start, start + found.length));
+    if (!external) html = html.slice(0, start + 7) + ` nonce="${nonce}"` + html.slice(start + 7);
+    const end = /<\/\s*script\s*>/ig;
+    end.lastIndex = start + found.length + (external ? 0 : nonce.length + 9);
+    const closing = end.exec(html);
+    scriptCursor = closing ? end.lastIndex : html.length;
+  }
+  const csp = `default-src 'none'; script-src 'self' 'nonce-${nonce}' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'${networkHosts.map(host => ' https://' + host).join('')}; form-action 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'`;
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(csp)}">`;
   const style = `<style data-tsgpui="source-css">${escapeStyleEnd(`${embeddedFonts}\n${css}`)}</style>`;
-  const bootstrap = `<script data-tsgpui="backend">(()=>{document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];const store=(()=>{try{return ${persist ? 'window.localStorage' : 'window.sessionStorage'}}catch(_error){return null}})();let saved=null;try{saved=JSON.parse(store&&store.getItem('tsgpui:state')||'null')}catch(_error){}new Function(...hidden,source)(...hidden.map(()=>undefined));window.addEventListener('beforeunload',()=>{try{store&&store.setItem('tsgpui:state',JSON.stringify(globalThis.__tsgpui_app.state))}catch(_error){}});(${webviewRuntime.toString()})(store,saved);})();</script>`;
+  const bootstrap = `<script data-tsgpui="backend" nonce="${nonce}">(()=>{document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];const store=(()=>{try{return ${persist ? 'window.localStorage' : 'window.sessionStorage'}}catch(_error){return null}})();let saved=null;try{saved=JSON.parse(store&&store.getItem('tsgpui:state')||'null')}catch(_error){}new Function(...hidden,source)(...hidden.map(()=>undefined));window.addEventListener('beforeunload',()=>{try{globalThis.__tsgpui_save&&globalThis.__tsgpui_save()}catch(_error){}});(${webviewRuntime.toString()})(store,saved);})();</script>`;
   const headEnd = findHtmlTag(html,'head',true), headStart = findHtmlTag(html,'head'), htmlStart = findHtmlTag(html,'html');
-  if (headEnd) html = html.slice(0,headEnd.index) + style + html.slice(headEnd.index);
-  else if (headStart) {
+  if (headStart) {
     const afterHead = headStart.index + headStart.length;
-    html = html.slice(0,afterHead) + style + html.slice(afterHead);
+    html = html.slice(0,afterHead) + policy + style + html.slice(afterHead);
   } else if (htmlStart) {
     const afterHtml = htmlStart.index + htmlStart.length;
-    html = html.slice(0,afterHtml) + `<head>${style}</head>` + html.slice(afterHtml);
+    html = html.slice(0,afterHtml) + `<head>${policy}${style}</head>` + html.slice(afterHtml);
   }
-  else html = `${style}${html}`;
+  else html = `${policy}${style}${html}`;
   const scripts = bootstrap;
   const bodyEnd = findHtmlTag(html,'body',true), htmlEnd = findHtmlTag(html,'html',true);
   if (bodyEnd) html = html.slice(0,bodyEnd.index) + scripts + html.slice(bodyEnd.index);

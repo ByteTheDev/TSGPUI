@@ -13,7 +13,7 @@ export interface BackendAPI<State extends Record<string, unknown>> {
 /** Paths are relative to a granted directory: `notes/a.txt` means `<granted root>/notes/a.txt`.
  * They may not contain `..` or be absolute, and symlinks may not lead outside the root.
  * `''` or `'.'` names the granted folder itself, for `list` and `stat` only.
- * Text and bytes are limited to 1 MiB per call. Calls run on the UI thread, so keep them short. */
+ * Text and bytes are limited to 1 MiB per call. Calls are asynchronous and may reject; handle errors in the action. */
 export interface NativeBridge {
   /** Needs `permissions.window`. The browser preview supports `setTitle` and `close` only. */
   window: {
@@ -69,7 +69,10 @@ export interface BackendEvent {
   submit?: boolean;
   files?: Array<{ name: string; path: string }>;
 }
-export interface AppDefinition<State extends Record<string, unknown>> {
+export type Action<State extends Record<string, unknown>> = (api: BackendAPI<State>, event: Readonly<BackendEvent>) => void | Promise<void>;
+
+/** Supply action names as the second type argument to check that each action is present. */
+export interface AppDefinition<State extends Record<string, unknown>, ActionName extends string = string> {
   state: State;
-  actions: Record<string, (api: BackendAPI<State>, event: Readonly<BackendEvent>) => void | Promise<void>>;
+  actions: Record<ActionName, Action<State>>;
 }

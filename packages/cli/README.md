@@ -7,14 +7,30 @@ Compile HTML, CSS and TypeScript into a native [GPUI](https://www.gpui.rs) windo
 Install once, globally, with Bun:
 
 ```sh
-bun add -g @rs/tsgpui
+bun add -g @bytethedeveloper/tsgpui
 ```
 
-Until the package is on npm, install from a checkout of the repository:
+To work on the CLI itself, install from a checkout of the repository:
 
 ```sh
 bun add -g ./packages/cli
 ```
+
+Or install a released archive with a script. It downloads `tsgpui-cli.tgz`, checks its SHA-256, and places the CLI in Bun's bin directory (`~/.bun/bin`). It needs Bun or Node.js 20+, and it does not use a package registry:
+
+```sh
+# macOS and Linux
+curl -fsSL https://raw.githubusercontent.com/ByteTheDev/TSGPUI/main/packages/cli/install/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/ByteTheDev/TSGPUI/main/packages/cli/install/install.ps1 | iex
+```
+
+If you save `install.ps1` and run it as a file, Windows can block it because it was downloaded. Run `Unblock-File .\install.ps1` first, or use the `irm | iex` line above, which doesn't need the file.
+
+Set `TSGPUI_VERSION` (for example `0.3.0`) to pin a release. Set `TSGPUI_URL` to install a different archive, such as a mirror. `BUN_INSTALL` moves the install location. The Windows script adds the bin directory to your user PATH unless `TSGPUI_NO_MODIFY_PATH=1` is set; the macOS and Linux script prints the PATH line for you to add.
 
 Check the install:
 
@@ -23,17 +39,30 @@ tsgpui --version
 tsgpui doctor
 ```
 
-## Build the native host (once per machine)
+To publish an installer-ready build, run `bun run release:archive` here. It writes `release/tsgpui-cli.tgz` and `release/tsgpui-cli.tgz.sha256`. Upload both as assets of a GitHub release tagged `v<version>`. The installers download `releases/latest/download/tsgpui-cli.tgz` unless `TSGPUI_VERSION` pins a tag, so the newest release must include both files.
 
-Each app is packaged by copying a prebuilt native host and appending the app bundle. The host is built from the Rust sources bundled with this package:
+## The host (no Rust needed)
+
+Each app is packaged by copying a host executable and appending the app bundle. You normally do nothing: the first `tsgpui dev` or `tsgpui build` downloads the prebuilt host for your OS, architecture and renderer, checks it, and caches it in `~/.tsgpui/host/` (override with `TSGPUI_HOME`). To do it ahead of time:
 
 ```sh
-tsgpui host build
-# or, for a project configured with renderer "webview":
-tsgpui host build --renderer webview
+tsgpui host fetch                       # both renderers
+tsgpui host fetch --renderer webview    # one renderer
 ```
 
-This needs Rust (https://rustup.rs). On Windows it also needs the MSVC C++ build tools. The WebView host uses Wry and the platform WebView runtime: WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. Linux builds also need GTK and WebKitGTK development packages. The host is stored in `~/.tsgpui/host/` (override with `TSGPUI_HOME`). You can point `TSGPUI_HOST` or `TSGPUI_WEBVIEW_HOST` at a host executable you trust.
+Each GitHub release publishes hosts for `win32-x64`, `darwin-arm64`, `darwin-x64` and `linux-x64` (both renderers), with a `hosts.json` that lists every file's size and SHA-256. A download is installed only if its size and hash match the manifest. If the package ships its own `hosts.json` (release builds do), that copy is used instead of the one on GitHub, so a swapped release asset fails its hash. The cache keeps an install record beside each host; the CLI uses a host only if it was built for the same bundle format and the same `major.minor` release, and `tsgpui doctor` re-hashes it. Hashes prove the file is the one the release listed; the release's build provenance attestation (`gh attestation verify`) is what ties it to this repository's workflow.
+
+Set `TSGPUI_NO_DOWNLOAD=1` to forbid downloads, or `TSGPUI_HOST_BASE_URL` to read `hosts.json` and the hosts from a mirror.
+
+If no prebuilt host fits (for example `linux-arm64`), the CLI says so and falls back to compiling one when Rust is installed:
+
+```sh
+tsgpui host build [--renderer webview]
+```
+
+That needs Rust (https://rustup.rs) and, on Windows, the MSVC C++ build tools. The WebView host uses the platform WebView runtime: WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux (with GTK and WebKitGTK development packages to build it). You can also point `TSGPUI_HOST` or `TSGPUI_WEBVIEW_HOST` at a host executable you trust.
+
+`tsgpui doctor` checks Node, the host for your project's renderer, system libraries and, if relevant, Rust, and prints the exact command that fixes each problem. It exits non-zero only for a problem that stops the app from running.
 
 ## Create and run an app
 
@@ -44,7 +73,7 @@ tsgpui dev        # build, launch, and rebuild on every save
 tsgpui build      # produce a native executable, which runs without Bun, Node, or Rust
 ```
 
-On macOS, the output is an unsigned `.app` bundle. The host must be compiled for the target Mac architecture. TSGPUI does not yet sign or notarize bundles; the repository workflow builds separate x64 and Apple Silicon `.app` bundles.
+On macOS, the output is an unsigned `.app` bundle. The host must be compiled for the target Mac architecture. Sign and notarize the finished bundle using the release guide; the repository workflow builds separate x64 and Apple Silicon `.app` bundles.
 
 Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `src/backend.ts`. The HTML/CSS subset and the backend API are described in the [TSGPUI docs](https://github.com/ByteTheDev/TSGPUI/tree/main/docs).
 
@@ -59,8 +88,10 @@ Set `"renderer": "webview"` in the project config to select the WebView host. It
 | `tsgpui dev [--project PATH]` | Build, launch the host, and rebuild on change |
 | `tsgpui preview [--project PATH]` | Live preview in a browser at 127.0.0.1 (`--out FILE` writes one HTML file) |
 | `tsgpui build [--project PATH]` | Write a single native executable |
-| `tsgpui host build [--renderer MODE]` | Compile the native or WebView host once |
-| `tsgpui doctor` | Show the toolchain and host status |
+| `tsgpui host fetch [--renderer MODE] [--force]` | Download and verify the prebuilt host |
+| `tsgpui host build [--renderer MODE]` | Compile the host from source instead (needs Rust) |
+| `tsgpui release manifest --file PATH` | Write a deterministic SHA-256 manifest |
+| `tsgpui doctor` | Check the setup and print the fix for anything missing |
 
 ## Limits
 
@@ -69,3 +100,18 @@ TSGPUI is an experimental prototype. Native executable packaging supports Window
 ## License
 
 MIT
+
+
+### Install a prebuilt host
+
+Offline or air-gapped? Download the host artifact matching your OS, architecture, renderer, and CLI version from a trusted release or CI run. Verify its provenance and obtain its SHA-256 through a trusted channel, then run:
+
+```sh
+tsgpui host install --file path/to/tsgpui-host --sha256 YOUR_64_DIGIT_SHA256 --renderer native
+```
+
+Use `--renderer webview` for a WebView host. The installer checks the supplied hash before copying the file into the host cache. A checksum obtained from the same untrusted source as the binary does not establish its provenance. Hosts are platform- and version-specific; the installer does not independently verify compatibility or signatures.
+
+## Distribution
+
+See the [release guide](https://github.com/ByteTheDev/TSGPUI/blob/main/docs/RELEASING.md) for metadata, icons, signing, notarization, and artifact manifests. Rebuild hosts after upgrading the CLI.

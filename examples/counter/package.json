@@ -11,6 +11,6 @@
     "GPUI": "tsgpui build"
   },
   "devDependencies": {
-    "@rs/tsgpui": "workspace:*"
+    "@bytethedeveloper/tsgpui": "workspace:*"
   }
 }

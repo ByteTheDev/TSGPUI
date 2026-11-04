@@ -13,18 +13,18 @@
       "name": "tsgpui-counter-example",
       "version": "0.3.0",
       "devDependencies": {
-        "@rs/tsgpui": "workspace:*",
+        "@bytethedeveloper/tsgpui": "workspace:*",
       },
     },
     "examples/notes": {
       "name": "tsgpui-notes-example",
       "version": "0.3.0",
       "devDependencies": {
-        "@rs/tsgpui": "workspace:*",
+        "@bytethedeveloper/tsgpui": "workspace:*",
       },
     },
     "packages/cli": {
-      "name": "@rs/tsgpui",
+      "name": "@bytethedeveloper/tsgpui",
       "version": "0.3.0",
       "bin": {
         "tsgpui": "dist/tsgpui.mjs",
@@ -36,7 +36,7 @@
     },
   },
   "packages": {
-    "@rs/tsgpui": ["@rs/tsgpui@workspace:packages/cli"],
+    "@bytethedeveloper/tsgpui": ["@bytethedeveloper/tsgpui@workspace:packages/cli"],
 
     "nanoid": ["nanoid@3.3.20", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ=="],
 

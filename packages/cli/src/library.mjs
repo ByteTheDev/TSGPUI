@@ -7,6 +7,13 @@ export const COMPONENT_LIBRARY_HTML = `<div>
   <template data-component="SegmentedControl"><div class="ts-segmented" role="group"><slot></slot></div></template>
   <template data-component="SearchField"><input type="search" class="ts-search" placeholder="Search"></template>
   <template data-component="ListRow"><button class="ts-list-row"><span class="ts-list-title">{{props.title}}</span><span class="ts-list-detail"><slot></slot></span></button></template>
+  <template data-component="Table"><section class="ts-table" role="table"><slot></slot></section></template>
+  <template data-component="TableHeader"><header class="ts-table-header" role="row"><slot></slot></header></template>
+  <template data-component="TableRow"><div class="ts-table-row" role="row"><slot></slot></div></template>
+  <template data-component="TableCell"><div class="ts-table-cell" role="cell"><slot></slot></div></template>
+  <template data-component="TableHeaderCell"><div class="ts-table-cell ts-table-header-cell" role="columnheader"><slot></slot></div></template>
+  <template data-component="CodeEditor"><textarea class="ts-code-editor"></textarea></template>
+  <template data-component="EmptyState"><section class="ts-empty-state"><h3 class="ts-empty-title">{{props.title}}</h3><div class="ts-empty-body"><slot></slot></div></section></template>
   <template data-component="Sheet"><div class="ts-sheet" role="dialog"><h3 class="ts-sheet-title">{{props.title}}</h3><div class="ts-sheet-body"><slot></slot></div><div class="ts-sheet-footer"><slot name="footer"></slot></div></div></template>
 </div>`;
 
@@ -38,6 +45,15 @@ export const COMPONENT_LIBRARY_CSS = `
 .ts-list-row.ts-selected { background: var(--ts-accent); color: #ffffff; }
 .ts-list-title { flex-grow: 1; }
 .ts-list-detail { color: var(--ts-secondary); font-size: 12px; }
+.ts-table { width: 100%; gap: 1px; overflow: hidden; border-radius: 8px; background: var(--ts-control); }
+.ts-table-header, .ts-table-row { flex-direction: row; align-items: center; gap: 1px; background: var(--ts-raised); }
+.ts-table-header { background: var(--ts-surface); }
+.ts-table-cell { flex-grow: 1; min-width: 0; padding: 9px 12px; font-size: 13px; color: var(--ts-text); }
+.ts-table-header-cell { font-size: 12px; font-weight: 600; color: var(--ts-secondary); }
+.ts-code-editor { width: 100%; min-height: 220px; padding: 12px; border-radius: 8px; background: #17191e; color: #e6e8ee; font-family: monospace; font-size: 13px; }
+.ts-empty-state { align-items: center; justify-content: center; gap: 8px; padding: 28px; text-align: center; }
+.ts-empty-title { font-size: 16px; font-weight: 600; color: var(--ts-text); }
+.ts-empty-body { font-size: 13px; color: var(--ts-secondary); }
 .ts-sheet { width: 360px; padding: 20px; gap: 14px; border-radius: 14px; background: var(--ts-raised); box-shadow: 0px 12px 32px 0px #00000040; }
 .ts-sheet-title { font-size: 17px; font-weight: 600; color: var(--ts-text); }
 .ts-sheet-body { gap: 8px; font-size: 13px; color: var(--ts-secondary); }

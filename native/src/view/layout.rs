@@ -190,7 +190,10 @@ pub(super) fn parse_grid_tracks(value: &str) -> Option<Vec<GridTrack>> {
 }
 
 pub(super) fn grid_needs_emulation(tracks: &[GridTrack]) -> bool {
-    tracks.iter().any(|track| !matches!(track, GridTrack::Fr(_)))
+    let Some(GridTrack::Fr(first)) = tracks.first() else { return true; };
+    // GPUI's grid currently treats all `fr` columns equally. Use our flex-based track layout when
+    // weights differ so `1fr 2fr` keeps the requested ratio.
+    tracks.iter().any(|track| !matches!(track, GridTrack::Fr(weight) if weight == first))
 }
 
 pub(super) fn grid_tracks_for(node: &Node, style: &BTreeMap<String, String>) -> Option<Vec<GridTrack>> {

@@ -88,6 +88,15 @@ test('dashed borders are a warning', () => {
   assert.match(warnings[0], /border style 'dashed' is not supported/);
 });
 
+test('a border side with no style has no border, as the shorthand does', () => {
+  const { root, warnings } = style('main { border-top: 1px #ccc; border-left: 2px solid #000; }');
+  assert.equal(firstChild(root).style['border-top-style'], 'none');
+  assert.equal(firstChild(root).style['border-top-width'], '0px');
+  assert.equal(firstChild(root).style['border-left-style'], 'solid');
+  assert.equal(firstChild(root).style['border-left-width'], '2px');
+  assert.deepEqual(warnings, []);
+});
+
 test('flex shorthand expands to grow, shrink and basis', () => {
   const { root } = style('main { flex: 1; } section { flex: 0 0 auto; }');
   assert.equal(firstChild(root).style['flex-grow'], '1');

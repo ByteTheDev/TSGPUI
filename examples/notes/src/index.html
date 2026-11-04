@@ -15,13 +15,20 @@
         <button class="ghost" data-onclick="refresh">Refresh</button>
       </section>
 
-      <textarea class="editor" placeholder="Write something" data-bind="draftText"></textarea>
+      <use component="CodeEditor" placeholder="Write something" aria-label="Note text" data-bind="draftText" />
 
       <section class="files">
         <p class="label">Saved notes</p>
-        <ul>
-          <li data-repeat="files as file">{{file.name}} · {{file.size}} bytes</li>
-        </ul>
+        <use component="Table" aria-label="Saved notes">
+          <use component="TableHeader">
+            <use component="TableHeaderCell">Name</use>
+            <use component="TableHeaderCell">Size</use>
+          </use>
+          <use component="TableRow" data-repeat="files as file">
+            <use component="TableCell">{{file.name}}</use>
+            <use component="TableCell">{{file.size}} bytes</use>
+          </use>
+        </use>
       </section>
     </main>
   </body>

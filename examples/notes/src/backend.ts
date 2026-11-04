@@ -1,4 +1,5 @@
 import type { AppDefinition, BackendAPI } from "tsgpui/types";
+import { noteFileName, messageOf } from "./notes";
 
 // A full-stack example: the UI is HTML/CSS, and this backend uses the host's granted file access.
 // Notes live in the `notes` folder granted in tsgpui.config.json. Every file name is checked here,
@@ -13,25 +14,12 @@ type NotesState = {
   status: string;
 };
 
-// Accepts a plain name like "ideas" or "ideas.txt", and rejects anything that could leave the folder.
-function noteFileName(draft: string): string {
-  const trimmed = draft.trim();
-  if (trimmed === "" || /[\\/]/.test(trimmed) || trimmed.includes("..")) {
-    throw new Error("Use a plain name without slashes or '..'");
-  }
-  return trimmed.endsWith(".txt") ? trimmed : `${trimmed}.txt`;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function listNotes(api: BackendAPI<NotesState>): Promise<void> {
   const files = await api.native.filesystem.list("");
   api.set("files", files.filter((entry) => entry.kind === "file"));
 }
 
-const app: AppDefinition<NotesState> = {
+const app: AppDefinition<NotesState, "refresh" | "saveNote" | "openNote" | "deleteNote"> = {
   state: { draftName: "", draftText: "", files: [], status: "Ready" },
   actions: {
     async refresh(api) {

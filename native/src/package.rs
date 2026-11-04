@@ -145,26 +145,61 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
 }
 fn read_embedded() -> Result<Vec<u8>,String> {
     let exe: PathBuf = std::env::current_exe().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/tsgpui.tgp")) {
+        if resources.is_file() { return std::fs::read(&resources).map_err(|e| format!("Unable to read app resource: {e}")); }
+    }
     let mut f = File::open(&exe).map_err(|e| format!("Unable to open host: {e}"))?;
     read_overlay(&mut f)
 }
 
-// The overlay is `payload ++ count (u64 LE) ++ MAGIC`, so the footer is read first.
+// Authenticode places the PE certificate table after the original file, with up to seven
+// zero padding bytes. Read only at the end or immediately before that table; never scan the
+// signature for a magic string.
 fn read_overlay<R: Read + Seek>(f: &mut R) -> Result<Vec<u8>,String> {
     let total = f.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
-    if total < 16 {return Err("No embedded app bundle. Use --bundle file.tgp".into());}
-    f.seek(SeekFrom::End(-16)).map_err(|e| e.to_string())?;
-    let mut footer=[0u8;16];
-    f.read_exact(&mut footer).map_err(|e| e.to_string())?;
-    if &footer[8..] != MAGIC {
-        return Err("No embedded app bundle. Use --bundle file.tgp".into());
+    match read_footer_at(f, total) { Ok(payload) => return Ok(payload), Err(error) if error.starts_with("Invalid embedded") => return Err(error), _ => {} }
+    if let Some(cert_offset) = pe_certificate_offset(f, total) {
+        for padding in 0..=7 {
+            if cert_offset < padding + 16 { break; }
+            if padding > 0 {
+                f.seek(SeekFrom::Start(cert_offset - padding)).map_err(|e| e.to_string())?;
+                let mut bytes = vec![0; padding as usize];
+                f.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+                if bytes.iter().any(|&b| b != 0) { continue; }
+            }
+            if let Ok(payload) = read_footer_at(f, cert_offset - padding) { return Ok(payload); }
+        }
     }
+    Err("No embedded app bundle. Use --bundle file.tgp".into())
+}
+fn read_footer_at<R: Read + Seek>(f: &mut R, end: u64) -> Result<Vec<u8>,String> {
+    if end < 16 { return Err("No embedded app bundle. Use --bundle file.tgp".into()); }
+    f.seek(SeekFrom::Start(end - 16)).map_err(|e| e.to_string())?;
+    let mut footer=[0u8;16]; f.read_exact(&mut footer).map_err(|e| e.to_string())?;
+    if &footer[8..] != MAGIC { return Err("No embedded app bundle. Use --bundle file.tgp".into()); }
     let count = u64::from_le_bytes(footer[0..8].try_into().unwrap());
-    if count == 0 || count > MAX_PAYLOAD || count > total-16 {return Err("Invalid embedded app bundle length".into());}
-    f.seek(SeekFrom::Start(total-16-count)).map_err(|e| e.to_string())?;
-    let mut buffer=vec![0;count as usize];
-    f.read_exact(&mut buffer).map_err(|e| e.to_string())?;
+    if count == 0 || count > MAX_PAYLOAD || count > end-16 { return Err("Invalid embedded app bundle length".into()); }
+    f.seek(SeekFrom::Start(end-16-count)).map_err(|e| e.to_string())?;
+    let mut buffer=vec![0;count as usize]; f.read_exact(&mut buffer).map_err(|e| e.to_string())?;
     Ok(buffer)
+}
+fn pe_certificate_offset<R: Read + Seek>(f: &mut R, total: u64) -> Option<u64> {
+    fn read_at<R: Read + Seek, const N: usize>(f: &mut R, pos:u64) -> Option<[u8;N]> {
+        f.seek(SeekFrom::Start(pos)).ok()?; let mut data=[0;N]; f.read_exact(&mut data).ok()?; Some(data)
+    }
+    if read_at::<_,2>(f,0)? != *b"MZ" { return None; }
+    let pe=u32::from_le_bytes(read_at(f,0x3c)?) as u64;
+    if pe.checked_add(24)? > total || read_at::<_,4>(f,pe)? != *b"PE\0\0" { return None; }
+    let optional_size=u16::from_le_bytes(read_at(f,pe+20)?) as u64;
+    let optional=pe+24;
+    let directory=match u16::from_le_bytes(read_at(f,optional)?) { 0x10b=>96, 0x20b=>112, _=>return None };
+    if optional_size < directory+40 || optional.checked_add(optional_size)? > total { return None; }
+    let entry=read_at::<_,8>(f,optional+directory+32)?;
+    let offset=u32::from_le_bytes(entry[..4].try_into().ok()?) as u64;
+    let size=u32::from_le_bytes(entry[4..].try_into().ok()?) as u64;
+    if offset == 0 || size == 0 || offset.checked_add(size)? > total { return None; }
+    Some(offset)
 }
 
 #[cfg(test)]
@@ -193,6 +228,24 @@ mod tests {
         let payload = VALID_DOC.as_bytes();
         let mut host = b"MZ fake host prefix".to_vec();
         host.extend(overlay(payload, payload.len() as u64));
+        assert_eq!(read_overlay(&mut Cursor::new(host)).unwrap(), payload);
+    }
+
+    #[test]
+    fn overlay_reads_before_pe_certificate_and_padding() {
+        let payload = VALID_DOC.as_bytes();
+        let mut host = vec![0u8; 512];
+        host[0..2].copy_from_slice(b"MZ");
+        host[0x3c..0x40].copy_from_slice(&128u32.to_le_bytes());
+        host[128..132].copy_from_slice(b"PE\0\0");
+        host[148..150].copy_from_slice(&240u16.to_le_bytes());
+        host[152..154].copy_from_slice(&0x20bu16.to_le_bytes());
+        host.extend(overlay(payload, payload.len() as u64));
+        while host.len() % 8 != 0 { host.push(0); }
+        let offset = host.len() as u32;
+        host[296..300].copy_from_slice(&offset.to_le_bytes());
+        host[300..304].copy_from_slice(&32u32.to_le_bytes());
+        host.extend([0x55; 32]);
         assert_eq!(read_overlay(&mut Cursor::new(host)).unwrap(), payload);
     }
 

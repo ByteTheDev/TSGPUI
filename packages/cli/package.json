@@ -1,5 +1,5 @@
 {
-  "name": "@rs/tsgpui",
+  "name": "@bytethedeveloper/tsgpui",
   "version": "0.3.0",
   "description": "Compile HTML/CSS and TypeScript applications for GPUI or a system WebView",
   "type": "module",
@@ -31,12 +31,14 @@
     "templates",
     "types",
     "native",
-    "README.md"
+    "README.md",
+    "hosts.json"
   ],
   "scripts": {
     "build": "bun build bin/tsgpui.mjs --target=node --outfile=dist/tsgpui.mjs",
     "prepack": "node scripts/pack-native.mjs copy && bun run build",
     "postpack": "node scripts/pack-native.mjs clean",
+    "release:archive": "node scripts/pack-release.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {

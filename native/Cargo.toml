@@ -8,7 +8,7 @@ description = "Native GPUI and system WebView hosts for TSGPUI bundles"
 [features]
 default = ["native-host"]
 native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest"]
-webview-host = ["dep:gtk", "dep:tao", "dep:wry"]
+webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url"]
 
 [[bin]]
 name = "tsgpui-host"
@@ -32,9 +32,16 @@ serde_json = "1"
 zed-reqwest = { version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
 tao = { version = "=0.37.1", optional = true }
 wry = { version = "=0.57.0", optional = true }
+ureq = { version = "2", optional = true }
+url = { version = "2", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "=0.18.2", optional = true }
+
+# Native dialogs and clipboard for the WebView host on Windows (used only by webview_bridge.rs).
+[target.'cfg(target_os = "windows")'.dependencies]
+rfd = "=0.15.4"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
 
 [profile.release]
 lto = "thin"

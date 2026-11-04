@@ -27,10 +27,11 @@ impl AppView {
             } else if item.tag == "menuitem" {
                 let title = crate::menus::text_label(item);
                 let disabled = item.attrs.contains_key("disabled");
+                let checked = crate::menus::is_checked(item);
                 let action = item.attrs.get("data-onclick").cloned();
                 let mut row = div().id(("context-menu-row", index)).pl(px(10.0 + *depth as f32 * 14.0)).pr(px(10.0)).py(px(6.0)).rounded_sm()
                     .text_color(if disabled { rgba(0x888888ff) } else { rgba(0xf3f3f3ff) })
-                    .child(title);
+                    .child(format!("{} {title}", if checked { "✓" } else { " " }));
                 if !disabled {
                     if let Some(action) = action {
                         row = row.on_click(cx.listener(move |this, _, _, cx| {

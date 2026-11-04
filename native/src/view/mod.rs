@@ -601,7 +601,8 @@ mod tests {
         assert_eq!(parse_grid_tracks("1fr 1fr"), Some(vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)]));
         assert_eq!(parse_grid_tracks("repeat(2, 1fr)"), None);
         assert_eq!(parse_grid_tracks("1fr -2px"), None);
-        assert!(!grid_needs_emulation(&[GridTrack::Fr(1.0), GridTrack::Fr(2.0)]));
+        assert!(!grid_needs_emulation(&[GridTrack::Fr(1.0), GridTrack::Fr(1.0)]));
+        assert!(grid_needs_emulation(&[GridTrack::Fr(1.0), GridTrack::Fr(2.0)]));
         assert!(grid_needs_emulation(&[GridTrack::Px(200.0), GridTrack::Fr(1.0)]));
         assert!(grid_needs_emulation(&[GridTrack::Auto, GridTrack::Auto]));
     }
