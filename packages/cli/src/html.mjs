@@ -178,7 +178,8 @@ function parseDocument(source, library) {
       index += /^<!doctype\s+html\s*>/i.exec(rest)[0].length; continue;
     }
     if (rest[0] === '<') {
-      const token = /^<\/?[a-zA-Z][^>]*>/.exec(rest);
+      // A tag ends at the first `>` outside a quoted attribute value, so title="Next > page" is one tag.
+      const token = /^<\/?[a-zA-Z](?:[^'"=>]|=\s*"[^"]*"|=\s*'[^']*'|=)*>/.exec(rest);
       if (!token) throw new Error(`Malformed or unsupported HTML at offset ${index}`);
       index += token[0].length;
       const closing = token[0].startsWith('</');

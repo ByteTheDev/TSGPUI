@@ -24,6 +24,11 @@ jobs:
         run: cargo test --manifest-path native/Cargo.toml
       - name: Build GPUI host
         run: cargo build --manifest-path native/Cargo.toml --release
+      - name: Build WebView host
+        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features webview-host --bin tsgpui-webview-host
+      - name: Save WebView SHA-256 hash
+        shell: pwsh
+        run: (Get-FileHash 'native/target/release/tsgpui-webview-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpui-webview-host.exe.sha256
       - name: Save SHA-256 hash
         shell: pwsh
         run: (Get-FileHash 'native/target/release/tsgpui-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpui-host.exe.sha256
@@ -33,4 +38,12 @@ jobs:
           path: |
             native/target/release/tsgpui-host.exe
             native/target/release/tsgpui-host.exe.sha256
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsgpui-webview-host-windows-x64
+          path: |
+            native/target/release/tsgpui-webview-host.exe
+            native/target/release/tsgpui-webview-host.exe.sha256
           if-no-files-found: error

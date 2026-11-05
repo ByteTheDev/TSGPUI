@@ -1,0 +1,18 @@
+{
+  "exceptions": [],
+  "page": {
+    "font": "sans-serif",
+    "height": "300px"
+  },
+  "responding": true,
+  "dialog": "canceled dialog 4655934",
+  "running": true,
+  "assertions": {
+    "exceptions": true,
+    "styles": true,
+    "responding": true,
+    "canceled": true
+  },
+  "error": null,
+  "openResult": "canceled"
+}

@@ -51,3 +51,22 @@ pub fn context_menu<'a>(root: &'a Node, id: &str) -> Option<&'a Node> {
 }
 
 pub fn text_label(node: &Node) -> String { label(node) }
+
+pub fn is_checked(node: &Node) -> bool { node.attrs.contains_key("checked") }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn checked_attribute_marks_a_context_menu_item() {
+        let item = Node {
+            tag: "menuitem".into(), key: 0, text: String::new(),
+            attrs: [("checked".into(), String::new())].into(),
+            props: BTreeMap::new(), style: BTreeMap::new(), states: BTreeMap::new(),
+            responsive: Vec::new(), children: Vec::new(),
+        };
+        assert!(is_checked(&item));
+    }
+}

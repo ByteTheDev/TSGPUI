@@ -1,5 +1,6 @@
 #![cfg_attr(all(target_os="windows",not(debug_assertions)),windows_subsystem="windows")]
 mod capabilities;
+mod platform;
 mod ipc;
 mod package;
 mod network;
@@ -27,7 +28,7 @@ fn main(){
     let base=bundle_file.as_ref().and_then(|file|file.parent().map(|p|p.to_path_buf()))
         .or_else(||std::env::current_exe().ok().and_then(|exe|exe.parent().map(|p|p.to_path_buf())))
         .unwrap_or_default();
-    let grants=capabilities::Capabilities::from_permissions(&doc.permissions,base);
+    let grants=capabilities::Capabilities::from_permissions(&doc.permissions,base).with_app(&doc.name,&doc.version);
     let backend=match runtime::JsBackend::with_capabilities(&doc.backend_js,grants){
         Ok(backend)=>backend,
         Err(err)=>{eprintln!("TSGPUI backend: {err}");std::process::exit(3)}

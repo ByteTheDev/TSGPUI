@@ -1,18 +1,7 @@
-# Validation results at delivery
+﻿# Verification
 
-## Executed successfully here
+TSGPUI is experimental and is not a production-ready SDK.
 
-- `node --test packages/cli/test/*.test.mjs`: **10 of 10 passed**.
-- `node packages/cli/bin/tsgpui.mjs compile --project examples/counter`: **passed**; built `tsgpui-counter.tgp`.
-- TypeScript type-check for the example backend: **passed**.
-- Bundle overlay pack/extract with a **synthetic** PE-style host fixture: **passed**.
+On 2026-11-04, `node --test packages/cli/test/*.test.mjs` reported 173 tests: 173 passed, 0 failed, 0 skipped, on the current working tree. Earlier runs the same day reported 147 tests with 5 failing (the CSP and file-map tests in `packages/cli/test/webview-bundle.test.mjs` and the state tests in `packages/cli/test/webview-state.test.mjs`) and 134 passing; the shared working tree changed between runs. These tests do not establish GUI behavior.
 
-## Not executed / not verified
-
-- Windows GPUI native host compilation: **not run** (no Rust/Cargo or Windows build runner in this container).
-- Real Windows `.exe` launch, GUI rendering, or actual GPUI click handling: **not verified**.
-- GitHub Actions workflow runs: **not verified**.
-- Native RAM usage, startup performance, signing and antivirus detection: **not measured**.
-- Real PE loader tolerance of packaged overlay on target machines: **not tested**.
-
-The project is a working **compiler and packaging prototype** with a native host implementation supplied for further build validation. It is not an already-tested production SDK.
+Windows host build and execution have been performed by hand; no application was launched for this documentation review. Other platform host runs, release workflows, signing, and performance were not verified in this review.

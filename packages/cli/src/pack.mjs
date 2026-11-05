@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 export const MAGIC = Buffer.from('TSGPUI01','ascii');
-export const MAX_PAYLOAD = 16 * 1024 * 1024;
+export const MAX_PAYLOAD = 1024 * 1024 * 1024;
 
 function isMachO(header) {
   if (header.length < 4) return false;
@@ -43,7 +43,7 @@ function appendOverlay(target, payload) {
 }
 
 /** Builds a conventional unsigned macOS .app bundle around a matching Mach-O host. */
-export async function packageMacApp(hostFile,bundleFile,outputDirectory) {
+export async function packageMacApp(hostFile,bundleFile,outputDirectory,options = {}) {
   const source = path.resolve(hostFile);
   const output = path.resolve(outputDirectory);
   if (!output.toLowerCase().endsWith('.app')) throw new Error('macOS application output must end in .app');
@@ -56,15 +56,18 @@ export async function packageMacApp(hostFile,bundleFile,outputDirectory) {
   if (existing?.isSymbolicLink()) throw new Error('Refusing to replace a symlink at the macOS application output');
   const temporary = `${output}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const executable = path.join(temporary,'Contents','MacOS',document.name);
-  const bundleIdSuffix = document.name.replaceAll('_', '-');
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>${plistEscape(document.name)}</string><key>CFBundleIdentifier</key><string>dev.tsgpui.${plistEscape(bundleIdSuffix)}</string><key>CFBundleName</key><string>${plistEscape(document.title || document.name)}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>NSHighResolutionCapable</key><true/></dict></plist>\n`;
+  const bundleId = document.bundle_id ?? `dev.tsgpui.${document.name.replaceAll('_', '-')}`;
+  const version = document.version ?? '1.0.0';
+  if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId) || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)) throw new Error('Invalid macOS bundle metadata');
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>${plistEscape(document.name)}</string><key>CFBundleIdentifier</key><string>${plistEscape(bundleId)}</string><key>CFBundleName</key><string>${plistEscape(document.title || document.name)}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>${plistEscape(version)}</string><key>CFBundleShortVersionString</key><string>${plistEscape(version)}</string>${options.iconFile ? '<key>CFBundleIconFile</key><string>AppIcon.icns</string>' : ''}<key>NSHighResolutionCapable</key><true/></dict></plist>\n`;
   try {
     await mkdir(path.dirname(executable),{recursive:true});
     await copyFile(source,executable);
-    await appendOverlay(executable,payload);
     await chmod(executable,hostStat.mode);
     await mkdir(path.join(temporary,'Contents','Resources'),{recursive:true});
     await writeFile(path.join(temporary,'Contents','Info.plist'),plist);
+    await writeFile(path.join(temporary,'Contents','Resources','tsgpui.tgp'),payload);
+    if (options.iconFile) await copyFile(options.iconFile,path.join(temporary,'Contents','Resources','AppIcon.icns'));
     if (existing) await rm(output,{recursive:true,force:true});
     await rename(temporary,output);
     return {file:output,bytes:payload.length};

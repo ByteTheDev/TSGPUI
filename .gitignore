@@ -8,3 +8,6 @@ target/
 
 # Copied into the CLI package by prepack
 packages/cli/native/
+
+# Release archive built by `bun run release:archive`
+packages/cli/release/

@@ -285,8 +285,11 @@ const HANDLERS = {
   'background-color': v => [['background', color('background-color', v)]],
   border: v => border(v),
   ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}`, v => {
+    // As in the shorthand, a side with no style has no border: browsers start border-style at none.
     const [width, style, borderColor] = borderSide(v);
-    return [[`border-${side}-width`, width ?? (style === 'none' ? '0px' : BORDER_WIDTHS.medium)], [`border-${side}-style`, style ?? 'solid'], ...(borderColor ? [[`border-${side}-color`, borderColor]] : [])];
+    const resolvedStyle = style ?? 'none';
+    const resolvedWidth = resolvedStyle === 'none' ? '0px' : (width ?? BORDER_WIDTHS.medium);
+    return [[`border-${side}-width`, resolvedWidth], [`border-${side}-style`, resolvedStyle], ...(borderColor ? [[`border-${side}-color`, borderColor]] : [])];
   }])),
   'border-width': v => [['border-width', length('border-width', v)]],
   ...Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [`border-${side}-width`, v => [['border-' + side + '-width', length('border-width', v)]]])),

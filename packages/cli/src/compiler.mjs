@@ -3,9 +3,9 @@ import path from 'node:path';
 import { isIP } from 'node:net';
 import { parseComponentLibrary, parseHTML } from './html.mjs';
 import { compileStylesheet, styleTree } from './css.mjs';
-import { compileBackend } from './backend.mjs';
+import { compileBackend, bundleBackend } from './backend.mjs';
 import { COMPONENT_LIBRARY_CSS, COMPONENT_LIBRARY_HTML } from './library.mjs';
-import { prepareWebviewHtml } from './webview.mjs';
+import { prepareWebviewHtml, collectWebviewFiles } from './webview.mjs';
 
 const COMPONENT_LIBRARY = parseComponentLibrary(COMPONENT_LIBRARY_HTML);
 const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
@@ -14,6 +14,11 @@ export function validateConfig(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('tsgpui.config.json must be an object');
   for (const key of ['name','html','css','backend']) if (typeof raw[key] !== 'string' || !raw[key]) throw new Error(`Missing string config property: ${key}`);
   if (!NAME_RE.test(raw.name)) throw new Error('Invalid name; use letters, digits, _ or -');
+  const version = raw.version ?? '1.0.0';
+  if (typeof version !== 'string' || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)) throw new Error('version must be a three-part numeric version, e.g. 1.2.3');
+  const bundleId = raw.bundleId ?? `dev.tsgpui.${raw.name.replaceAll('_','-')}`;
+  if (typeof bundleId !== 'string' || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) throw new Error('bundleId must be a reverse-DNS identifier');
+  if (raw.icon !== undefined && (typeof raw.icon !== 'string' || !raw.icon.endsWith('.icns'))) throw new Error('icon must be a project-relative .icns file');
   const width = raw.window?.width ?? 900;
   const height = raw.window?.height ?? 600;
   if (![width,height].every(n => Number.isInteger(n) && n >= 200 && n <= 4096)) throw new Error('Window dimensions must be integers between 200 and 4096');
@@ -53,8 +58,16 @@ export function validateConfig(raw) {
   if (raw.strictCss !== undefined && typeof raw.strictCss !== 'boolean') throw new Error('strictCss must be true or false');
   // Opt-in persistence of the backend state across app restarts.
   if (raw.persist !== undefined && typeof raw.persist !== 'boolean') throw new Error('persist must be true or false');
+  // Where the backend runs. "hidden" runs it in an invisible window, so the primary window can close while others stay open.
+  const backendWindow = raw.backendWindow ?? 'primary';
+  if (!['primary','hidden'].includes(backendWindow)) throw new Error('backendWindow must be "primary" or "hidden"');
   const renderer = raw.renderer ?? 'native';
   if (!['native','webview'].includes(renderer)) throw new Error('renderer must be "native" or "webview"');
+  if (backendWindow === 'hidden' && renderer !== 'webview') throw new Error('backendWindow "hidden" requires the webview renderer');
+  const webviewPages = raw.webviewPages ?? [];
+  if (!Array.isArray(webviewPages) || webviewPages.some(page => typeof page !== 'string' || !page || path.isAbsolute(page) || page.split(/[\\/]+/).includes('..'))) throw new Error('webviewPages must contain project-relative file paths');
+  const maxBundleSize = raw.maxBundleSize ?? 256 * 1024 * 1024;
+  if (!Number.isSafeInteger(maxBundleSize) || maxBundleSize <= 0) throw new Error('maxBundleSize must be a positive integer in bytes');
   // "unified" hides the system title bar; the app draws one and marks its drag area with data-window-drag.
   // "blur" asks the window for a blurred backdrop, which Windows supports only on some systems.
   const titlebar = raw.window?.titlebar ?? 'system';
@@ -62,7 +75,7 @@ export function validateConfig(raw) {
   if (!['system','unified'].includes(titlebar)) throw new Error('window.titlebar must be "system" or "unified"');
   if (!['opaque','blur'].includes(backdrop)) throw new Error('window.backdrop must be "opaque" or "blur"');
   const normalizeRoots = roots => [...new Set(roots.map(root => path.posix.normalize(root.replaceAll('\\', '/')).replace(/^\.\//, '')))];
-  return {name:raw.name,title:raw.title || raw.name,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,fontFiles,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow},window:{titlebar,backdrop}};
+  return {name:raw.name,title:raw.title || raw.name,version,bundleId,icon:raw.icon,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,backendWindow,webviewPages,maxBundleSize,fontFiles,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow},window:{titlebar,backdrop}};
 }
 function inProject(root, relative) {
   if (path.isAbsolute(relative)) throw new Error(`Absolute file path forbidden in project config: ${relative}`);
@@ -136,7 +149,7 @@ export async function readProject(projectPath) {
   return {projectRoot,config,configFile,paths};
 }
 // `warnings` collects messages for CSS declarations that were skipped. They are not part of the bundle.
-export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],webviewHtml}) {
+export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend}) {
   let root;
   if (config.renderer === 'webview') {
     root = {tag:'body',key:0,text:'',attrs:{},props:{},style:{},states:{},responsive:[],children:[]};
@@ -186,7 +199,7 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     root = styleTree(root,rules);
   }
   let backend_js;
-  try { backend_js = compileBackend(backend); }
+  try { backend_js = compiledBackend ?? compileBackend(backend); }
   catch (error) { throw new Error(`${sourceFiles.backend ?? 'backend.ts'}: ${error.message}`, {cause:error}); }
   if (config.renderer === 'webview' && (typeof webviewHtml !== 'string' || !webviewHtml)) {
     throw new Error('WebView renderer requires a prepared webviewHtml document');
@@ -194,13 +207,14 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
   return {
     format:'tsgpui-1',
     renderer:config.renderer ?? 'native',
-    name:config.name,title:config.title,
+    name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.tsgpui.${config.name.replaceAll("_", "-")}`,
     width:config.width,height:config.height,
     root,backend_js,assets,fonts:config.fonts ?? {},
     persist:config.persist === true,
     dev:config.dev === true,
     diagnostics:config.dev === true ? [...warnings] : [],
-    ...(config.renderer === 'webview' ? {webview_html:webviewHtml ?? ''} : {}),
+    ...(config.renderer === 'webview' ? {webview_html:webviewHtml ?? '', webview_format_version:2, webview_files:webviewFiles ?? {}, webview_entry:webviewEntry ?? '/index.html'} : {}),
+    ...(config.backendWindow === 'hidden' ? {backend_window:'hidden', webview_main_html:webviewMainHtml ?? ''} : {}),
     permissions:{network_hosts:config.permissions?.networkHosts ?? [],filesystem:config.permissions?.filesystem ?? {read:[],write:[]},processes:config.permissions?.processes ?? [],notifications:config.permissions?.notifications ?? false,ipc:config.permissions?.ipc ?? false,window:config.permissions?.window ?? false},
     window:windowChrome
   };
@@ -210,6 +224,12 @@ export async function buildPackage(projectPath, options = {}) {
   const [html,css,backend] = await Promise.all([
     readFile(project.paths.html,'utf8'),readFile(project.paths.css,'utf8'),readFile(project.paths.backend,'utf8')
   ]);
+  let iconFile;
+  if (project.config.icon) {
+    iconFile = inProject(project.projectRoot, project.config.icon);
+    await assertRealInside(project.projectRoot, iconFile, 'Icon');
+  }
+  const bundledBackend = await bundleBackend(project.paths.backend, project.projectRoot, assertRealInside);
   let root;
   if (project.config.renderer !== 'webview') {
     try { root = parseHTML(html, {library: COMPONENT_LIBRARY}); }
@@ -218,24 +238,37 @@ export async function buildPackage(projectPath, options = {}) {
   const imagePaths = project.config.renderer === 'webview' ? new Set() : collectImagePaths(root);
   const assets = Object.fromEntries(await Promise.all([...imagePaths].map(async source=>[source,await readAsset(project.projectRoot,source)])));
   const fonts = Object.fromEntries(await Promise.all((project.config.fontFiles ?? []).map(font=>readFont(project.projectRoot,font))));
-  const watchAssets = new Set([...imagePaths,...(project.config.fontFiles ?? []).map(font=>font.src)]);
+  const watchAssets = new Set([...imagePaths,...(project.config.fontFiles ?? []).map(font=>font.src),...bundledBackend.files.map(file=>path.relative(project.projectRoot,file))]);
   const warnings = [];
-  let webviewHtml;
+  let webviewHtml, webviewFiles, webviewEntry, webviewMainHtml;
+  // With backendWindow "hidden" the backend runs in its own document, and every renderer page only renders.
+  const hidden = project.config.backendWindow === 'hidden';
   if (project.config.renderer === 'webview') {
-    const backendJs = compileBackend(backend);
+    const backendJs = bundledBackend.js;
+    webviewEntry = '/' + path.relative(project.projectRoot, project.paths.html).split(path.sep).join('/');
+    webviewFiles = await collectWebviewFiles(html,css,{projectRoot:project.projectRoot,htmlFile:project.paths.html,cssFile:project.paths.css,watchedAssets:watchAssets,extraHtmlFiles:project.config.webviewPages.map(page=>inProject(project.projectRoot,page))});
     const webviewFonts = Object.fromEntries((project.config.fontFiles ?? []).map(font => [font.family.trim(),{
       data:fonts[font.family.trim()],mime:path.extname(font.src).toLowerCase() === '.otf' ? 'font/otf' : 'font/ttf'
     }]));
     webviewHtml = await prepareWebviewHtml(html,css,{
       backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,fonts:webviewFonts,
-      persist:project.config.persist === true,
+      persist:project.config.persist === true, preserveUrls:true, omitBackend:hidden,
       projectRoot:project.projectRoot,htmlFile:project.paths.html,cssFile:project.paths.css,watchedAssets:watchAssets
     });
+    if (hidden) webviewMainHtml = await prepareWebviewHtml('<!doctype html><html><head></head><body></body></html>', '', {backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,persist:project.config.persist === true,preserveUrls:true,projectRoot:project.projectRoot,htmlFile:project.paths.html,watchedAssets:watchAssets});
+    // Additional windows need the same CSP and bridge setup, without inheriting the first page's CSS.
+    for (const page of project.config.webviewPages) {
+      const file = inProject(project.projectRoot,page);
+      const key = '/' + path.relative(project.projectRoot,file).split(path.sep).join('/');
+      const source = await readFile(file, 'utf8');
+      const prepared = await prepareWebviewHtml(source, '', {backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,persist:project.config.persist === true,preserveUrls:true,omitBackend:hidden,projectRoot:project.projectRoot,htmlFile:file,watchedAssets:watchAssets});
+      webviewFiles[key] = {mime:'text/html',data:Buffer.from(prepared).toString('base64')};
+    }
   }
-  const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,webviewHtml,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
+  const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend:bundledBackend.js,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
   const json = JSON.stringify(built);
   const bytes = Buffer.from(json,'utf8');
-  if (bytes.length > 16 * 1024 * 1024) throw new Error('App bundle exceeds 16 MiB safety limit');
+  if (bytes.length > project.config.maxBundleSize) throw new Error(`App bundle exceeds maxBundleSize (${project.config.maxBundleSize} bytes)`);
   await mkdir(project.paths.outDir,{recursive:true});
   const output = path.join(project.paths.outDir,`${project.config.name}.tgp`);
   const temporary = `${output}.tmp`;
@@ -244,5 +277,5 @@ export async function buildPackage(projectPath, options = {}) {
   }
   await writeFile(temporary,bytes);
   await rename(temporary,output);
-  return {...project,bundle:built,bundleFile:output,bytes,warnings,watchAssets:[...watchAssets]};
+  return {...project,iconFile,bundle:built,bundleFile:output,bytes,warnings,watchAssets:[...watchAssets]};
 }

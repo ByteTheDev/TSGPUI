@@ -5,9 +5,21 @@
 The `renderer` setting selects one of two paths:
 
 - `native` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render GPUI elements. Actions run in embedded QuickJS.
-- `webview`: keep the original HTML and CSS, inline local assets, and render them with the operating system's WebView engine through Wry. The compiled backend script runs in that page, which also supports the basic TSGPUI data bindings.
+- `webview`: prepare HTML and CSS and collect local files into a versioned asset map for the operating system's WebView engine through Wry. The compiled backend script runs in that page, which also supports the basic TSGPUI data bindings.
 
-Both paths transpile the single-file TypeScript backend and emit a UTF-8 JSON `.tgp` bundle. Release packaging appends `[bundle][u64 LE length][TSGPUI01]` to the matching prebuilt host executable. Packaged apps do not need Node or Bun at runtime.
+Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.tgp` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][TSGPUI01]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/tsgpui.tgp`. Packaged apps do not need Node or Bun at runtime.
+
+## WebView protocol and bridge
+
+[`webview.mjs`](../packages/cli/src/webview.mjs) collects local files into a versioned map; [`compiler.mjs`](../packages/cli/src/compiler.mjs) records the entry and map in the bundle. [`webview_main.rs`](../native/src/webview_main.rs) serves the entry and map through the `tsgpui` custom protocol and returns 404 for missing assets. It also supports legacy single-document bundles.
+
+[`webview_bridge.rs`](../native/src/webview_bridge.rs) injects `window.tsgpui.invoke` and `on`. Its host operations include app information, granted filesystem operations, process spawning, HTTPS requests and external URL opening; clipboard and dialogs are implemented on Windows. Window operations run on the UI thread; other host requests run on one worker thread with a session, with results delivered back to the page. IPC send and invoke use the page dispatcher and require IPC permission.
+
+[`platform.rs`](../native/src/platform.rs) holds the operations both hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` in the GPUI host and `window.tsgpui` in the WebView host answer the same way.
+
+`tsgpui import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
+
+The Electron shims speak the WebView bridge protocol: `host(operation, args)` with named arguments and WebView-shaped results. In the native renderer the backend has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs).
 
 ## Native host modules
 
@@ -15,7 +27,7 @@ The GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle.
+Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `tsgpui all` package the same bundle for other supported targets, each with its own verified prebuilt host.
 
 `tsgpui dev` watches the configured source files and rewrites the bundle. Both host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the WebView host stores state in `sessionStorage` and restores it after the page reloads (or in `localStorage` when `persist` is enabled). A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. Native `tsgpui preview` preserves state on reload; a WebView preview reloads the raw document and resets state.
 
@@ -37,19 +49,19 @@ Clipboard actions run only after a button click. File reads and writes require t
 
 ## Backend design
 
-The backend runs in one embedded QuickJS context with in-memory application state. Actions receive `get`, `set`, and `update`, plus a read-only event object. Promise-returning actions are supported for QuickJS microtasks; dispatch drains those jobs before redraw, so externally pending promises and long-running asynchronous work are not supported.
+The backend runs in one embedded QuickJS context with in-memory application state. Actions receive `get`, `set`, and `update`, plus a read-only event object. Actions can await the native host bridge, whose operations run asynchronously. Arbitrary external JavaScript APIs are not available in the native backend.
 
-QuickJS memory is capped at 32 MiB. CPU time is not capped and the runtime is not a malicious-code sandbox. Only load backend code you trust.
+QuickJS memory and execution time are limited as described in the safety documentation; the runtime is not a malicious-code sandbox. Only load backend code you trust.
 
 ## Versioned binary format
 
-A packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. `MAX_PAYLOAD=16 MiB` limits reads. This prototype container format is not signed, encrypted, or tamper-proof.
+On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The native host limits embedded payload reads to 16 MiB; the WebView host uses a 1 GiB limit. This prototype container format is not signed, encrypted, or tamper-proof.
 
 ## Remaining roadmap
 
-1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. The Windows interaction checks so far were done by hand with a screenshot harness and are not yet automated.
+1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. Windows host build and interaction have also been exercised by hand; check workflow results separately.
 2. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
-3. Improve the native layout model: exact `fr` proportions and placement, stacking contexts beyond sibling paint order, and more CSS layout properties. CSS transitions, animations, and element transforms need a GPUI animation/drawing primitive that 0.2.2 does not expose, so the native renderer reports them as unsupported; use the WebView renderer for motion.
+3. Improve the native layout model: grid item placement, stacking contexts beyond sibling paint order, and more CSS layout properties. Fixed, automatic, and unequal `fr` column tracks now preserve their proportions through flex-based layout. CSS transitions, animations, and element transforms need a GPUI animation/drawing primitive that 0.2.2 does not expose, so the native renderer reports them as unsupported; use the WebView renderer for motion.
 4. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
 5. Add a native code editor or terminal component for apps that need one, and executable signing/update support.
 

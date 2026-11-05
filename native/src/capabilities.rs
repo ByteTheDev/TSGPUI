@@ -10,13 +10,14 @@ use std::{
     io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use serde_json::{json, Value};
 
-use crate::package::Permissions;
+use crate::{package::Permissions, platform};
 
 /// Largest file read or written by one call, and largest captured process output per stream.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -28,19 +29,43 @@ pub struct Capabilities {
     base: PathBuf,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    /// The same roots, keyed by their names in `permissions`, so `{ root, path }` can address them.
+    read_named: Vec<(String, PathBuf)>,
+    write_named: Vec<(String, PathBuf)>,
     processes: Vec<String>,
+    network_hosts: Vec<String>,
+    app: AppIdentity,
+    /// Files picked with a dialog. Clones share the list, so a grant lasts for the whole run.
+    dialog_grants: Arc<Mutex<Vec<DialogGrant>>>,
     /// Opt-in grants for the window, notification and IPC operations.
     pub window: bool,
     pub notifications: bool,
     pub ipc: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+struct AppIdentity {
+    name: String,
+    version: String,
+    user_data: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct DialogGrant {
+    name: String,
+    path: PathBuf,
+    write: bool,
+}
+
 impl Capabilities {
     /// Builds the grants from a bundle. Relative roots resolve against `base`, which is the
     /// directory of the app executable, or of the `.tgp` file for `--bundle` runs.
     pub fn from_permissions(permissions: &Permissions, base: PathBuf) -> Self {
-        let read_roots = permissions.filesystem.read.iter().map(|root| base.join(root)).collect();
-        let write_roots: Vec<PathBuf> = permissions.filesystem.write.iter().map(|root| base.join(root)).collect();
+        let named = |roots: &[String]| -> Vec<(String, PathBuf)> { roots.iter().map(|root| (root.clone(), base.join(root))).collect() };
+        let read_named = named(&permissions.filesystem.read);
+        let write_named = named(&permissions.filesystem.write);
+        let read_roots = read_named.iter().map(|(_, path)| path.clone()).collect();
+        let write_roots: Vec<PathBuf> = write_named.iter().map(|(_, path)| path.clone()).collect();
         // Create writable roots up front so a fresh install can save its first file. Failure is
         // not fatal: later calls report that the path is outside a granted directory.
         for root in &write_roots {
@@ -50,17 +75,59 @@ impl Capabilities {
             base,
             read_roots,
             write_roots,
+            read_named,
+            write_named,
             processes: permissions.processes.clone(),
+            network_hosts: permissions.network_hosts.clone(),
+            app: AppIdentity::default(),
+            dialog_grants: Arc::default(),
             window: permissions.window,
             notifications: permissions.notifications,
             ipc: permissions.ipc,
         }
     }
 
+    /// Names the app for `app.info`. Its `userData` folder is the folder of its state file.
+    pub fn with_app(mut self, name: &str, version: &str) -> Self {
+        let user_data = crate::package::state_file(name).and_then(|file| file.parent().map(Path::to_path_buf)).unwrap_or_else(|| self.base.clone());
+        // Electron apps write to userData without creating it first, so it exists from the start.
+        let _ = fs::create_dir_all(&user_data);
+        self.app = AppIdentity { name: name.into(), version: version.into(), user_data };
+        self
+    }
+
+    fn user_data_dir(&self) -> PathBuf {
+        if self.app.user_data.as_os_str().is_empty() { self.base.clone() } else { self.app.user_data.clone() }
+    }
+
     /// Runs one operation. `operation` is `"<group>.<method>"`, and `args` is the JSON argument list.
-    /// `env` is added to processes started by `process.spawn`.
+    /// `env` is added to processes started by `process.spawn`. A `filesystem.*` call whose first
+    /// argument is `{ root, path }` addresses a named root instead (see `named_filesystem`).
     pub fn call(&self, operation: &str, args: &[Value], env: &[(String, String)]) -> Result<Value, String> {
+        if operation.starts_with("filesystem.") && args.first().is_some_and(Value::is_object) {
+            return self.named_filesystem(operation, args);
+        }
         match operation {
+            "app.info" => Ok(self.app_info()),
+            "clipboard.readText" => platform::clipboard_read_text().map(Value::from),
+            "clipboard.writeText" => platform::clipboard_write_text(text_arg(args, 0)?).map(|_| Value::Null),
+            "dialog.openFile" => {
+                let result = platform::open_file_dialog(&options(args))?;
+                self.grant_dialog(&result, false);
+                Ok(result)
+            }
+            "dialog.saveFile" => {
+                let result = platform::save_file_dialog(&options(args))?;
+                self.grant_dialog(&result, true);
+                Ok(result)
+            }
+            "dialog.message" => platform::message_dialog(&options(args)),
+            "shell.openExternal" => platform::open_external(text_arg(args, 0)?).map(|_| Value::Null),
+            "net.request" => platform::https_request(&options(args), &self.network_hosts),
+            "power.setBlockers" => {
+                platform::set_power_blockers(&platform::string_list(args.first().unwrap_or(&Value::Null)))?;
+                Ok(Value::Null)
+            }
             "filesystem.readText" => {
                 let path = confine(&self.read_roots, text_arg(args, 0)?, true, false)?;
                 let bytes = read_capped(&path)?;
@@ -144,6 +211,123 @@ impl Capabilities {
             other => Err(format!("Native operation '{other}' is not available in this build")),
         }
     }
+}
+
+impl Capabilities {
+    /// `filesystem.*` addressed as `{ root, path }`. `root` is a permission root by name, `userData`,
+    /// or the name of a file the user picked with a dialog. Paths are relative to that root, and
+    /// `rename` takes two locations in the same root. The grant decides whether the call may run.
+    fn named_filesystem(&self, operation: &str, args: &[Value]) -> Result<Value, String> {
+        let write = matches!(operation, "filesystem.writeText" | "filesystem.writeBytes" | "filesystem.mkdir" | "filesystem.remove" | "filesystem.rename");
+        let (root, path) = named_target(&args[0])?;
+        let mut positional = vec![Value::String(path.clone())];
+        if operation == "filesystem.rename" {
+            let (to_root, to_path) = named_target(args.get(1).ok_or("rename needs a destination")?)?;
+            if to_root != root {
+                return Err("Rename must stay inside one granted root".into());
+            }
+            positional.push(Value::String(to_path));
+        } else {
+            positional.extend_from_slice(&args[1..]);
+        }
+        let picked = self.dialog_grants.lock().unwrap_or_else(|error| error.into_inner()).iter().find(|grant| grant.name == root).cloned();
+        if let Some(grant) = picked {
+            return dialog_file_operation(&grant, operation, &path, &positional);
+        }
+        let directory = if root == "userData" {
+            Some(self.user_data_dir())
+        } else {
+            let named = if write { &self.write_named } else { &self.read_named };
+            named.iter().find(|(name, _)| *name == root).map(|(_, directory)| directory.clone())
+        };
+        let directory = directory.ok_or("Filesystem root is not granted")?;
+        let mut scoped = self.clone();
+        scoped.read_roots = if write { Vec::new() } else { vec![directory.clone()] };
+        scoped.write_roots = if write { vec![directory] } else { Vec::new() };
+        scoped.call(operation, &positional, &[])
+    }
+
+    /// Records files the user picked. An open dialog grants read access, and a save dialog write access.
+    fn grant_dialog(&self, result: &Value, write: bool) {
+        let paths: Vec<&str> = if write {
+            result["path"].as_str().into_iter().collect()
+        } else {
+            result["paths"].as_array().map(|items| items.iter().filter_map(Value::as_str).collect()).unwrap_or_default()
+        };
+        let mut grants = self.dialog_grants.lock().unwrap_or_else(|error| error.into_inner());
+        for path in paths {
+            let name = format!("dialog:{}", grants.len());
+            grants.push(DialogGrant { name, path: PathBuf::from(path), write });
+        }
+    }
+
+    /// The description `app.info` returns: the app, its folders, and every root the backend may use.
+    fn app_info(&self) -> Value {
+        let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap_or_default();
+        let user_data = self.user_data_dir();
+        let picked: Vec<DialogGrant> = self.dialog_grants.lock().unwrap_or_else(|error| error.into_inner()).clone();
+        let mut roots: Vec<Value> = self.read_named.iter().map(|(name, path)| json!({"name": name, "path": path.to_string_lossy(), "access": "read"})).collect();
+        roots.extend(self.write_named.iter().map(|(name, path)| json!({"name": name, "path": path.to_string_lossy(), "access": "write"})));
+        roots.push(json!({"name": "userData", "path": user_data.to_string_lossy(), "access": "write"}));
+        roots.extend(picked.iter().map(|grant| json!({"name": grant.name, "path": grant.path.to_string_lossy(), "access": if grant.write { "write" } else { "read" }, "exact": true})));
+        json!({
+            "name": self.app.name,
+            "version": self.app.version,
+            "platform": std::env::consts::OS,
+            "paths": {
+                "home": home.to_string_lossy(),
+                "userData": user_data.to_string_lossy(),
+                "documents": home.join("Documents").to_string_lossy(),
+                "downloads": home.join("Downloads").to_string_lossy(),
+                "temp": std::env::temp_dir().to_string_lossy(),
+                "appFolder": self.base.to_string_lossy(),
+            },
+            "roots": roots,
+        })
+    }
+}
+
+/// Splits a `{ root, path }` location. A missing path names the root itself.
+fn named_target(value: &Value) -> Result<(String, String), String> {
+    let root = value["root"].as_str().ok_or("File location needs a root name")?.to_owned();
+    let path = value["path"].as_str().unwrap_or("").to_owned();
+    Ok((root, path))
+}
+
+/// Operations on a file the user picked. The grant covers that one file, so `path` must be empty.
+fn dialog_file_operation(grant: &DialogGrant, operation: &str, path: &str, positional: &[Value]) -> Result<Value, String> {
+    let write = matches!(operation, "filesystem.writeText" | "filesystem.writeBytes" | "filesystem.mkdir" | "filesystem.remove" | "filesystem.rename");
+    if write && !grant.write {
+        return Err("Filesystem root is not granted for writing".into());
+    }
+    if !path.is_empty() {
+        return Err("Dialog grant covers only the selected file".into());
+    }
+    match operation {
+        "filesystem.readText" => {
+            let bytes = read_capped(&grant.path)?;
+            String::from_utf8(bytes).map(Value::from).map_err(|_| "File is not valid UTF-8 text".to_string())
+        }
+        "filesystem.readBytes" => Ok(Value::Array(read_capped(&grant.path)?.into_iter().map(Value::from).collect())),
+        "filesystem.writeText" => {
+            let contents = text_arg(positional, 1)?;
+            check_size(contents.len())?;
+            fs::write(&grant.path, contents).map_err(io_error)?;
+            Ok(Value::Null)
+        }
+        "filesystem.writeBytes" => {
+            let bytes = byte_array_arg(positional, 1)?;
+            check_size(bytes.len())?;
+            fs::write(&grant.path, bytes).map_err(io_error)?;
+            Ok(Value::Null)
+        }
+        _ => Err("Operation is not supported for a dialog grant".into()),
+    }
+}
+
+/// The first argument of an object-style operation, or an empty object when none was given.
+fn options(args: &[Value]) -> Value {
+    args.first().cloned().unwrap_or_else(|| json!({}))
 }
 
 /// Resolves `relative` under one of `roots`. Paths are relative to the granted directory, so
@@ -480,5 +664,58 @@ mod tests {
         let base = temp_dir("unknown");
         let caps = grants(&base, &[], &[], &[]);
         assert!(call(&caps, "window.minimize", json!([])).is_err());
+    }
+
+    #[test]
+    fn named_roots_need_a_grant_and_stay_inside_the_root() {
+        let base = temp_dir("named");
+        let caps = grants(&base, &["data"], &["data"], &[]);
+        call(&caps, "filesystem.writeText", json!([{"root": "data", "path": "a.txt"}, "hi"])).unwrap();
+        assert_eq!(call(&caps, "filesystem.readText", json!([{"root": "data", "path": "a.txt"}])).unwrap(), json!("hi"));
+        assert!(call(&caps, "filesystem.readText", json!([{"root": "other", "path": "a.txt"}])).unwrap_err().contains("not granted"));
+        assert!(call(&caps, "filesystem.readText", json!([{"root": "data", "path": "../a.txt"}])).is_err());
+        assert!(base.join("data/a.txt").exists());
+    }
+
+    #[test]
+    fn a_read_only_root_refuses_named_writes() {
+        let base = temp_dir("named-read-only");
+        let caps = grants(&base, &["data"], &[], &[]);
+        assert!(call(&caps, "filesystem.writeText", json!([{"root": "data", "path": "a.txt"}, "hi"])).unwrap_err().contains("not granted"));
+    }
+
+    #[test]
+    fn renames_must_stay_in_one_named_root() {
+        let base = temp_dir("named-rename");
+        let caps = grants(&base, &[], &["data", "other"], &[]);
+        call(&caps, "filesystem.mkdir", json!([{"root": "data", "path": "d"}])).unwrap();
+        let moved = call(&caps, "filesystem.rename", json!([{"root": "data", "path": "d"}, {"root": "other", "path": "d"}]));
+        assert!(moved.unwrap_err().contains("one granted root"));
+    }
+
+    #[test]
+    fn dialog_grants_cover_only_the_picked_file() {
+        let base = temp_dir("dialog");
+        let picked = base.join("picked.txt");
+        fs::write(&picked, "chosen").unwrap();
+        let caps = grants(&base, &[], &[], &[]);
+        caps.grant_dialog(&json!({"canceled": false, "paths": [picked.to_string_lossy()]}), false);
+        assert_eq!(call(&caps, "filesystem.readText", json!([{"root": "dialog:0", "path": ""}])).unwrap(), json!("chosen"));
+        assert!(call(&caps, "filesystem.readText", json!([{"root": "dialog:0", "path": "other.txt"}])).is_err());
+        assert!(call(&caps, "filesystem.writeText", json!([{"root": "dialog:0", "path": ""}, "x"])).unwrap_err().contains("not granted for writing"));
+        assert_eq!(fs::read_to_string(&picked).unwrap(), "chosen");
+        let info = call(&caps, "app.info", json!([])).unwrap();
+        assert!(info["roots"].as_array().unwrap().iter().any(|root| root["name"] == json!("dialog:0") && root["exact"] == json!(true)));
+    }
+
+    #[test]
+    fn app_info_lists_permission_roots_and_user_data() {
+        let base = temp_dir("app-info");
+        let caps = grants(&base, &["data"], &["out"], &[]).with_app("Example", "1.2.3");
+        let info = call(&caps, "app.info", json!([])).unwrap();
+        assert_eq!(info["name"], json!("Example"));
+        assert_eq!(info["version"], json!("1.2.3"));
+        let names: Vec<&str> = info["roots"].as_array().unwrap().iter().filter_map(|root| root["name"].as_str()).collect();
+        assert_eq!(names, vec!["data", "out", "userData"]);
     }
 }
