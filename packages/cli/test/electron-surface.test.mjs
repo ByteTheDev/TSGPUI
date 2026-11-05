@@ -28,7 +28,8 @@ test('the coverage ledger does not list names that Electron does not export', ()
 });
 
 test('the committed runtime coverage module is the generated one', async () => {
-  const committed = await readFile(path.join(here, '../src/electron-compat/runtime/electron-coverage.ts'), 'utf8');
+  // Git on Windows can check the file out with CRLF line endings, so compare with LF endings.
+  const committed = (await readFile(path.join(here, '../src/electron-compat/runtime/electron-coverage.ts'), 'utf8')).replace(/\r\n/g, '\n');
   assert.equal(committed, coverageSource(), 'Regenerate runtime/electron-coverage.ts from coverage.mjs');
 });
 

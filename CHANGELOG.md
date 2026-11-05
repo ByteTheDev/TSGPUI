@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.4.0-beta.1
+## 0.4.0-beta.2
 
 This is a beta. Interfaces may change before 0.4.0, and the platform hosts for macOS and Linux have been built by CI but not yet run by hand.
+
+0.4.0-beta.2 supersedes 0.4.0-beta.1, which is deprecated. The beta.1 package was published with a Linux host build failure: the `xattr` dependency did not compile on Linux (fixed by vendoring `xattr` 0.2.3 under `native/patches`).
 
 ### Added
 

@@ -30,7 +30,7 @@ irm https://raw.githubusercontent.com/ByteTheDev/TSGPUI/main/packages/cli/instal
 
 If you save `install.ps1` and run it as a file, Windows can block it because it was downloaded. Run `Unblock-File .\install.ps1` first, or use the `irm | iex` line above, which doesn't need the file.
 
-Set `TSGPUI_VERSION` (for example `0.4.0-beta.1`) to pin a release. Set `TSGPUI_URL` to install a different archive, such as a mirror. `BUN_INSTALL` moves the install location. The Windows script adds the bin directory to your user PATH unless `TSGPUI_NO_MODIFY_PATH=1` is set; the macOS and Linux script prints the PATH line for you to add.
+Set `TSGPUI_VERSION` (for example `0.4.0-beta.2`) to pin a release. Set `TSGPUI_URL` to install a different archive, such as a mirror. `BUN_INSTALL` moves the install location. The Windows script adds the bin directory to your user PATH unless `TSGPUI_NO_MODIFY_PATH=1` is set; the macOS and Linux script prints the PATH line for you to add.
 
 Check the install:
 

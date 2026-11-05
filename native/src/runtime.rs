@@ -1189,8 +1189,10 @@ mod tests {
         backend.invoke_with_event("listen", json!({})).unwrap();
         let addr = backend.ipc_environment().into_iter().find(|(key, _)| key == "TSGPUI_IPC_ADDR").unwrap().1;
         let mut intruder = TcpStream::connect(addr).unwrap();
-        writeln!(intruder, "{}", json!({ "token": "wrong" })).unwrap();
-        writeln!(intruder, "{}", json!({ "channel": "ping", "payload": "spoof" })).unwrap();
+        // The host closes a connection that gives the wrong token, so later writes can fail. The
+        // check that matters is that the spoofed message is not delivered.
+        let _ = writeln!(intruder, "{}", json!({ "token": "wrong" }));
+        let _ = writeln!(intruder, "{}", json!({ "channel": "ping", "payload": "spoof" }));
         thread::sleep(Duration::from_millis(100));
         backend.pump();
         assert_eq!(backend.state()["got"], json!(""));
