@@ -1,5 +1,19 @@
 # TSGPUI
 
+### Cross-target builds
+
+From the repository root, build a TSGPUI project for a specific platform or all six targets:
+
+```sh
+bun run tsgpui windows-x64 --project examples/counter
+bun run tsgpui linux-arm64 --project examples/counter
+bun run tsgpui all --project examples/counter
+```
+
+The targets are `windows-x64`, `windows-arm64`, `macos-x64`, `macos-arm64`, `linux-x64`, and `linux-arm64` (the `win32` and `darwin` spellings also work). You can also use `build --target windows-x64,linux-arm64`. Explicit target builds include the target in their output names in `dist`. Cross-target packaging requires a verified prebuilt host for each target; missing hosts are downloaded when available. `all` reports failures and exits unsuccessfully if any target could not be built. macOS apps are unsigned. The [building guide](docs/BUILDING.md) covers targets, hosts, packaging and Electron conversion in detail.
+
+Run `tsgpui` or `tsgpui run` in a TSGPUI or Electron project directory to start it. `tsgpui build` and the target shortcuts also detect Electron projects. Electron projects are converted into a new temporary directory; build output and the compatibility report are located there, and their paths are printed. Electron compatibility is incomplete: inspect the report before relying on the result. The conversion does not modify the source, although it may run the project's own build script if renderer assets are missing.
+
 ### Experimental desktop apps with HTML, CSS, and TypeScript
 
 TSGPUI is an **experimental, source-first framework prototype**. It turns a supported subset of HTML and CSS into a [GPUI](https://github.com/zed-industries/zed) interface, then runs TypeScript actions inside embedded QuickJS. Choose the native renderer for a Rust-rendered UI, or the WebView renderer for browser-style HTML and CSS.
@@ -156,6 +170,7 @@ Point `TSGPUI_HOST` to a compatible precompiled host when building without a loc
 | `bun run gpui:dev` | Watch, compile, and launch the example |
 | `bun run test` | Run compiler and CLI tests |
 | `bun run gpui:doctor` | Check host and tool availability |
+| `bun run tsgpui <target>` or `bun run tsgpui all` | Build for one platform target, or for all six (`--project` selects the app) |
 
 ## Known limitations
 
@@ -166,6 +181,7 @@ Point `TSGPUI_HOST` to a compatible precompiled host when building without a loc
 - Fixed, automatic, and unequal `fr` grid tracks are emulated with proportional flex sizing. The built-in component library includes `Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, table layout components, `CodeEditor`, `EmptyState`, and `Sheet`. Custom TTF/OTF fonts can be bundled.
 - Use a current host, package it unsigned, then sign the finished artifact. See the [release guide](docs/RELEASING.md) for platform signing and notarization.
 - No RAM or startup benchmarks have been performed. Do not assume results reported for other GPUI apps apply here.
+- Electron import is partial. Conversion writes a report that lists each Electron API the app uses that is partial or unsupported, and it runs the project's build script when no built renderer exists. Read the report, and import only projects you trust. The native and WebView renderers both run the compatibility shims; the native renderer has one window and no page, so extra windows, page messages and `ipcRenderer` need `renderer: "webview"`. See the [supported syntax reference](docs/SUPPORTED_SYNTAX.md#renderer-selection), the [safety notes](docs/SAFETY.md), and the [changelog](CHANGELOG.md).
 
 ## Build a Windows EXE in GitHub Actions
 

@@ -78,7 +78,10 @@ export async function bundleBackend(entry, projectRoot, assertInside) {
   await visit(entry);
   const ids = new Map([...modules.keys()].map((file, i) => [file, i]));
   const definitions = [...modules].map(([file, {source, mappings}]) => {
-    const result = ts.transpileModule(source, {fileName:file, reportDiagnostics:true, compilerOptions:{target:ts.ScriptTarget.ES2020, module:ts.ModuleKind.CommonJS, strict:true, removeComments:true, esModuleInterop:true}});
+    // Preserve the exact module.exports value for imported CommonJS modules, including functions.
+    // The internal loader already provides CommonJS modules; interop wrapping changes require()
+    // into a namespace object and breaks callable exports in imported Electron applications.
+    const result = ts.transpileModule(source, {fileName:file, reportDiagnostics:true, compilerOptions:{target:ts.ScriptTarget.ES2020, module:ts.ModuleKind.CommonJS, strict:true, removeComments:true, esModuleInterop:false}});
     if (result.diagnostics?.length) throw new Error(`${path.relative(projectRoot,file)}: ${result.diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n')}`);
     return `${ids.get(file)}:[function(module,exports,require){\n${result.outputText}\n},${JSON.stringify(Object.fromEntries(Object.entries(mappings).map(([k,v]) => [k,ids.get(v)])))}]`;
   });

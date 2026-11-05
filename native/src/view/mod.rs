@@ -401,7 +401,11 @@ impl AppView {
                     let commands = view.backend.take_ui_commands();
                     let changed = pump.changed || !commands.is_empty();
                     for command in commands {
-                        view.apply_ui_command(window, command);
+                        view.apply_ui_command(window, cx, command);
+                    }
+                    for reply in view.backend.take_display_requests() {
+                        // A closed receiver means the backend stopped waiting, so there is nothing to tell.
+                        let _ = reply.send(display_list(window, cx));
                     }
                     if changed {
                         cx.notify();
@@ -412,7 +416,7 @@ impl AppView {
         }).detach();
     }
 
-    fn apply_ui_command(&mut self, window: &mut Window, command: UiCommand) {
+    fn apply_ui_command(&mut self, window: &mut Window, cx: &mut Context<Self>, command: UiCommand) {
         match command {
             UiCommand::Minimize => window.minimize_window(),
             // GPUI's zoom toggles, so only call it when the window is in the other state.
@@ -420,6 +424,7 @@ impl AppView {
             UiCommand::Restore => if window.is_maximized() { window.zoom_window() },
             UiCommand::Close => window.remove_window(),
             UiCommand::SetTitle(title) => self.title_override = Some(title),
+            UiCommand::Quit => cx.quit(),
         }
     }
 
@@ -475,6 +480,24 @@ fn write_state_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     // Windows does not replace an existing file with rename.
     if path.exists() { std::fs::remove_file(path)?; }
     std::fs::rename(&temp, path)
+}
+
+/// The displays as `screen.displays` reports them, in logical pixels. GPUI 0.2 has no scale factor
+/// per display, so each display reports the scale factor of the app window.
+fn display_list(window: &Window, cx: &App) -> serde_json::Value {
+    let primary = cx.primary_display().map(|display| display.id());
+    let scale = window.scale_factor();
+    serde_json::Value::Array(cx.displays().iter().map(|display| {
+        let bounds = display.bounds();
+        serde_json::json!({
+            "x": f32::from(bounds.origin.x),
+            "y": f32::from(bounds.origin.y),
+            "width": f32::from(bounds.size.width),
+            "height": f32::from(bounds.size.height),
+            "scaleFactor": scale,
+            "primary": Some(display.id()) == primary,
+        })
+    }).collect())
 }
 
 pub fn run(doc: AppPackage, backend: JsBackend, bundle_file: Option<PathBuf>) {

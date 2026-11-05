@@ -15,7 +15,11 @@ Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON
 
 [`webview_bridge.rs`](../native/src/webview_bridge.rs) injects `window.tsgpui.invoke` and `on`. Its host operations include app information, granted filesystem operations, process spawning, HTTPS requests and external URL opening; clipboard and dialogs are implemented on Windows. Window operations run on the UI thread; other host requests run on one worker thread with a session, with results delivered back to the page. IPC send and invoke use the page dispatcher and require IPC permission.
 
-`tsgpui import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script.
+[`platform.rs`](../native/src/platform.rs) holds the operations both hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` in the GPUI host and `window.tsgpui` in the WebView host answer the same way.
+
+`tsgpui import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
+
+The Electron shims speak the WebView bridge protocol: `host(operation, args)` with named arguments and WebView-shaped results. In the native renderer the backend has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs).
 
 ## Native host modules
 
@@ -23,7 +27,7 @@ The GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle.
+Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `tsgpui all` package the same bundle for other supported targets, each with its own verified prebuilt host.
 
 `tsgpui dev` watches the configured source files and rewrites the bundle. Both host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the WebView host stores state in `sessionStorage` and restores it after the page reloads (or in `localStorage` when `persist` is enabled). A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. Native `tsgpui preview` preserves state on reload; a WebView preview reloads the raw document and resets state.
 

@@ -88,12 +88,12 @@ async function storeHost(renderer, target, data, record) {
   await writeFile(recordPath(destination), JSON.stringify(record, null, 2) + '\n');
   return destination;
 }
-export async function installHostFile({renderer, file, sha256, version}) {
+export async function installHostFile({renderer, file, sha256, version, target = currentTarget()}) {
   assertRenderer(renderer);
+  assertTarget(target);
   const data = await readFile(path.resolve(file));
   const actual = createHash('sha256').update(data).digest('hex');
   if (actual !== sha256.toLowerCase()) throw new Error(`Host SHA-256 mismatch: got ${actual}`);
-  const target = currentTarget();
   const destination = await storeHost(renderer, target, data, {
     version, bundleFormat: BUNDLE_FORMAT, renderer, target, sha256: actual, source: 'manual install',
   });
@@ -155,10 +155,15 @@ export async function loadManifest({version, pkgRoot}) {
 
 // Downloads, verifies and installs the prebuilt host for this machine. Throws a message that says
 // what to do next when no prebuilt host fits.
-export async function fetchHost({renderer, version, pkgRoot, log = console.log}) {
+export const SUPPORTED_TARGETS = ['win32-x64', 'win32-arm64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'];
+export function assertTarget(target) {
+  if (!SUPPORTED_TARGETS.includes(target)) throw new Error(`Unsupported target ${target}. Use one of: ${SUPPORTED_TARGETS.join(', ')}`);
+  return target;
+}
+export async function fetchHost({renderer, version, pkgRoot, target = currentTarget(), log = console.log}) {
   assertRenderer(renderer);
+  assertTarget(target);
   if (downloadsDisabled()) throw new Error('downloads are disabled by TSGPUI_NO_DOWNLOAD=1');
-  const target = currentTarget();
   const {manifest, origin} = await loadManifest({version, pkgRoot});
   const entry = manifest.hosts.find(host => host.renderer === renderer && host.target === target);
   if (!entry) {

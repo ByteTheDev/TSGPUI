@@ -131,6 +131,7 @@ function previewRuntime() {
     (async () => { for (const listener of listeners) await listener(payload); })().then(() => finish(null), finish);
   });
 
+  const hostOnly = operation => async () => { throw new Error(`${operation} is available only in the native and WebView hosts, not the browser preview`); };
   const native = Object.freeze({
     window: Object.freeze({
       minimize: async () => { grant('window', 'Window control'); throw new Error('Window minimize is available only in the native host'); },
@@ -176,6 +177,15 @@ function previewRuntime() {
         return () => { set.delete(listener); };
       },
     }),
+    // The native host's other operations. The preview cannot provide them, so each one rejects with
+    // a clear message instead of being missing.
+    app: Object.freeze({ info: hostOnly('app.info'), quit: hostOnly('app.quit') }),
+    clipboard: Object.freeze({ readText: hostOnly('clipboard.readText'), writeText: hostOnly('clipboard.writeText') }),
+    dialog: Object.freeze({ openFile: hostOnly('dialog.openFile'), saveFile: hostOnly('dialog.saveFile'), message: hostOnly('dialog.message') }),
+    shell: Object.freeze({ openExternal: hostOnly('shell.openExternal') }),
+    net: Object.freeze({ request: hostOnly('net.request') }),
+    power: Object.freeze({ setBlockers: hostOnly('power.setBlockers') }),
+    screen: Object.freeze({ displays: hostOnly('screen.displays') }),
   });
 
   const api = Object.freeze({

@@ -44,6 +44,8 @@ pub enum UiCommand {
     Restore,
     Close,
     SetTitle(String),
+    /// Ends the app, as `app.quit` does.
+    Quit,
 }
 
 /// What one `pump` changed.
@@ -64,10 +66,9 @@ enum Task {
     SetState { key: String, value: Value },
 }
 
-// The task that is waiting on host results. `start_id` is the first host request it may have issued.
+// The task that is waiting on host results.
 struct Running {
     label: String,
-    start_id: u64,
 }
 
 type Job = Box<dyn FnOnce() + Send>;
@@ -83,6 +84,8 @@ struct HostPort {
     // Requests whose result has not been delivered yet.
     unsettled: Arc<Mutex<BTreeSet<u64>>>,
     ui: Arc<Mutex<Vec<UiCommand>>>,
+    // Display lists requested by `screen.displays`. The view answers each one on the UI thread.
+    displays: Arc<Mutex<Vec<Sender<Value>>>>,
 }
 
 impl HostPort {
@@ -125,6 +128,17 @@ impl HostPort {
             };
             self.ui.lock().unwrap_or_else(|error| error.into_inner()).push(command);
             return Ok(Value::Null);
+        }
+        if operation == "app.quit" {
+            self.ui.lock().unwrap_or_else(|error| error.into_inner()).push(UiCommand::Quit);
+            return Ok(Value::Null);
+        }
+        if operation == "screen.displays" {
+            // GPUI reads displays on the UI thread, so this waits for the view to answer. The view
+            // pumps every 16 ms, so the wait is short unless the window is gone.
+            let (reply, answer) = mpsc::channel();
+            self.displays.lock().unwrap_or_else(|error| error.into_inner()).push(reply);
+            return answer.recv_timeout(Duration::from_secs(5)).map_err(|_| "The display list did not arrive; the window may be closing".to_string());
         }
         if operation == "ipc.send" {
             let Some(hub) = self.ipc.as_ref() else {
@@ -200,6 +214,7 @@ impl JsBackend {
             next_id: Arc::new(AtomicU64::new(1)),
             unsettled: Arc::new(Mutex::new(BTreeSet::new())),
             ui: Arc::new(Mutex::new(Vec::new())),
+            displays: Arc::new(Mutex::new(Vec::new())),
         };
         let mut backend = Self {
             context,
@@ -314,6 +329,12 @@ impl JsBackend {
         std::mem::take(&mut *self.host.ui.lock().unwrap_or_else(|error| error.into_inner()))
     }
 
+    /// Takes the display requests waiting for an answer. The caller sends the display list back
+    /// through each sender.
+    pub fn take_display_requests(&mut self) -> Vec<Sender<Value>> {
+        std::mem::take(&mut *self.host.displays.lock().unwrap_or_else(|error| error.into_inner()))
+    }
+
     /// Where other local processes can reach this app's IPC hub, as environment variables. Empty
     /// unless the `ipc` permission is granted.
     #[cfg(test)]
@@ -335,22 +356,21 @@ impl JsBackend {
                 (format!("Backend listener for '{channel}'"), source)
             }
         };
-        let start_id = self.host.next_id.load(Ordering::SeqCst);
         let slice = self.slice(&label, Some(source));
-        self.conclude(&label, start_id, slice)
+        self.conclude(&label, slice)
     }
 
     // Decides what one slice of JS work means for the task that owns it. `slice` is the envelope the
     // task has produced so far, if any.
-    fn conclude(&mut self, label: &str, start_id: u64, slice: Result<Option<String>, String>) -> Result<bool, String> {
+    fn conclude(&mut self, label: &str, slice: Result<Option<String>, String>) -> Result<bool, String> {
         match slice {
             Ok(Some(envelope)) => {
                 self.running = None;
                 let result = take_state(&envelope, &format!("{label} failed"));
                 self.commit_or_restore(result).map(|()| true)
             }
-            Ok(None) if self.has_unsettled_since(start_id) => {
-                self.running = Some(Running { label: label.to_string(), start_id });
+            Ok(None) if self.has_unsettled() => {
+                self.running = Some(Running { label: label.to_string() });
                 Ok(false)
             }
             Ok(None) => {
@@ -369,10 +389,10 @@ impl JsBackend {
     // Starts queued tasks while nothing is waiting, and checks whether the waiting task has finished.
     fn advance(&mut self, pump: &mut Pump) {
         loop {
-            if let Some(Running { label, start_id }) = self.running.take() {
+            if let Some(Running { label }) = self.running.take() {
                 // `conclude` puts `running` back if the task is still waiting.
                 let slice = self.slice(&label, None);
-                match self.conclude(&label, start_id, slice) {
+                match self.conclude(&label, slice) {
                     Ok(true) => pump.changed = true,
                     Ok(false) => return,
                     Err(error) => {
@@ -411,8 +431,11 @@ impl JsBackend {
         })
     }
 
-    fn has_unsettled_since(&self, start_id: u64) -> bool {
-        self.host.unsettled.lock().unwrap_or_else(|error| error.into_inner()).range(start_id..).next().is_some()
+    // True while any host request is unsettled, including one the backend issued while loading. An
+    // action can await such a request (for example `app.whenReady()` in the Electron shims), and it
+    // must wait for it rather than fail as if no host call were pending.
+    fn has_unsettled(&self) -> bool {
+        !self.host.unsettled.lock().unwrap_or_else(|error| error.into_inner()).is_empty()
     }
 
     // Work that continues after its action has finished, such as a host result that resolved an
@@ -605,6 +628,31 @@ const NATIVE_SETUP: &str = r#"(function() {
         ipc: Object.freeze({
             send: (channel, payload) => call('ipc.send')(channel, payload === undefined ? null : payload),
             on
+        }),
+        app: Object.freeze({
+            info: call('app.info'),
+            quit: call('app.quit')
+        }),
+        clipboard: Object.freeze({
+            readText: call('clipboard.readText'),
+            writeText: call('clipboard.writeText')
+        }),
+        dialog: Object.freeze({
+            openFile: (options) => call('dialog.openFile')(options ?? {}),
+            saveFile: (options) => call('dialog.saveFile')(options ?? {}),
+            message: (options) => call('dialog.message')(options ?? {})
+        }),
+        shell: Object.freeze({
+            openExternal: call('shell.openExternal')
+        }),
+        net: Object.freeze({
+            request: (options) => call('net.request')(options)
+        }),
+        power: Object.freeze({
+            setBlockers: (types) => call('power.setBlockers')(types ?? [])
+        }),
+        screen: Object.freeze({
+            displays: call('screen.displays')
         })
     });
     hidden('__tsgpui_native', native);
@@ -1003,6 +1051,85 @@ mod tests {
             vec![UiCommand::SetTitle("Notes".into()), UiCommand::Minimize]
         );
         assert!(backend.take_ui_commands().is_empty());
+    }
+
+    #[test]
+    fn electron_shim_operations_are_on_the_native_api() {
+        let base = std::env::temp_dir().join(format!("tsgpui-runtime-shim-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let permissions = crate::package::Permissions {
+            filesystem: crate::package::FilesystemPermissions { read: vec!["data".into()], write: vec!["data".into()] },
+            ..Default::default()
+        };
+        let grants = Capabilities::from_permissions(&permissions, base.clone()).with_app("Example", "1.2.3");
+        let app = r#"globalThis.__tsgpui_app = { state: { text: '', roots: '', refused: '', width: 0 }, actions: {
+            async write(api) {
+                await api.native.filesystem.writeText({ root: 'data', path: 'named.txt' }, 'named');
+                api.set('text', await api.native.filesystem.readText({ root: 'data', path: 'named.txt' }));
+            },
+            async describe(api) {
+                const info = await api.native.app.info();
+                api.set('roots', info.roots.map(root => root.name).join(','));
+            },
+            async refuse(api) {
+                try { await api.native.net.request({ url: 'https://example.com/' }); } catch (error) { api.set('refused', String(error.message)); }
+            },
+            async screens(api) { const list = await api.native.screen.displays(); api.set('width', list[0].width); },
+            async quit(api) { await api.native.app.quit(); }
+        } };"#;
+        let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
+
+        backend.invoke_with_event("write", json!({})).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert_eq!(backend.state()["text"], json!("named"));
+        assert_eq!(std::fs::read_to_string(base.join("data/named.txt")).unwrap(), "named");
+
+        backend.invoke_with_event("describe", json!({})).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert_eq!(backend.state()["roots"], json!("data,data,userData"));
+
+        backend.invoke_with_event("refuse", json!({})).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert!(backend.state()["refused"].as_str().unwrap().contains("Network host is not granted"));
+
+        backend.invoke_with_event("quit", json!({})).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert!(backend.take_ui_commands().contains(&UiCommand::Quit));
+    }
+
+    #[test]
+    fn an_action_can_await_a_host_call_issued_while_loading() {
+        // The Electron shims start `app.info` when the backend loads, and actions await it. The
+        // action must wait for that result instead of failing as if no host call were pending.
+        let permissions = crate::package::Permissions::default();
+        let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir()).with_app("Loading", "2.0.0");
+        let app = "globalThis.__tsgpui_ready = globalThis.__tsgpui_native.app.info(); \
+            globalThis.__tsgpui_app = { state: { name: '' }, actions: { async read(api) { \
+                const info = await globalThis.__tsgpui_ready; api.set('name', info.name); } } };";
+        let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
+        backend.invoke_with_event("read", json!({})).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert_eq!(backend.state()["name"], json!("Loading"));
+    }
+
+    #[test]
+    fn screen_displays_wait_for_the_ui_thread_to_answer() {
+        let mut backend = JsBackend::new(
+            "globalThis.__tsgpui_app = { state: { width: 0 }, actions: { async screens(api) { \
+                const list = await api.native.screen.displays(); api.set('width', list[0].width); } } };",
+        ).unwrap();
+        backend.invoke_with_event("screens", json!({})).unwrap();
+        // The request is queued for the UI thread, which answers it through the reply channel.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let replies = loop {
+            let replies = backend.take_display_requests();
+            if !replies.is_empty() || Instant::now() > deadline { break replies; }
+            thread::sleep(Duration::from_millis(2));
+        };
+        assert_eq!(replies.len(), 1);
+        replies[0].send(json!([{"x": 0, "y": 0, "width": 1920, "height": 1080, "scaleFactor": 1.5, "primary": true}])).unwrap();
+        assert!(finish(&mut backend).is_empty());
+        assert_eq!(backend.state()["width"], json!(1920));
     }
 
     #[test]

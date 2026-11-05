@@ -72,6 +72,7 @@ pub struct AppPackage {
     pub format: String,
     #[serde(default = "native_renderer")] pub renderer: String,
     pub name: String,
+    #[serde(default = "default_version")] pub version: String,
     pub title: String,
     pub width: i32,
     pub height: i32,
@@ -89,6 +90,8 @@ pub struct AppPackage {
 }
 
 fn native_renderer() -> String { "native".into() }
+
+fn default_version() -> String { "1.0.0".into() }
 
 pub fn load() -> Result<AppPackage,String> {
     if let Some(file) = bundle_path()? {

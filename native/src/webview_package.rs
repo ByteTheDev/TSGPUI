@@ -88,6 +88,14 @@ pub struct AppPackage {
     #[serde(default)] pub webview_files: BTreeMap<String, WebviewAsset>,
     #[serde(default)] pub webview_entry: Option<String>,
     #[serde(default)] pub webview_format_version: u32,
+    /// "hidden" runs the backend in an invisible window, so the primary window can close while others stay open.
+    #[serde(default)] pub backend_window: Option<String>,
+    /// The backend document loaded by the hidden backend window.
+    #[serde(default)] pub webview_main_html: Option<String>,
+    /// Page that runs the backend when `hidden_backend` is set. Renderer pages then carry no backend code.
+    #[serde(default)] pub webview_backend_html: Option<String>,
+    /// Runs the backend in an invisible page, so closing windows does not stop IPC handlers.
+    #[serde(default)] pub hidden_backend: bool,
     #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
     #[serde(default)] pub fonts: BTreeMap<String,String>,
     // Preferences for the development overlay and for persisting backend state between runs.
@@ -152,6 +160,9 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     if !["native", "webview"].contains(&doc.renderer.as_str()) {return Err(format!("Unknown renderer: {}",doc.renderer));}
     if doc.name.is_empty() || doc.renderer == "native" && doc.root.tag.is_empty() {return Err("Invalid document content".into());}
     if doc.renderer == "webview" && doc.webview_html.as_ref().is_none_or(String::is_empty) {return Err("WebView app bundle is missing webview_html".into());}
+    if doc.backend_window.as_deref().is_some_and(|w| w != "primary" && w != "hidden") {return Err(format!("Unknown backend window: {}", doc.backend_window.as_deref().unwrap_or_default()));}
+    if doc.backend_window.as_deref() == Some("hidden") && (doc.renderer != "webview" || doc.webview_main_html.as_ref().is_none_or(String::is_empty)) {return Err("Hidden backend window requires a WebView bundle with webview_main_html".into());}
+    if doc.renderer == "webview" && doc.hidden_backend && doc.webview_backend_html.as_ref().is_none_or(String::is_empty) {return Err("WebView app bundle has a hidden backend but no webview_backend_html".into());}
     Ok(doc)
 }
 fn read_embedded() -> Result<Vec<u8>,String> {

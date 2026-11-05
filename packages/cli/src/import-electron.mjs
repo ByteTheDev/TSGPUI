@@ -2,11 +2,17 @@
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import {readFile, writeFile, mkdir, cp, stat, readdir} from 'node:fs/promises';
 import {bundleBackend} from './backend.mjs';
+import {statusOf} from './electron-compat/coverage.mjs';
 
-const runtimeDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'electron-compat', 'runtime');
+const ELECTRON_SPECS = new Set(['electron','electron/main','electron/renderer','node:electron']);
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const runtimeDir = [path.join(moduleDir, 'electron-compat', 'runtime'), path.join(moduleDir, '..', 'src', 'electron-compat', 'runtime')].find(existsSync) || path.join(moduleDir, 'electron-compat', 'runtime');
 const builtins = new Map(['electron','fs','fs/promises','path','os','events','child_process','process','https'].flatMap(n => [[n,n === 'fs/promises' ? 'fs' : n],['node:'+n,n === 'fs/promises' ? 'fs' : n]]));
+for (const spec of ELECTRON_SPECS) builtins.set(spec, 'electron');
 const slash = p => p.replaceAll('\\','/');
 const exists = async p => !!(await stat(p).catch(() => null));
 const inside = (root,p) => p === root || p.startsWith(root + path.sep);
@@ -32,7 +38,10 @@ export async function importElectron(input, {out, build = false, force = false} 
   if (!inside(root,main) || !await exists(main)) throw new Error(`Main process entry not found: ${pkg.main || 'index.js'}`);
   const notes = [], rewrites = [], visited = new Set(), modules = new Map(), hosts = new Set(), commands = new Set();
   const usage = {fs:false, relativeFs:false, window:false, notifications:false, ipc:false};
-  let renderer, preload, width=900, height=600, title, titleBarStyle;
+  let renderer, width=900, height=600, title, titleBarStyle;
+  const renderers = new Set();
+  const windowPreloads = new Map(), rendererWindows = new Map();
+  function addRenderer(file) { renderers.add(file); if (!renderer) renderer = file; }
   const sourceDir = path.join(dest,'src'), mainDir = path.join(sourceDir,'main');
   const warn = (file,node,ast,msg) => notes.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1}: ${msg}`);
   async function resolveLocal(file,spec) {
@@ -40,6 +49,35 @@ export async function importElectron(input, {out, build = false, force = false} 
     if (!inside(root,base)) return null;
     for (const p of [base,base+'.js',base+'.ts',base+'.mjs',base+'.cjs',path.join(base,'index.js'),path.join(base,'index.ts')]) if ((await stat(p).catch(()=>null))?.isFile()) return p;
     return null;
+  }
+  // Lists every electron export the file uses (destructured require, named import, or `alias.name`)
+  // and reports those the ledger does not mark as implemented.
+  function electronApiReview(ast, file) {
+    const aliases = new Set(), used = new Map();
+    const note = (name, node) => { if (!used.has(name)) used.set(name, node); };
+    const isElectronRequire = n => n && ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'require' && ELECTRON_SPECS.has(literal(n.arguments[0]));
+    (function walk(node) {
+      if (ts.isVariableDeclaration(node) && isElectronRequire(node.initializer)) {
+        if (ts.isObjectBindingPattern(node.name)) for (const el of node.name.elements) note((el.propertyName ?? el.name).getText(ast), el);
+        else if (ts.isIdentifier(node.name)) aliases.add(node.name.text);
+      }
+      if (ts.isImportDeclaration(node) && ELECTRON_SPECS.has(literal(node.moduleSpecifier))) {
+        const clause = node.importClause, bindings = clause?.namedBindings;
+        if (clause?.name) aliases.add(clause.name.text);
+        if (bindings && ts.isNamespaceImport(bindings)) aliases.add(bindings.name.text);
+        if (bindings && ts.isNamedImports(bindings)) for (const el of bindings.elements) note((el.propertyName ?? el.name).getText(ast), el);
+      }
+      ts.forEachChild(node, walk);
+    })(ast);
+    (function access(node) {
+      if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && aliases.has(node.expression.text)) note(node.name.text, node.name);
+      ts.forEachChild(node, access);
+    })(ast);
+    for (const [name, node] of used) {
+      const found = statusOf(name);
+      if (!found) warn(file,node,ast,`Unknown Electron API electron.${name}: it is not in the TSGPUI coverage ledger`);
+      else if (found.status !== 'implemented') warn(file,node,ast,`electron.${name} is ${found.status}: ${found.reason}`);
+    }
   }
   const targetFor = file => path.join(mainDir, path.relative(root,file).replace(/\.(?:mjs|cjs|js|jsx|tsx)$/i,'.ts'));
   async function visit(file) {
@@ -66,14 +104,22 @@ export async function importElectron(input, {out, build = false, force = false} 
           if (key==='titleBarStyle') titleBarStyle=literal(prop.initializer);
           if (key==='webPreferences' && ts.isObjectLiteralExpression(prop.initializer)) for (const p of prop.initializer.properties) if (ts.isPropertyAssignment(p) && p.name.getText(ast)==='preload') {
             const value=staticPath(p.initializer);
-            if(value !== undefined) preload=path.resolve(path.dirname(file),value); else warn(file,p,ast,'Dynamic preload path requires manual migration');
+            if(value !== undefined) {
+              const variable = ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name) ? node.parent.name.text : undefined;
+              if (variable) {
+                const key = `${file}\0${variable}`;
+                const preload = path.resolve(path.dirname(file),value);
+                if (windowPreloads.has(key) && windowPreloads.get(key) !== preload) warn(file,p,ast,`Multiple preload paths use window variable ${variable}; association requires review`);
+                else windowPreloads.set(key,preload);
+              } else warn(file,p,ast,'Preload on an unassigned BrowserWindow requires review');
+            } else warn(file,p,ast,'Dynamic preload path requires manual migration');
           }
         }
       }
       if (ts.isCallExpression(node)) {
         const expr=node.expression.getText(ast), arg=literal(node.arguments[0]);
-        if (/\.loadFile$/.test(expr)) { const value=node.arguments[0] && staticPath(node.arguments[0]); if(value) renderer=path.resolve(root,value); else warn(file,node,ast,'Dynamic loadFile target requires manual migration'); }
-        if (/\.loadURL$/.test(expr)) { if(arg?.startsWith('file:')) { try {renderer=fileURLToPath(arg);} catch {warn(file,node,ast,'Invalid loadURL file target');} } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
+        if (/\.loadFile$/.test(expr)) { const value=node.arguments[0] && staticPath(node.arguments[0]); if(value) { const page=path.resolve(root,value); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); } } else warn(file,node,ast,'Dynamic loadFile target requires manual migration'); }
+        if (/\.loadURL$/.test(expr)) { if(arg?.startsWith('file:')) { try {const page=fileURLToPath(arg); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); }} catch {warn(file,node,ast,'Invalid loadURL file target');} } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
         if (/^(?:fetch|axios(?:\.[\w]+)?|https\.(?:get|request))$/.test(expr)) {
           const addHost = (value, isUrl) => { try { const u = new URL(isUrl ? value : 'https://'+value); hosts.add(u.hostname.toLowerCase()); } catch { warn(file,node,ast,`Network value requires review: ${value}`); } };
           const first=node.arguments[0];
@@ -97,6 +143,7 @@ export async function importElectron(input, {out, build = false, force = false} 
       ts.forEachChild(node,scan);
     }
     scan(ast);
+    if (dependencies.some(dep => ELECTRON_SPECS.has(dep.spec))) electronApiReview(ast, file);
     for (const dep of dependencies) {
       let target, kind=builtins.get(dep.spec);
       if (kind) {target=path.join(sourceDir,'tsgpui-runtime',kind+'.ts'); if(kind==='fs') usage.fs=true;}
@@ -119,12 +166,22 @@ export async function importElectron(input, {out, build = false, force = false} 
     modules.set(file,imports.join('\n')+'\n'+(definitions.length ? definitions.join('\n')+'\n' : '')+converted);
   }
   await visit(main);
-  if (!renderer) for (const candidate of ['dist/index.html','build/index.html','out/index.html']) if(await exists(path.join(root,candidate))) { renderer=path.join(root,candidate); notes.push(`Renderer inferred from ${candidate}; verify the selected entry.`); break; }
+  if (!renderer) for (const candidate of ['dist/index.html','build/index.html','out/index.html']) if(await exists(path.join(root,candidate))) { addRenderer(path.join(root,candidate)); notes.push(`Renderer inferred from ${candidate}; verify the selected entry.`); break; }
   if (!renderer || !inside(root,renderer) || !await exists(renderer)) throw new Error('No built renderer entry found; build the Electron app first or pass --build');
-  if (preload) {if(inside(root,preload) && await exists(preload)) await visit(preload); else notes.push(`Preload ${preload} was not found; migrate it manually.`);}
+  for (const page of renderers) if (!inside(root,page) || !await exists(page)) throw new Error(`Renderer entry is missing or outside the project: ${page}`);
+  const pagePreloads = new Map();
+  for (const page of renderers) {
+    const candidates = [...new Set([...(rendererWindows.get(page) || [])].map(id=>windowPreloads.get(id) || null))];
+    if (candidates.length > 1) { notes.push(`Renderer ${slash(path.relative(root,page))} has multiple preload scripts; per-window association requires review.`); continue; }
+    const preload = candidates[0];
+    if (preload && inside(root,preload) && await exists(preload)) { pagePreloads.set(page,preload); await visit(preload); }
+    else if (preload) notes.push(`Preload ${preload} was not found; migrate it manually.`);
+  }
   await mkdir(sourceDir,{recursive:true});
   const rendererRoot=path.dirname(renderer);
-  await cp(rendererRoot,path.join(sourceDir,'renderer'),{recursive:true,filter:p=>!inside(dest,path.resolve(p))});
+  const rendererRoots = [...new Set([...renderers].map(page => path.dirname(page)))];
+  const convertedRenderer = page => path.join(sourceDir, 'renderer', path.relative(root, page));
+  for (const directory of rendererRoots) await cp(directory, path.join(sourceDir,'renderer',path.relative(root,directory)), {recursive:true,filter:p=>!inside(dest,path.resolve(p))});
   const htmlSource=await readFile(renderer,'utf8');
   const stylesheets=[];
   for (const match of htmlSource.replace(/<!--[\s\S]*?-->/g,'').matchAll(/<link\b[^>]*>/gi)) {
@@ -134,7 +191,7 @@ export async function importElectron(input, {out, build = false, force = false} 
     try { relative=decodeURIComponent(attrs.href.split(/[?#]/)[0]); } catch { continue; }
     const file=path.resolve(rendererRoot,relative);
     if (inside(rendererRoot,file) && (await stat(file).catch(()=>null))?.isFile()) {
-      const target='src/renderer/'+slash(path.relative(rendererRoot,file));
+      const target='src/renderer/'+slash(path.relative(root,file));
       if (!stylesheets.includes(target)) stylesheets.push(target);
     }
   }
@@ -149,7 +206,7 @@ export async function importElectron(input, {out, build = false, force = false} 
       }
     }
   }
-  await reviewRenderer(rendererRoot);
+  for (const directory of rendererRoots) await reviewRenderer(directory);
   for (const [file,code] of modules) {const target=targetFor(file); await mkdir(path.dirname(target),{recursive:true}); await writeFile(target,code);}
   await writeFile(path.join(sourceDir,'unsupported.ts'),'export default {};\n');
   await mkdir(path.join(sourceDir,'tsgpui-runtime'),{recursive:true});
@@ -157,28 +214,30 @@ export async function importElectron(input, {out, build = false, force = false} 
   for (const file of runtimeFiles.filter(f=>f.endsWith('.ts'))) await cp(path.join(runtimeDir,file),path.join(sourceDir,'tsgpui-runtime',file));
   for(const file of ['electron.ts','path.ts','fs.ts','os.ts','events.ts','child_process.ts','process.ts','host.ts']) if(!runtimeFiles.includes(file)) notes.push(`Compatibility runtime missing ${file}; copy it into src/tsgpui-runtime before building.`);
   await writeFile(path.join(sourceDir,'backend.ts'),`import ${JSON.stringify(relImport(path.join(sourceDir,'backend.ts'),targetFor(main)))};\nexport default { state: {}, actions: {} };\n`);
-  let preloadNote='No preload was detected.';
-  if(preload && modules.has(preload)) {
-    const entry=path.join(sourceDir,'preload-entry.ts');
+  const preloadNotes=[];
+  for (const [page,preload] of pagePreloads) {
+    const entry=path.join(sourceDir,`preload-entry-${preloadNotes.length}.ts`);
     await writeFile(entry,`import ${JSON.stringify(relImport(entry,targetFor(preload)))};\nexport default { state: {}, actions: {} };\n`);
     try {
       const bundled=await bundleBackend(entry,dest,async (base,file)=>{if(!inside(base,file)) throw new Error('Module outside output');});
-      const htmlFile=path.join(sourceDir,'renderer',path.basename(renderer));
+      const htmlFile=convertedRenderer(page);
       let html=await readFile(htmlFile,'utf8');
       const script=`<script data-tsgpui-preload>\n(()=>{const previous=globalThis.__tsgpui_app;${bundled.js.replace(/<\/script/gi,'<\\/script')}globalThis.__tsgpui_app=previous;})();\n</script>\n`;
       const match=/<script\b/i.exec(html); html=match ? html.slice(0,match.index)+script+html.slice(match.index) : html.replace(/<\/head\s*>/i,script+'</head>');
       if(!html.includes('data-tsgpui-preload')) html=script+html;
       await writeFile(htmlFile,html);
-      preloadNote='Preload is bundled into an inline script before the first renderer script; review Electron isolation and preload assumptions.';
-    } catch(e) {preloadNote=`Preload could not be bundled: ${e.message}. Migrate it manually.`;}
+      preloadNotes.push(`${slash(path.relative(root,page))}: preload bundled before renderer scripts; review Electron isolation and preload assumptions.`);
+    } catch(e) {preloadNotes.push(`${slash(path.relative(root,page))}: preload could not be bundled: ${e.message}. Migrate it manually.`);}
   }
+  for (const [id,preload] of windowPreloads) if (![...pagePreloads.values()].includes(preload)) notes.push(`Preload ${slash(path.relative(root,preload))} could not be associated with one static window page (${id.split('\0').at(-1)}); review manually.`);
+  const preloadNote=preloadNotes.length ? preloadNotes.join('\n- ') : 'No statically associated preload was detected.';
   const name=(pkg.name || 'ImportedApp').replace(/[^a-zA-Z0-9_-]/g,'-').replace(/^[^a-zA-Z]+/,'') .slice(0,64) || 'ImportedApp';
   const version=/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(pkg.version || '') ? pkg.version : '1.0.0';
   if(version!==pkg.version) notes.push(`Package version ${pkg.version || '(missing)'} was normalized to ${version}.`);
   const permissions={filesystem:{read:usage.relativeFs?['./data']:[],write:usage.relativeFs?['./data']:[]},processes:[...commands].sort(),network:[...hosts].sort(),notifications:usage.notifications,window:usage.window,ipc:usage.ipc};
   const css=stylesheets[0] || 'src/import.css';
   if (!stylesheets.length) await writeFile(path.join(sourceDir,'import.css'),'');
-  const config={name,title:title || pkg.productName || pkg.name || name,version,renderer:'webview',window:{width,height},html:`src/renderer/${path.basename(renderer)}`,css,backend:'src/backend.ts',permissions};
+  const config={name,title:title || pkg.productName || pkg.name || name,version,renderer:'webview',backendWindow:'hidden',window:{width,height},html:'src/renderer/'+slash(path.relative(root,renderer)),webviewPages:[...renderers].filter(page=>page!==renderer).map(page=>'src/renderer/'+slash(path.relative(root,page))),css,backend:'src/backend.ts',permissions};
   await writeFile(path.join(dest,'tsgpui.config.json'),JSON.stringify(config,null,2)+'\n');
   const report=`# Electron import report\n\nSource: ${root}\n\n## Stylesheets\n\nConfig css: ${css}${stylesheets.length ? '' : ' (empty placeholder because no linked local stylesheet was found)'}.\n\nCopied linked stylesheets:\n${stylesheets.map(x=>'- '+x).join('\n') || '- None'}\n\n## Rewritten specifiers\n\n${rewrites.map(x=>'- '+x).join('\n') || '- None'}\n\n## Unsupported and review items\n\n${notes.map(x=>'- '+x).join('\n') || '- None detected; review dynamic code and Electron API usage.'}\n\n## Derived permissions — review every grant\n\n\`\`\`json\n${JSON.stringify(permissions,null,2)}\n\`\`\`\n\n${usage.relativeFs?'The ./data filesystem root is a placeholder for detected relative paths; review original paths and access.\n':usage.fs?'No ./data root was granted; userData and dialog-selected files are auto-granted. Review other filesystem paths.\n':''}\n## Manual steps\n\n- ${preloadNote}\n- Review Electron APIs, renderer Node integration, dynamic paths, package dependencies, build/Forge settings, and permissions.\n- Original titleBarStyle: ${titleBarStyle || '(not specified)'}.\n- Original electron-builder configuration: ${pkg.build ? 'present' : 'not present'}; Electron Forge configuration: ${pkg.config?.forge ? 'present' : 'not present'}.\n- Run \`tsgpui build\` in this directory.\n`;
   await writeFile(path.join(dest,'TSGPUI_IMPORT_REPORT.md'),report);

@@ -2,7 +2,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
-import {copyFile,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {copyFile,mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -12,13 +12,13 @@ import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
 import {signArtifact,writeManifest} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
-import {assertRenderer,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuiHome,verifyCachedHost} from '../src/hosts.mjs';
+import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuiHome,verifyCachedHost} from '../src/hosts.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here,'..');
 const args = process.argv.slice(2);
-const command = args.shift() || 'help';
+const command = args.shift() || 'run';
 const VERSION = JSON.parse(fs.readFileSync(path.join(pkgRoot,'package.json'),'utf8')).version;
 function flag(name, fallback) { const i=args.indexOf(`--${name}`); return i>=0 ? args[i+1] || fallback : fallback; }
 function projectDir() {return path.resolve(flag('project',process.cwd()));}
@@ -48,7 +48,10 @@ async function hostPath(autoBuild = false, renderer='native') {
   for(const candidate of explicitHost(renderer)) if (fs.existsSync(candidate)) return path.resolve(candidate);
   const cached = inspectCachedHost(renderer,VERSION);
   const source = nativeSource();
-  if (source) {
+  // A checkout must use a host built from its current sources. Installed packages can use
+  // the release host, even though they may also ship Rust sources for optional local builds.
+  const checkoutSource = source && path.resolve(source) !== path.resolve(pkgRoot,'native');
+  if (checkoutSource) {
     const stamp = sourceStamp(source, renderer);
     if (cached.state === 'ok' && installedSourceStamp(cached.file) === stamp && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
     if (!autoBuild || !rustAvailable()) throw new Error(`The installed ${renderer} host is missing or does not match the current source. Install Rust, then run \`tsgpui host build --renderer ${renderer}\`.`);
@@ -56,8 +59,86 @@ async function hostPath(autoBuild = false, renderer='native') {
     await buildHost(renderer);
     return path.resolve(cachedHost(renderer));
   }
-  throw new Error(`Cannot verify the ${renderer} host because native sources are unavailable. Use a source checkout and run \`tsgpui host build --renderer ${renderer}\`.`);
+  if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
+  if (!autoBuild || downloadsDisabled()) throw new Error(`No verified ${renderer} host is installed. Run \`tsgpui host fetch --renderer ${renderer}\` or install one with \`tsgpui host install\`.`);
+  return path.resolve(await fetchHost({renderer,version:VERSION,pkgRoot}));
 }
+// Host for a target. The current platform may build from source; other targets use a verified prebuilt host.
+async function hostPathFor(autoBuild = false, renderer='native', target=currentTarget()) {
+  if (target === currentTarget()) return hostPath(autoBuild, renderer);
+  for(const candidate of explicitHost(renderer)) if (fs.existsSync(candidate)) return path.resolve(candidate);
+  const cached = inspectCachedHost(renderer, VERSION, target);
+  if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
+  if (downloadsDisabled()) throw new Error(`No ${renderer} host for ${target} is installed, and downloads are disabled. Copy one in with \`tsgpui host install --renderer ${renderer} --target ${target}\`.`);
+  await fetchHost({renderer, version: VERSION, pkgRoot, target});
+  return path.resolve(cachedHostPath(renderer, target));
+}
+// Compiles a project and packages it for one target. Returns the packaged application's info.
+async function buildApp(dir, target=currentTarget(), namedTarget=false) {
+  assertTarget(target);
+  const result = await buildPackage(dir);
+  printWarnings(result.warnings);
+  console.log(`Compiled ${result.bundleFile} (${result.bytes.length} bytes)`);
+  const host = await hostPathFor(true, result.bundle.renderer, target);
+  const isMacApp = target.startsWith('darwin-');
+  const output = path.join(result.paths.outDir, `${result.config.name}${namedTarget ? `-${target}` : ''}${isMacApp ? '.app' : exeSuffix(target)}`);
+  const info = isMacApp
+    ? await packageMacApp(host, result.bundleFile, output, {iconFile: result.iconFile})
+    : await packageExecutable(host, result.bundleFile, output);
+  console.log(`Built native application (${target}): ${info.file}`);
+  return info;
+}
+// --target accepts one target, a comma list, or `all` (every supported target). Default: this machine.
+function requestedTargets() {
+  const value = flag('target', currentTarget());
+  if (value === 'all') return [...SUPPORTED_TARGETS];
+  const targets = value.split(',').map(t => t.trim()).filter(Boolean);
+  if (!targets.length) throw new Error('--target needs a value: a target, a comma-separated list, or all');
+  return [...new Set(targets.map(t => assertTarget(t.replace(/^windows-/, 'win32-').replace(/^macos-/, 'darwin-'))))];
+}
+// One target builds directly. Several targets build in turn; a failure is reported and the rest still build.
+async function buildTargets(dir, targets) {
+  if (targets.length === 1) return buildApp(dir, targets[0], args.includes('--target'));
+  if (explicitHost('native').length || explicitHost('webview').length) throw new Error('A host override cannot be used for multiple targets; install a matching host for each target.');
+  const failed = [];
+  for (const target of targets) {
+    console.log(`\n== ${target}`);
+    try { await buildApp(dir, target, true); }
+    catch (error) { failed.push({target, message: error.message}); console.error(`TSGPUI: ${target} failed: ${error.message}`); }
+  }
+  console.log(`\nBuilt ${targets.length - failed.length} of ${targets.length} targets.`);
+  for (const {target, message} of failed) console.log(`  ${target}: ${message}`);
+  if (failed.length) process.exitCode = 1;
+}
+// Prepare Electron projects in a fresh directory so the original project is never rewritten.
+async function prepareProject(input) {
+  if (fs.existsSync(path.join(input, 'tsgpui.config.json'))) return input;
+  if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No tsgpui.config.json or Electron package.json found in ${input}`);
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-project-'));
+  const options = {out: path.join(temp, 'app')};
+  let imported;
+  try {
+    imported = await importElectron(input, options);
+  } catch (error) {
+    // No renderer has been built yet: run the app's own build script, then import again.
+    if (!/No built renderer entry/.test(error.message)) throw error;
+    console.log('No built renderer found; running the project build script first.');
+    imported = await importElectron(input, {...options, build: true});
+  }
+  console.log(`Electron compatibility is incomplete. Review ${path.join(imported.out, 'TSGPUI_IMPORT_REPORT.md')} for limitations.`);
+  return imported.out;
+}
+
+async function runProject() {
+  const project = await prepareProject(projectDir());
+  const result = await buildPackage(project);
+  printWarnings(result.warnings);
+  const host = await hostPath(true, result.bundle.renderer);
+  const child = runHost(host, result.bundleFile);
+  child.once('error', () => { process.exitCode = 1; });
+  child.once('close', (code, signal) => { if (code !== 0 || signal) process.exitCode = code || 1; });
+}
+
 async function buildHost(renderer='native') {
   const source = nativeSource();
   if (!source) throw new Error('Native host sources not found in this installation. Run `tsgpui host fetch` for a prebuilt host, or use a checkout of the TSGPUI repository.');
@@ -97,7 +178,7 @@ async function fetchHosts() {
 async function installHost(renderer='native') {
   const file=flag('file',null), expected=flag('sha256',null);
   if (!file || !expected || !/^[a-fA-F0-9]{64}$/.test(expected)) throw new Error('Use `tsgpui host install --file PATH --sha256 HASH [--renderer native|webview]` with a checksum from a trusted source.');
-  const result=await installHostFile({renderer,file,sha256:expected,version:VERSION});
+  const result=await installHostFile({renderer,file,sha256:expected,version:VERSION,target:flag('target',currentTarget())});
   console.log(`${renderer} host installed: ${result.file} (SHA-256 ${result.sha256})`);
 }
 // Deterministic SHA-256 manifest of a file or directory, for publishing beside a release artifact.
@@ -398,10 +479,12 @@ function help() {
   console.log(`tsgpui ${VERSION}
   init [dir]                   Create a starter project
   import electron <dir> [--out DIR] [--build] [--force]  Import an Electron app
+  run [--project PATH]         Run a TSGPUI or Electron project (default)
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
   dev [--project PATH]         Build, launch the selected host, rebuild on change
   preview [--project PATH]     Live preview in a browser (--out FILE writes one HTML file)
-  build [--project PATH]       Package a single executable for the selected renderer
+  build [--project PATH] [--target T]  Package for T: a target, a comma list, or "all" (win32-x64, win32-arm64, darwin-x64, darwin-arm64, linux-x64, linux-arm64; default: this machine)
+  <target>|all [--project PATH]  Shortcut for build --target (windows-* and macos-* aliases accepted)
   host fetch [--renderer MODE] [--force]  Download and verify the prebuilt host (no Rust needed)
   host build [--renderer MODE] Compile the host from source instead (needs Rust)
   host install --file PATH --sha256 HASH [--renderer MODE]  Install a verified prebuilt host
@@ -411,6 +494,11 @@ function help() {
 Options: renderer is "native" (default) or "webview"; --host PATH overrides the selected host.`);
 }
 async function main() {
+  if (command === 'all' || /^(win32|windows|darwin|macos|linux)-(x64|arm64)$/.test(command)) {
+    args.push('--target', command);
+    const targets = requestedTargets();
+    return buildTargets(await prepareProject(projectDir()), targets);
+  }
   if(command==='help' || command==='--help' || args.includes('--help')) return help();
   if(command==='--version' || command==='-v') return console.log(VERSION);
   if(command==='init') return init();
@@ -428,19 +516,16 @@ async function main() {
   if(command==='host' && args[0]==='fetch') return fetchHosts();
   if(command==='host' && args[0]==='install') return installHost(flag('renderer','native'));
   if(command==='host' && args[0]==='build') return buildHost(flag('renderer','native'));
-  if(command==='compile' || command==='build') {
+  if(command==='run') return runProject();
+  if(command==='compile') {
     const result=await buildPackage(projectDir());
     printWarnings(result.warnings);
     console.log(`Compiled ${result.bundleFile} (${result.bytes.length} bytes)`);
-    if(command==='compile') return;
-    const host=await hostPath(true,result.bundle.renderer);
-    const isMacApp = process.platform === 'darwin';
-    const output=path.join(result.paths.outDir,`${result.config.name}${isMacApp ? '.app' : suffix}`);
-    const info=isMacApp
-      ? await packageMacApp(host,result.bundleFile,output,{iconFile:result.iconFile})
-      : await packageExecutable(host,result.bundleFile,output);
-    console.log(`Built native application: ${info.file}`);
     return;
+  }
+  if(command==='build') {
+    const targets = requestedTargets();
+    return buildTargets(await prepareProject(projectDir()), targets);
   }
   if(command==='package') return packageApp();
   if(command==='dev') return dev();

@@ -383,7 +383,7 @@ async function inlineHtmlUrls(html, options) {
 }
 
 /** Collect statically identifiable local references, following CSS and JS dependencies. */
-export async function collectWebviewFiles(html, css, {projectRoot, htmlFile, cssFile, watchedAssets} = {}) {
+export async function collectWebviewFiles(html, css, {projectRoot, htmlFile, cssFile, watchedAssets, extraHtmlFiles = []} = {}) {
   const files = {};
   const seen = new Set();
   const local = value => value && !/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(value);
@@ -403,7 +403,7 @@ export async function collectWebviewFiles(html, css, {projectRoot, htmlFile, css
     watchedAssets?.add(path.relative(root, file));
     const ext = path.extname(file).toLowerCase();
     files[key] = {mime:MIME[ext] ?? 'application/octet-stream', data:bytes.toString('base64')};
-    if (ext === '.css' || ext === '.js' || ext === '.mjs') await scan(bytes.toString('utf8'), file, ext);
+    if (ext === '.css' || ext === '.js' || ext === '.mjs' || ext === '.html' || ext === '.htm') await scan(bytes.toString('utf8'), file, ext === '.html' || ext === '.htm' ? 'html' : ext);
   }
   async function scan(source, base, type) {
     const refs = [];
@@ -425,11 +425,12 @@ export async function collectWebviewFiles(html, css, {projectRoot, htmlFile, css
   }
   await scan(html, htmlFile, 'html');
   await scan(css, cssFile, '.css');
+  for (const file of extraHtmlFiles) await visit('/' + path.relative(projectRoot, file).split(path.sep).join('/'), htmlFile);
   return files;
 }
 
 /** Prepare the page while preserving local URLs for the app-local protocol. */
-export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, persist = false, projectRoot, htmlFile, cssFile, watchedAssets, preserveUrls = false} = {}) {
+export async function prepareWebviewHtml(html, css, {backendJs, title, networkHosts = [], fonts = {}, persist = false, projectRoot, htmlFile, cssFile, watchedAssets, preserveUrls = false, omitBackend = false} = {}) {
   const cache = new Map();
   if (!preserveUrls && projectRoot && htmlFile) html = await inlineHtmlUrls(html,{projectRoot,baseFile:htmlFile,cache,watchedAssets});
   if (projectRoot && cssFile) css = await inlineCssUrls(css,{projectRoot,baseFile:cssFile,cache,watchedAssets});
@@ -483,7 +484,8 @@ export async function prepareWebviewHtml(html, css, {backendJs, title, networkHo
   const csp = `default-src 'none'; script-src 'self' 'nonce-${nonce}' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'${networkHosts.map(host => ' https://' + host).join('')}; form-action 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'`;
   const policy = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(csp)}">`;
   const style = `<style data-tsgpui="source-css">${escapeStyleEnd(`${embeddedFonts}\n${css}`)}</style>`;
-  const bootstrap = `<script data-tsgpui="backend" nonce="${nonce}">(()=>{document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];const store=(()=>{try{return ${persist ? 'window.localStorage' : 'window.sessionStorage'}}catch(_error){return null}})();let saved=null;try{saved=JSON.parse(store&&store.getItem('tsgpui:state')||'null')}catch(_error){}new Function(...hidden,source)(...hidden.map(()=>undefined));window.addEventListener('beforeunload',()=>{try{globalThis.__tsgpui_save&&globalThis.__tsgpui_save()}catch(_error){}});(${webviewRuntime.toString()})(store,saved);})();</script>`;
+  // A page without the backend (omitBackend) only renders; the backend runs in the hidden backend window.
+  const bootstrap = omitBackend ? '' : `<script data-tsgpui="backend" nonce="${nonce}">(()=>{if(globalThis.__tsgpui_secondary)return;document.title=${safeJson(title)};globalThis.__tsgpui_network_hosts=${safeJson(networkHosts)};const source=${safeJson(backendJs)};const hidden=['fetch','XMLHttpRequest','WebSocket','localStorage','sessionStorage','indexedDB','Worker','require','process','Bun'];const store=(()=>{try{return ${persist ? 'window.localStorage' : 'window.sessionStorage'}}catch(_error){return null}})();let saved=null;try{saved=JSON.parse(store&&store.getItem('tsgpui:state')||'null')}catch(_error){}new Function(...hidden,source)(...hidden.map(()=>undefined));window.addEventListener('beforeunload',()=>{try{globalThis.__tsgpui_save&&globalThis.__tsgpui_save()}catch(_error){}});(${webviewRuntime.toString()})(store,saved);})();</script>`;
   const headEnd = findHtmlTag(html,'head',true), headStart = findHtmlTag(html,'head'), htmlStart = findHtmlTag(html,'html');
   if (headStart) {
     const afterHead = headStart.index + headStart.length;

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -14,9 +14,9 @@ const bin = path.join(cliRoot, 'bin/tsgpui.mjs');
 const version = JSON.parse(fs.readFileSync(path.join(cliRoot, 'package.json'), 'utf8')).version;
 const target = currentTarget();
 
-function run(args, env) {
+function run(args, env, binary = bin) {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, [bin, ...args], {env: {...process.env, ...env}});
+    const child = spawn(process.execPath, [binary, ...args], {env: {...process.env, ...env}});
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
     child.stderr.on('data', chunk => stderr += chunk);
@@ -45,6 +45,40 @@ async function withRelease({files, manifestHosts, manifestVersion = version}, bo
 }
 const entry = (renderer, data) => ({renderer, target, asset: assetName(renderer, target), sha256: sha(data), size: data.length});
 const cached = (home, renderer) => path.join(home, 'host', target, `${renderer === 'webview' ? 'tsgpui-webview-host' : 'tsgpui-host'}${exeSuffix()}`);
+
+test('installed CLI fetches a host on first build with or without packaged native sources', async t => {
+  const bun = process.platform === 'win32' ? 'bun.exe' : 'bun';
+  if (spawnSync(bun, ['--version'], {stdio:'ignore'}).status !== 0) return t.skip('Bun is needed to build the installed CLI fixture');
+  const data = Buffer.alloc(1024);
+  if (process.platform === 'win32') data.write('MZ');
+  else if (process.platform === 'darwin') data.writeUInt32BE(0xfeedfacf);
+  else data.set([0x7f, 0x45, 0x4c, 0x46]);
+  await withRelease({files: {[assetName('native', target)]: data}, manifestHosts: [entry('native', data)]}, async ({home, env}) => {
+    const pkg = path.join(home, 'installed');
+    const binary = path.join(pkg, 'dist', 'tsgpui.mjs');
+    fs.mkdirSync(path.dirname(binary), {recursive:true});
+    fs.copyFileSync(path.join(cliRoot, 'package.json'), path.join(pkg, 'package.json'));
+    const bundled = spawnSync(bun, ['build', bin, '--target=node', `--outfile=${binary}`], {encoding:'utf8'});
+    assert.equal(bundled.status, 0, bundled.stderr);
+    const project = path.join(home, 'app');
+    fs.mkdirSync(path.join(project, 'src'), {recursive:true});
+    fs.writeFileSync(path.join(project, 'tsgpui.config.json'), JSON.stringify({name:'app', title:'app', version:'1.0.0', renderer:'native', html:'src/index.html', css:'src/style.css', backend:'src/backend.ts'}));
+    fs.writeFileSync(path.join(project, 'src', 'index.html'), '<html><body>Hello</body></html>');
+    fs.writeFileSync(path.join(project, 'src', 'style.css'), '');
+    fs.writeFileSync(path.join(project, 'src', 'backend.ts'), 'export default {state:{}, actions:{}};');
+    for (const packagedSource of [false, true]) {
+      if (packagedSource) {
+        fs.mkdirSync(path.join(pkg, 'native', 'src'), {recursive:true});
+        fs.writeFileSync(path.join(pkg, 'native', 'Cargo.toml'), 'manifest');
+        fs.writeFileSync(path.join(pkg, 'native', 'Cargo.lock'), 'lock');
+      }
+      const cacheHome = path.join(home, packagedSource ? 'with-source' : 'without-source');
+      const result = await run(['build', '--project', project], {...env, TSGPUI_HOME:cacheHome, TSGPUI_NO_DOWNLOAD:'', TSGPUI_HOST:'', TSGPUI_WEBVIEW_HOST:''}, binary);
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.deepEqual(fs.readFileSync(cached(cacheHome, 'native')), data);
+    }
+  });
+});
 
 test('host fetch downloads, verifies and records a prebuilt host', async () => {
   const data = Buffer.from('native host bytes');

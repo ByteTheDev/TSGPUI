@@ -8,8 +8,22 @@ async function mapped(input: string, write = false) { await infoReady; const inf
 function encoding(options: any) { return typeof options === 'string' ? options : options?.encoding; }
 async function promise_readFile(p: string, options?: any) { const loc = await mapped(p); if (encoding(options)) return (await host('filesystem.readText', loc)).text; return decode((await host('filesystem.readBytes', loc)).base64); }
 async function promise_writeFile(p: string, data: any, _options?: any) { const loc = await mapped(p, true); if (typeof data === 'string') await host('filesystem.writeText', {...loc, text: data}); else await host('filesystem.writeBytes', {...loc, base64: encode(new Uint8Array(data))}); }
-async function promise_readdir(p: string, _options?: any) { const result = await host('filesystem.list', await mapped(p)); return result.entries ?? result.names ?? result; }
-async function promise_stat(p: string) { const result = await host('filesystem.stat', await mapped(p)); const isDir = result.isDirectory === true || result.kind === 'directory' || result.type === 'directory'; return {...result, isDirectory: () => isDir, isFile: () => !isDir}; }
+// Electron's readdir returns names, or Dirent-like objects with withFileTypes. The hosts list entries as {name, kind, size}.
+async function promise_readdir(p: string, options?: any) {
+  const result = await host('filesystem.list', await mapped(p));
+  // Arrays have an `entries` method, so check for an array before reading the wrapper fields.
+  const entries: any[] = Array.isArray(result) ? result : (result.entries ?? result.names ?? []);
+  const withTypes = typeof options === 'object' && options !== null && options.withFileTypes === true;
+  if (!withTypes) return entries.map((entry: any) => typeof entry === 'string' ? entry : entry.name);
+  return entries.map((entry: any) => { const name = typeof entry === 'string' ? entry : entry.name; const isDir = entry.kind === 'directory'; return {name, isDirectory: () => isDir, isFile: () => !isDir}; });
+}
+// Electron's Stats also carries mtimeMs and mtime; the hosts report `modified` as milliseconds since the epoch.
+async function promise_stat(p: string) {
+  const result = await host('filesystem.stat', await mapped(p));
+  const isDir = result.isDirectory === true || result.kind === 'directory' || result.type === 'directory';
+  const mtimeMs = typeof result.modified === 'number' ? result.modified : 0;
+  return {...result, mtimeMs, mtime: new Date(mtimeMs), isDirectory: () => isDir, isFile: () => !isDir};
+}
 async function promise_mkdir(p: string, _options?: any) { await host('filesystem.mkdir', await mapped(p, true)); }
 async function promise_rm(p: string, _options?: any) { await host('filesystem.remove', await mapped(p, true)); }
 const promise_unlink = promise_rm;

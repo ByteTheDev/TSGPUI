@@ -1,13 +1,13 @@
 [package]
 name = "tsgpui-host"
-version = "0.3.0"
+version = "0.4.0-beta.1"
 edition = "2024"
 license = "MIT"
 description = "Native GPUI and system WebView hosts for TSGPUI bundles"
 
 [features]
 default = ["native-host"]
-native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest"]
+native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest", "dep:ureq", "dep:url"]
 webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url"]
 
 [[bin]]
@@ -41,7 +41,7 @@ gtk = { version = "=0.18.2", optional = true }
 # Native dialogs and clipboard for the WebView host on Windows (used only by webview_bridge.rs).
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "=0.15.4"
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Power"] }
 
 [profile.release]
 lto = "thin"
