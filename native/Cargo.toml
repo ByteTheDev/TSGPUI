@@ -51,3 +51,8 @@ opt-level = "s"
 
 # The host is compiled for the target OS and architecture. Windows builds use MSVC; macOS builds
 # use the Apple toolchain provided by Xcode. End users need neither Rust nor Bun/Node to run a bundle.
+
+# xattr 0.2.3 uses libc's ENOATTR on Linux, which libc no longer defines there. patches/xattr is
+# the same release with ENODATA used on Linux. Remove this once an xattr release fixes it upstream.
+[patch.crates-io]
+xattr = { path = "patches/xattr" }
