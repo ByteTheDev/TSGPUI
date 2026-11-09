@@ -249,9 +249,10 @@ export async function importElectron(input, {out, build = false, force = false} 
       else {
         let resolved = dep.spec.startsWith('.') ? await resolveLocal(file,dep.spec) : null;
         if (!resolved) { try { resolved = createRequire(file).resolve(dep.spec); } catch {} }
-        if (resolved && path.isAbsolute(resolved) && inside(root,resolved)) {
-          const actual = await realpath(resolved);
-          if (!inside(await realpath(root),actual)) throw new Error(`Module '${dep.spec}' required by ${owner} resolves outside the project`);
+        if (resolved && path.isAbsolute(resolved)) {
+          const actual = await realpath(resolved).catch(() => resolved);
+          const rootReal = await realpath(root).catch(() => root);
+          if (!inside(rootReal, actual)) throw new Error(`Module '${dep.spec}' required by ${owner} resolves outside the project`);
           if (/\.node$/i.test(resolved)) throw new Error(`Native addon '${dep.spec}' (${slash(path.relative(root,resolved))}) required by ${owner} is not supported`);
           if (!/\.(?:js|cjs|mjs|ts|json)$/i.test(resolved)) throw new Error(`Unsupported module '${dep.spec}' required by ${owner}: ${resolved}`);
           target=targetFor(resolved); await visit(resolved);
