@@ -6,7 +6,7 @@ export const compatWarnings: string[] = [];
 // API and reshapes the result to what the shims read. The native host checks the same grants.
 type Route = (api: any, args: any) => Promise<any>;
 const base64Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function toBase64(bytes: number[]): string {
+export function toBase64(bytes: number[]): string {
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {
     const n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
@@ -14,7 +14,7 @@ function toBase64(bytes: number[]): string {
   }
   return out;
 }
-function fromBase64(text: string): number[] {
+export function fromBase64(text: string): number[] {
   const bytes: number[] = [];
   let value = 0, bits = 0;
   for (const c of text) {
@@ -36,6 +36,10 @@ const nativeRoutes: Record<string, Route> = {
   'dialog.saveFile': (api, args) => api.dialog.saveFile(args),
   'dialog.message': (api, args) => api.dialog.message(args),
   'shell.openExternal': (api, args) => api.shell.openExternal(args.url),
+  // The native API returns the same plain values the WebView bridge does, so these need no reshaping.
+  'safeStorage.isAvailable': api => api.safeStorage.isAvailable(),
+  'safeStorage.encrypt': (api, args) => api.safeStorage.encrypt(args.value),
+  'safeStorage.decrypt': (api, args) => api.safeStorage.decrypt(args.value),
   'net.request': (api, args) => api.net.request(args),
   'power.setBlockers': (api, args) => api.power.setBlockers(args.types),
   'screen.displays': api => api.screen.displays().then((displays: any[]) => ({displays})),
@@ -60,6 +64,17 @@ const nativeRoutes: Record<string, Route> = {
   // a message when no page is loaded, so this does the same and records a warning instead of failing.
   'window.send': () => { compatWarnings.push('webContents.send has no page in the native renderer; the message was dropped'); return Promise.resolve(null); },
   'window.watchClose': () => { compatWarnings.push('BrowserWindow close listeners cannot cancel a close in the native renderer'); return Promise.resolve(null); },
+  // The native renderer has a single GPUI window: show/hide, fullscreen, focus, bounds and geometry are
+  // tracked locally in BrowserWindow. These routes record a warning instead of failing, so the shim's
+  // local state (isVisible, bounds, focus) stays consistent without moving native chrome.
+  'window.show': () => { compatWarnings.push('BrowserWindow show has no native chrome effect in the native renderer; visibility is tracked locally'); return Promise.resolve(null); },
+  'window.hide': () => { compatWarnings.push('BrowserWindow hide has no native chrome effect in the native renderer; visibility is tracked locally'); return Promise.resolve(null); },
+  'window.setFullScreen': () => { compatWarnings.push('BrowserWindow setFullScreen has no native chrome effect in the native renderer; fullscreen state is tracked locally'); return Promise.resolve(null); },
+  'window.focus': () => { compatWarnings.push('BrowserWindow focus has no native chrome effect in the native renderer; focus is tracked locally'); return Promise.resolve(null); },
+  'window.blur': () => { compatWarnings.push('BrowserWindow blur has no native chrome effect in the native renderer; focus is tracked locally'); return Promise.resolve(null); },
+  'window.setBounds': () => { compatWarnings.push('BrowserWindow setBounds has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
+  'window.setPosition': () => { compatWarnings.push('BrowserWindow setPosition has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
+  'window.setSize': () => { compatWarnings.push('BrowserWindow setSize has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
 };
 function nativeHost(op: string, args: any): Promise<any> {
   const route = nativeRoutes[op];

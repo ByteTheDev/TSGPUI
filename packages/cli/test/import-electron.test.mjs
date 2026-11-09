@@ -8,16 +8,49 @@ import {fileURLToPath} from 'node:url';
 import vm from 'node:vm';
 import {importElectron} from '../src/import-electron.mjs';
 import {buildPackage} from '../src/compiler.mjs';
+import {bundleBackend} from '../src/backend.mjs';
 
 const cli=fileURLToPath(new URL('../bin/tsgpui.mjs',import.meta.url));
+test('bundles a pure JavaScript package with transitive CommonJS and JSON dependencies', async t => {
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-package-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const app=path.join(tmp,'app'), out=path.join(tmp,'out'), pkg=path.join(app,'node_modules','example-package');
+  await mkdir(pkg,{recursive:true}); await mkdir(path.join(app,'dist'));
+  await writeFile(path.join(app,'package.json'),JSON.stringify({name:'app',main:'main.js'}));
+  await writeFile(path.join(app,'main.js'),`globalThis.packageResult = require('example-package')('hello');`);
+  await writeFile(path.join(pkg,'package.json'),JSON.stringify({name:'example-package',main:'index.js'}));
+  await writeFile(path.join(pkg,'index.js'),`const data = require('./data.json'); module.exports = x => x + data.suffix;`);
+  await writeFile(path.join(pkg,'data.json'),JSON.stringify({suffix:' world'}));
+  await writeFile(path.join(app,'dist','index.html'),'<html><body>Hello</body></html>');
+  await importElectron(app,{out});
+  const {bundle}=await buildPackage(out); const context=vm.createContext({console, setTimeout, URL});
+  vm.runInContext(bundle.backend_js,context); assert.equal(context.packageResult,'hello world');
+});
+test('rejects native addons and dynamic package loaders with a named diagnostic', async t => {
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-native-addon-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const app=path.join(tmp,'app'), pkg=path.join(app,'node_modules','native-example');
+  await mkdir(pkg,{recursive:true});
+  await writeFile(path.join(app,'package.json'),JSON.stringify({main:'main.js'}));
+  await writeFile(path.join(app,'main.js'),`require('native-example');`);
+  await writeFile(path.join(pkg,'package.json'),JSON.stringify({main:'index.js'}));
+  await writeFile(path.join(pkg,'index.js'),`module.exports = require('./build/addon.node');`);
+  await assert.rejects(importElectron(app,{out:path.join(tmp,'out')}), /Native addon.*addon\.node.*native-example/);
+  await writeFile(path.join(pkg,'index.js'),`module.exports = require(process.env.ADDON);`);
+  await assert.rejects(importElectron(app,{out:path.join(tmp,'out')}), /Dynamic require.*native-example/);
+});
+test('backend bundling identifies direct native addon imports', async t => {
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-backend-native-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const entry=path.join(tmp,'backend.ts');
+  await writeFile(entry,`import addon from './native.node'; export default {state:{},actions:{}};`);
+  await assert.rejects(bundleBackend(entry,tmp,async()=>{}), /Native addon '\.\/native\.node'/);
+});
 test('each statically identified window page receives its own preload before page scripts', async t => {
   const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-preloads-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'pages',version:'1.0.0',main:'main.js'}));
   await writeFile(path.join(app,'main.js'),`const {BrowserWindow} = require('electron'); const path = require('path'); const a = new BrowserWindow({webPreferences:{preload:path.join(__dirname,'one.js')}}); a.loadFile('dist/one.html'); const b = new BrowserWindow({webPreferences:{preload:path.join(__dirname,'two.js')}}); b.loadFile('dist/two.html');`);
-  await writeFile(path.join(app,'one.js'),`globalThis.preloadIdentity = 'one';`);
-  await writeFile(path.join(app,'two.js'),`globalThis.preloadIdentity = 'two';`);
+  await writeFile(path.join(app,'one.js'),`const {contextBridge} = require('electron'); globalThis.rendererValue = 'overwritten'; window.preloadOnly = true; contextBridge.exposeInMainWorld('preloadIdentity', { value: 'one' });`);
+  await writeFile(path.join(app,'two.js'),`const {contextBridge} = require('electron'); globalThis.rendererValue = 'overwritten'; contextBridge.exposeInMainWorld('preloadIdentity', { value: 'two' });`);
   await writeFile(path.join(app,'dist/one.html'),'<html><body><script>window.pageScript = true;</script></body></html>');
   await writeFile(path.join(app,'dist/two.html'),'<html><body><script>window.pageScript = true;</script></body></html>');
   await importElectron(app,{out});
@@ -27,8 +60,9 @@ test('each statically identified window page receives its own preload before pag
     const match=/<script\b[^>]*data-tsgpui-preload[^>]*>([\s\S]*?)<\/script>/i.exec(pages[i]);
     assert.ok(match,`page ${i} has a preload`);
     assert.ok(match.index < pages[i].indexOf('window.pageScript'));
-    const context=vm.createContext({}); vm.runInContext(match[1],context);
-    assert.equal(context.preloadIdentity,i ? 'two' : 'one');
+    const context=vm.createContext({rendererValue:'original'}); vm.runInContext(match[1],context);
+    assert.equal(context.preloadIdentity.value,i ? 'two' : 'one');
+    assert.equal(context.rendererValue,'original'); assert.equal(context.preloadOnly,undefined);
   }
 });
 test('reports instead of applying the wrong preload when windows share a page', async t => {

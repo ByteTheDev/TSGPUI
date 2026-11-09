@@ -18,6 +18,44 @@ function runtime(page = false) {
   return {load,calls,context,files};
 }
 test('path and events shims', () => { const {load} = runtime(); const p = load('path'); assert.equal(p.join('/a','../b'),'/b'); assert.equal(p.relative('/a/b','/a/c'),'../c'); assert.equal(p.extname('/a/.profile'),''); assert.equal(p.format(p.parse('/a/x.txt')),'/a/x.txt'); const {EventEmitter} = load('events'); const e = new EventEmitter(); let n = 0; const f = () => n++; e.once('x',f); e.emit('x'); e.emit('x'); assert.equal(n,1); e.on('x',f); e.off('x',f); assert.equal(e.listenerCount('x'),0); });
+test('unsupported process event registration fails explicitly', () => {
+  const process = runtime().load('process');
+  assert.throws(() => process.on('exit', () => {}), /process\.on\("exit"\) is not supported/);
+});
+test('process exposes host architecture after initialization', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async () => ({platform:'linux', arch:'x64', paths:{}});
+  const process = load('process');
+  await load('os').infoReady;
+  await Promise.resolve();
+  assert.equal(process.arch, 'x64');
+  assert.equal(process.default.arch, 'x64');
+});
+test('node shims copy bytes and reject unsupported process operations', async () => {
+  const {load} = runtime();
+  const fs = load('fs');
+  await fs.promises.writeFile('/data/source', new Uint8Array([0, 128, 255]));
+  await fs.promises.copyFile('/data/source', '/data/copy');
+  assert.deepEqual(Array.from(await fs.promises.readFile('/data/copy')), [0, 128, 255]);
+  await assert.rejects(fs.promises.copyFile('/data/source', '/data/copy', 1), /fs.copyFile/);
+  assert.throws(() => fs.existsSync('/data/source'), /fs.existsSync/);
+  const child = load('child_process');
+  assert.throws(() => child.exec('echo hello'), /child_process.exec/);
+  assert.throws(() => child.spawn('echo', [], {cwd:'/tmp'}), /child_process.spawn/);
+});
+test('https accepts URL plus request options and rejects binary bodies', async () => {
+  const {load, context, calls} = runtime();
+  context.__tsgpui_host = async (op, args) => { calls.push([op, args]); return {status:200, headers:{}, body:'ok'}; };
+  const https = load('https');
+  await new Promise((resolve, reject) => {
+    const req = https.request('https://example.com/', {method:'POST', headers:{x:'y'}}, res => res.on('end', resolve));
+    req.on('error', reject);
+    assert.throws(() => req.write(new Uint8Array([1])), /https.request.write/);
+    req.end('hello');
+  });
+  assert.equal(calls.at(-1)[1].method, 'POST');
+  assert.equal(calls.at(-1)[1].body, 'hello');
+});
 test('IPC dispatch replies to the originating secondary window', async () => {
   const {load,context,calls} = runtime(); const e = load('electron');
   e.ipcMain.handle('ping', (event, value) => { event.sender.send('notice', value); return value + 1; });
@@ -85,7 +123,7 @@ test('nativeTheme tracks effective theme and media changes', () => {
   assert.throws(() => { theme.themeSource = 'nope'; }, /themeSource/);
 });
 test('filesystem maps roots, bytes and permissions', async () => { const {load,calls} = runtime(); const f = load('fs'); await f.promises.writeFile('/data/a','hello'); assert.equal(await f.promises.readFile('/data/a','utf8'),'hello'); await f.promises.writeFile('/data/b',new Uint8Array([0,255,42])); assert.deepEqual(Array.from(await f.promises.readFile('/data/b')),[0,255,42]); await assert.rejects(f.promises.readFile('/elsewhere/a'), {code:'EACCES'}); assert.throws(() => f.readFileSync('/data/a'), {code:'ENOTSUP'}); await f.promises.rename('/data/a','/data/c'); assert.ok(calls.some(([op,a]) => op === 'filesystem.rename' && a.from === 'a' && a.to === 'c')); assert.equal((await f.promises.stat('/data/a')).isFile(),true); });
-test('app, IPC, dialogs, windows and warnings', async () => { const {load,context,calls} = runtime(true); const e = load('electron'); const h = load('host'); await e.app.whenReady(); assert.equal(e.app.getName(),'Example'); assert.equal(e.app.getPath('userData'),'/data'); e.ipcMain.handleOnce('sum',(_event,n) => n+1); assert.equal(await e.ipcRenderer.invoke('sum',2),3); await assert.rejects(e.ipcRenderer.invoke('sum',2),/No handler/); let received; e.ipcRenderer.once('notice',(_event,p) => received=p); const w = new e.BrowserWindow({width:400}); w.webContents.send('notice',42); assert.equal(received,42); const second = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await w.loadFile('index.html'); w.setTitle('Title'); assert.equal((await e.dialog.showOpenDialog({properties:['multiSelections']})).filePaths[0],'/data/a'); assert.equal((await e.dialog.showSaveDialog({})).filePath,'/data/a'); assert.equal((await e.dialog.showMessageBox({message:'hello'})).response,1); assert.equal(await e.clipboard.readText(),'clip'); await e.clipboard.writeText('x'); await e.shell.openExternal('https://example.com'); new e.Notification({title:'T',body:'B'}).show(); e.Menu.setApplicationMenu(null); new e.Tray('x'); e.globalShortcut.register('a',()=>{}); assert.equal(h.compatWarnings.length,3); assert.equal(e.nativeTheme.shouldUseDarkColors,true); e.contextBridge.exposeInMainWorld('api',{x:1}); assert.equal(context.window.api.x,1); w.close(); assert.equal(w.isDestroyed(),true); assert.ok(calls.some(([op]) => op === 'window.close')); });
+test('app, IPC, dialogs, windows and warnings', async () => { const {load,context,calls} = runtime(true); const e = load('electron'); const h = load('host'); await e.app.whenReady(); assert.equal(e.app.getName(),'Example'); assert.equal(e.app.getPath('userData'),'/data'); e.ipcMain.handleOnce('sum',(_event,n) => n+1); assert.equal(await e.ipcRenderer.invoke('sum',2),3); await assert.rejects(e.ipcRenderer.invoke('sum',2),/No handler/); let received; e.ipcRenderer.once('notice',(_event,p) => received=p); const w = new e.BrowserWindow({width:400}); w.webContents.send('notice',42); assert.equal(received,42); const second = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await w.loadFile('index.html'); w.setTitle('Title'); assert.equal((await e.dialog.showOpenDialog({properties:['multiSelections']})).filePaths[0],'/data/a'); assert.equal((await e.dialog.showSaveDialog({})).filePath,'/data/a'); assert.equal((await e.dialog.showMessageBox({message:'hello'})).response,1); assert.equal(await e.clipboard.readText(),'clip'); await e.clipboard.writeText('x'); await e.shell.openExternal('https://example.com'); new e.Notification({title:'T',body:'B'}).show(); e.Menu.setApplicationMenu(null); assert.throws(() => new e.Tray('x'), /Tray/); assert.throws(() => e.globalShortcut.register('a',()=>{}), /globalShortcut.register/); assert.equal(h.compatWarnings.length,1); assert.equal(e.nativeTheme.shouldUseDarkColors,true); e.contextBridge.exposeInMainWorld('api',{x:1}); assert.equal(context.window.api.x,1); w.close(); assert.equal(w.isDestroyed(),true); assert.ok(calls.some(([op]) => op === 'window.close')); });
 test('os, process and child process', async () => { const {load} = runtime(); const os = load('os'); await os.infoReady; assert.equal(os.platform(),'linux'); assert.equal(os.homedir(),'/home'); const proc = load('process'); assert.equal(proc.default.cwd(),'/app'); assert.throws(() => proc.exit(),/not supported/); let tick = false; proc.nextTick(() => tick = true); await Promise.resolve(); assert.equal(tick,true); const cp = load('child_process'); const result = await new Promise((resolve,reject) => cp.execFile('allowed',['arg'],(err,out) => err ? reject(err) : resolve(out))); assert.equal(result,'ok'); });
 test('https forwards requests and emits responses and errors', async () => {
   const {load,context,calls} = runtime();
@@ -162,9 +200,8 @@ test('window targets and unsupported UI warnings are explicit', async () => {
   const w = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows()[0],w);
   const second = new e.BrowserWindow({title:'Second'}); await second.loadFile('second.html'); second.setTitle('Different'); await Promise.resolve(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await Promise.resolve();
   e.Menu.buildFromTemplate([]); e.Menu.setApplicationMenu(null);
-  const tray = new e.Tray(); tray.setToolTip('x'); tray.setContextMenu(null); tray.on('click',()=>{}); tray.destroy();
-  e.globalShortcut.register('x',()=>{}); e.globalShortcut.unregister('x'); e.globalShortcut.unregisterAll(); assert.equal(e.globalShortcut.isRegistered('x'),false);
-  for (const name of ['Tray','Tray.setToolTip','Tray.setContextMenu','Tray.on','Tray.destroy','globalShortcut.register','globalShortcut.unregister','globalShortcut.unregisterAll','globalShortcut.isRegistered']) assert.ok(warnings.some(w => w.startsWith(name + ' ')),name);
+  assert.throws(() => new e.Tray(), /Tray/);
+  for (const name of ['register','unregister','unregisterAll','isRegistered']) assert.throws(() => e.globalShortcut[name]('x',()=>{}), new RegExp('globalShortcut.' + name));
   w.close(); assert.equal(e.BrowserWindow.getAllWindows().length,0);
 });
 
@@ -182,6 +219,17 @@ test('a user close request reaches close listeners, which can prevent it', async
   assert.equal(child.isDestroyed(), true);
   assert.ok(calls.some(([op,args]) => op === 'window.close' && args.windowId === child.id));
 });
+test('webContents reports unsupported navigation and devtools', async () => {
+  const {load} = runtime(true); const e = load('electron');
+  const first = new e.BrowserWindow();
+  for (const name of ['goBack', 'goForward', 'canGoBack', 'canGoForward', 'reload', 'reloadIgnoringCache', 'openDevTools', 'closeDevTools', 'isDevToolsOpened']) {
+    assert.throws(() => first.webContents[name](), new RegExp('webContents\\.' + name));
+  }
+  await assert.rejects(first.webContents.loadURL('https://example.com'), /webContents.loadURL/);
+  const second = new e.BrowserWindow();
+  await second.webContents.loadFile('second.html');
+});
+
 test('native lifecycle events reach BrowserWindow listeners', () => {
   const {load,context} = runtime(); const e = load('electron');
   const w = new e.BrowserWindow(); const seen = [];
@@ -279,4 +327,217 @@ test('powerSaveBlocker tracks blockers and sends the active set to the host', as
   await new Promise(resolve => setTimeout(resolve, 0));
   // Arrays from the VM realm differ in prototype, so compare serialized values.
   assert.equal(JSON.stringify(calls.filter(([op]) => op === 'power.setBlockers').map(([, a]) => a.types)), JSON.stringify([['prevent-display-sleep'], []]));
+});
+
+test('contextBridge copies and protects exposed values', () => { const {load,context} = runtime(); const bridge = load('electron').contextBridge; const source = { nested: { value: 1 } }; bridge.exposeInMainWorld('isolatedApi', source); source.nested.value = 2; assert.equal((context.window || context).isolatedApi.nested.value, 1); assert.ok(Object.isFrozen((context.window || context).isolatedApi.nested)); assert.throws(() => bridge.exposeInMainWorld('isolatedApi', {}), /already exists/); });
+
+test('BaseWindow lifecycle and unsupported standalone views and utility processes', () => {
+  const {load} = runtime(true); const e = load('electron');
+  const window = new e.BaseWindow({title: 'Base'});
+  assert.equal(window.isDestroyed(), false);
+  assert.throws(() => window.contentView, /BaseWindow\.contentView/);
+  assert.throws(() => new e.BrowserView(), /BrowserView/);
+  assert.throws(() => new e.WebContentsView(), /WebContentsView/);
+  assert.throws(() => e.utilityProcess.fork('child.js'), /utilityProcess\.fork/);
+  window.close(); assert.equal(window.isDestroyed(), true);
+});
+
+test('contextBridge copies values passed through exposed functions', async () => { const {load,context} = runtime(); const bridge = load('electron').contextBridge; const original = {value: 1}; let received; bridge.exposeInMainWorld('bridgeFunctions', { get: () => original, echo: value => { received = value; return value; }, asyncGet: async () => original }); const api = (context.window || context).bridgeFunctions; const result = api.get(); assert.notEqual(result, original); const input = {value: 2}; assert.notEqual(api.echo(input), input); assert.notEqual(received, input); assert.notEqual(await api.asyncGet(), original); });
+
+test('ready-to-show fires after window creation for primary and secondary windows', async () => {
+  const {load} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow();
+  let primaryReady = 0; primary.on('ready-to-show', () => primaryReady++);
+  const secondary = new e.BrowserWindow();
+  let secondaryReady = 0; secondary.on('ready-to-show', () => secondaryReady++);
+  await flush();
+  assert.equal(primaryReady, 1);
+  assert.equal(secondaryReady, 1);
+});
+
+test('ready-to-show fires after loadFile for primary and secondary windows', async () => {
+  const {load} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow();
+  let primaryCount = 0, secondaryCount = 0;
+  primary.on('ready-to-show', () => primaryCount++); secondary.on('ready-to-show', () => secondaryCount++);
+  await flush();
+  assert.equal(primaryCount, 1); assert.equal(secondaryCount, 1);
+  primaryCount = 0; secondaryCount = 0;
+  await primary.loadFile('index.html'); await secondary.loadFile('page.html'); await flush();
+  assert.equal(primaryCount, 1); assert.equal(secondaryCount, 1);
+});
+
+test('show and hide emit events and route to the host for secondary windows only', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow({show: false});
+  await flush();
+  const primaryEvents = [];
+  primary.on('show', () => primaryEvents.push('show')); primary.on('hide', () => primaryEvents.push('hide'));
+  await primary.show(); await primary.hide(); await flush();
+  assert.deepEqual(primaryEvents, []); assert.equal(primary.isVisible(), true);
+  assert.equal(calls.some(([op]) => op === 'window.show' || op === 'window.hide'), false);
+  const events = [];
+  secondary.on('show', () => events.push('show')); secondary.on('hide', () => events.push('hide'));
+  assert.equal(secondary.isVisible(), false);
+  await secondary.show(); await flush();
+  assert.deepEqual(events, ['show']); assert.equal(secondary.isVisible(), true);
+  assert.ok(calls.some(([op,a]) => op === 'window.show' && a.windowId === secondary.id));
+  events.length = 0;
+  await secondary.hide(); await flush();
+  assert.deepEqual(events, ['hide']); assert.equal(secondary.isVisible(), false);
+  assert.ok(calls.some(([op,a]) => op === 'window.hide' && a.windowId === secondary.id));
+  events.length = 0;
+  const hideCallsBefore = calls.filter(([op]) => op === 'window.hide').length;
+  await secondary.hide(); await flush();
+  assert.deepEqual(events, []);
+  assert.equal(calls.filter(([op]) => op === 'window.hide').length, hideCallsBefore + 1);
+});
+
+test('setFullScreen throws on the primary window and drives secondary windows', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow();
+  assert.throws(() => primary.setFullScreen(true), /fullscreen not supported/);
+  assert.throws(() => primary.setFullScreen(false), /fullscreen not supported/);
+  assert.equal(primary.isFullScreen(), false);
+  const secondary = new e.BrowserWindow(); await flush();
+  const events = [];
+  secondary.on('enter-full-screen', () => events.push('enter')); secondary.on('leave-full-screen', () => events.push('leave'));
+  secondary.setFullScreen(true); await flush();
+  assert.equal(secondary.isFullScreen(), true); assert.deepEqual(events, ['enter']);
+  assert.ok(calls.some(([op,a]) => op === 'window.setFullScreen' && a.windowId === secondary.id && a.fullScreen === true));
+  secondary.setFullScreen(false); await flush();
+  assert.equal(secondary.isFullScreen(), false); assert.deepEqual(events, ['enter','leave']);
+  assert.ok(calls.some(([op,a]) => op === 'window.setFullScreen' && a.windowId === secondary.id && a.fullScreen === false));
+});
+
+test('setBounds emits will-move/move and will-resize/resize and getBounds reflects updates', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow({x:0,y:0,width:800,height:600});
+  await flush();
+  const events = [];
+  for (const name of ['will-move','move','will-resize','resize']) secondary.on(name, () => events.push(name));
+  secondary.setBounds({x:10,y:20,width:800,height:600});
+  assert.deepEqual(events, ['will-move','move']);
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getBounds())), {x:10,y:20,width:800,height:600});
+  await flush();
+  assert.ok(calls.some(([op,a]) => op === 'window.setBounds' && a.windowId === secondary.id && a.x === 10 && a.y === 20));
+  events.length = 0;
+  secondary.setBounds({x:10,y:20,width:1000,height:700});
+  assert.deepEqual(events, ['will-resize','resize']);
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getBounds())), {x:10,y:20,width:1000,height:700});
+  events.length = 0;
+  secondary.setBounds({x:30,y:40,width:900,height:800});
+  assert.deepEqual(events, ['will-move','will-resize','move','resize']);
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getBounds())), {x:30,y:40,width:900,height:800});
+  events.length = 0;
+  secondary.setBounds({x:30,y:40,width:900,height:800});
+  assert.deepEqual(events, []);
+  const copy = secondary.getBounds(); copy.x = 999;
+  assert.equal(secondary.getBounds().x, 30);
+  await flush();
+  const primaryEvents = [];
+  for (const name of ['will-move','move','will-resize','resize']) primary.on(name, () => primaryEvents.push(name));
+  const boundsCalls = calls.filter(([op]) => op === 'window.setBounds').length;
+  primary.setBounds({x:5,y:6,width:500,height:400});
+  assert.deepEqual(primaryEvents, ['will-move','will-resize','move','resize']);
+  assert.deepEqual(JSON.parse(JSON.stringify(primary.getBounds())), {x:5,y:6,width:500,height:400});
+  await flush();
+  assert.equal(calls.filter(([op]) => op === 'window.setBounds').length, boundsCalls);
+});
+
+test('setPosition and setSize emit move and resize and route to the host for secondary windows', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow({x:0,y:0,width:800,height:600});
+  await flush();
+  const events = [];
+  for (const name of ['will-move','move','will-resize','resize']) secondary.on(name, () => events.push(name));
+  secondary.setPosition(100,200);
+  assert.deepEqual(events, ['will-move','move']);
+  assert.deepEqual(Array.from(secondary.getPosition()), [100,200]);
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getBounds())), {x:100,y:200,width:800,height:600});
+  await flush();
+  assert.ok(calls.some(([op,a]) => op === 'window.setPosition' && a.windowId === secondary.id && a.x === 100 && a.y === 200));
+  events.length = 0;
+  secondary.setPosition(100,200);
+  assert.deepEqual(events, []);
+  events.length = 0;
+  secondary.setSize(1024,768);
+  assert.deepEqual(events, ['will-resize','resize']);
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getSize())), {width:1024,height:768});
+  assert.deepEqual(JSON.parse(JSON.stringify(secondary.getBounds())), {x:100,y:200,width:1024,height:768});
+  await flush();
+  assert.ok(calls.some(([op,a]) => op === 'window.setSize' && a.windowId === secondary.id && a.width === 1024 && a.height === 768));
+  events.length = 0;
+  secondary.setSize(1024,768);
+  assert.deepEqual(events, []);
+  const primaryEvents = [];
+  for (const name of ['will-move','move','will-resize','resize']) primary.on(name, () => primaryEvents.push(name));
+  const geometryCalls = calls.filter(([op]) => op === 'window.setPosition' || op === 'window.setSize').length;
+  primary.setPosition(10,10);
+  assert.deepEqual(primaryEvents, ['will-move','move']);
+  primaryEvents.length = 0;
+  primary.setSize(600,500);
+  assert.deepEqual(primaryEvents, ['will-resize','resize']);
+  await flush();
+  assert.equal(calls.filter(([op]) => op === 'window.setPosition' || op === 'window.setSize').length, geometryCalls);
+});
+
+test('focus and blur emit events and getFocusedWindow tracks the focused window', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow();
+  await flush();
+  const events = [];
+  for (const name of ['focus','blur']) secondary.on(name, () => events.push(name));
+  secondary.focus(); await flush();
+  assert.deepEqual(events, ['focus']); assert.equal(e.BrowserWindow.getFocusedWindow(), secondary);
+  assert.ok(calls.some(([op,a]) => op === 'window.focus' && a.windowId === secondary.id));
+  events.length = 0;
+  secondary.focus(); await flush();
+  assert.deepEqual(events, []);
+  secondary.blur(); await flush();
+  assert.deepEqual(events, ['blur']); assert.notEqual(e.BrowserWindow.getFocusedWindow(), secondary);
+  assert.ok(calls.some(([op,a]) => op === 'window.blur' && a.windowId === secondary.id));
+  events.length = 0;
+  secondary.blur(); await flush();
+  assert.deepEqual(events, []);
+  const primaryEvents = [];
+  for (const name of ['focus','blur']) primary.on(name, () => primaryEvents.push(name));
+  const focusCalls = calls.filter(([op]) => op === 'window.focus').length;
+  primary.focus();
+  assert.deepEqual(primaryEvents, ['focus']); assert.equal(e.BrowserWindow.getFocusedWindow(), primary);
+  await flush();
+  assert.equal(calls.filter(([op]) => op === 'window.focus').length, focusCalls);
+});
+
+test('minimize, maximize and restore update isMinimized and isMaximized', async () => {
+  const {load,calls} = runtime(); const e = load('electron');
+  const primary = new e.BrowserWindow(); const secondary = new e.BrowserWindow();
+  await flush();
+  const events = [];
+  for (const name of ['minimize','maximize','restore']) secondary.on(name, () => events.push(name));
+  assert.equal(secondary.isMinimized(), false); assert.equal(secondary.isMaximized(), false);
+  secondary.minimize(); await flush();
+  assert.equal(secondary.isMinimized(), true); assert.equal(secondary.isMaximized(), false);
+  assert.deepEqual(events, ['minimize']);
+  assert.ok(calls.some(([op,a]) => op === 'window.minimize' && a.windowId === secondary.id));
+  events.length = 0;
+  secondary.maximize(); await flush();
+  assert.equal(secondary.isMinimized(), false); assert.equal(secondary.isMaximized(), true);
+  assert.deepEqual(events, ['maximize']);
+  assert.ok(calls.some(([op,a]) => op === 'window.maximize' && a.windowId === secondary.id));
+  events.length = 0;
+  secondary.restore(); await flush();
+  assert.equal(secondary.isMinimized(), false); assert.equal(secondary.isMaximized(), false);
+  assert.deepEqual(events, ['restore']);
+  assert.ok(calls.some(([op,a]) => op === 'window.restore' && a.windowId === secondary.id));
+  events.length = 0;
+  secondary.minimize(); secondary.minimize(); await flush();
+  assert.deepEqual(events, ['minimize']); assert.equal(secondary.isMinimized(), true);
+  events.length = 0;
+  secondary.restore(); await flush();
+  assert.deepEqual(events, ['restore']); assert.equal(secondary.isMinimized(), false);
+  secondary.maximize(); await flush();
+  events.length = 0;
+  secondary.maximize(); await flush();
+  assert.deepEqual(events, []); assert.equal(secondary.isMaximized(), true);
 });

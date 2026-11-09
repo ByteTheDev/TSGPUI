@@ -8,7 +8,7 @@ description = "Native GPUI and system WebView hosts for TSGPUI bundles"
 [features]
 default = ["native-host"]
 native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest", "dep:ureq", "dep:url"]
-webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url"]
+webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url", "dep:notify-rust"]
 
 [[bin]]
 name = "tsgpui-host"
@@ -41,13 +41,13 @@ gtk = { version = "=0.18.2", optional = true }
 # Native dialogs and clipboard for the WebView host on Windows (used only by webview_bridge.rs).
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "=0.15.4"
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Power"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Power"] }
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
-opt-level = "s"
+opt-level = 3
 
 # The host is compiled for the target OS and architecture. Windows builds use MSVC; macOS builds
 # use the Apple toolchain provided by Xcode. End users need neither Rust nor Bun/Node to run a bundle.

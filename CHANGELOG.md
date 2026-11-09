@@ -33,5 +33,8 @@ This is a beta. Interfaces may change before 0.4.0, and the platform hosts for m
 - GPUI does not report a scale factor per display, so the native renderer reports the app window's scale factor for every display.
 - The browser preview does not run the Electron shims.
 - Clipboard, dialogs and power blockers work on Windows only.
+- Accessibility: native `aria-*` and `role` metadata is preserved but not exposed to the OS. GPUI 0.2.2 has no accessibility API, so this needs an upgrade or bridge layer; scope before promising screen-reader support.
+- Motion on the native path: CSS transitions, animations and transforms are reported as unsupported. A GPUI animation primitive would close this; otherwise use the WebView renderer for motion.
+- Signing and update support: packages are produced unsigned by default; signing, notarization and in-app updates are handled outside the tool or remain roadmap work.
 
 See [docs/SUPPORTED_SYNTAX.md](docs/SUPPORTED_SYNTAX.md) for the full `api.native` reference.

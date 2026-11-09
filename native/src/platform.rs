@@ -78,6 +78,80 @@ pub fn set_power_blockers(_types: &[String]) -> Result<(), String> {
     Err("Power save blockers are supported on Windows only".into())
 }
 
+/// Runs a `safeStorage.*` operation. Values are protected with DPAPI on Windows, so only the current
+/// Windows account on this machine can decrypt them. Ciphertext crosses the bridge as base64.
+pub fn safe_storage_call(operation: &str, args: &[Value]) -> Result<Value, String> {
+    let text_arg = || args.first().and_then(Value::as_str).ok_or_else(|| "Argument 1 must be a string".to_string());
+    match operation {
+        "safeStorage.isAvailable" => Ok(Value::Bool(cfg!(target_os = "windows"))),
+        "safeStorage.encrypt" => Ok(Value::from(base64_encode(&safe_storage_protect(text_arg()?.as_bytes())?))),
+        "safeStorage.decrypt" => {
+            let plain = safe_storage_unprotect(&base64_decode(text_arg()?)?)?;
+            String::from_utf8(plain).map(Value::from).map_err(|_| "Decrypted value is not valid UTF-8".to_string())
+        }
+        _ => Err(format!("unsupported op: {operation}")),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn safe_storage_protect(plain: &[u8]) -> Result<Vec<u8>, String> {
+    windows::dpapi::protect(plain)
+}
+
+#[cfg(target_os = "windows")]
+fn safe_storage_unprotect(cipher: &[u8]) -> Result<Vec<u8>, String> {
+    windows::dpapi::unprotect(cipher)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn safe_storage_protect(_plain: &[u8]) -> Result<Vec<u8>, String> {
+    Err("safeStorage is supported on Windows only".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn safe_storage_unprotect(_cipher: &[u8]) -> Result<Vec<u8>, String> {
+    Err("safeStorage is supported on Windows only".into())
+}
+
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+        out.push(ABC[((n >> 18) & 63) as usize] as char);
+        out.push(ABC[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { ABC[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ABC[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+pub fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0);
+    for b in text.bytes() {
+        if b == b'=' {
+            break;
+        }
+        let n = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err("Invalid base64".into()),
+        };
+        acc = (acc << 6) | u32::from(n);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Ok(out)
+}
+
 /// Opens an https or mailto link in the system handler. Other schemes and control characters are refused.
 pub fn open_external(url: &str) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("mailto:")) || url.chars().any(char::is_control) {
@@ -100,37 +174,107 @@ pub fn https_request(args: &Value, hosts: &[String]) -> Result<Value, String> {
     let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
     let host = parsed.host_str().ok_or("URL has no host")?;
     if parsed.scheme() != "https" || !hosts.iter().any(|allowed| allowed.eq_ignore_ascii_case(host)) {
-        return Err("Network host is not granted or URL is not HTTPS".into());
+        return Err("PERMISSION_DENIED: Network host is not granted or URL is not HTTPS".into());
     }
-    let body = args["body"].as_str().unwrap_or("");
+    let body = args["body"].as_str().unwrap_or("").to_string();
     if body.len() > 1024 * 1024 {
         return Err("Request body exceeds 1 MiB".into());
     }
     let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15)).redirects(0).build();
-    let mut request = agent.request(args["method"].as_str().unwrap_or("GET"), url);
-    if let Some(headers) = args["headers"].as_object() {
-        for (key, value) in headers {
-            request = request.set(key, value.as_str().ok_or("Header values must be strings")?);
+    let method = args["method"].as_str().unwrap_or("GET").to_string();
+    let url = url.to_string();
+    let headers_map = args["headers"].clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut request = agent.request(&method, &url);
+        if let Some(headers) = headers_map.as_object() {
+            for (key, value) in headers {
+                if let Some(v) = value.as_str() {
+                    request = request.set(key, v);
+                }
+            }
+        }
+        let result = match request.send_string(&body) {
+            Ok(r) => {
+                let status = r.status();
+                let mut headers = serde_json::Map::new();
+                for key in r.headers_names() {
+                    if let Some(value) = r.header(&key) {
+                        headers.insert(key, json!(value));
+                    }
+                }
+                let mut bytes = Vec::new();
+                let mut reader = r.into_reader();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    if crate::capabilities::current_cancel_token().map(|t| t.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false) {
+                        return;
+                    }
+                    match reader.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if bytes.len() + n > 1024 * 1024 {
+                                let _ = tx.send(Err("Response body exceeds 1 MiB".to_string()));
+                                return;
+                            }
+                            bytes.extend_from_slice(&chunk[..n]);
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e.to_string()));
+                            return;
+                        }
+                    }
+                }
+                let _ = tx.send(Ok(json!({ "status": status, "headers": headers, "body": String::from_utf8_lossy(&bytes) })));
+            }
+            Err(ureq::Error::Status(_, r)) => {
+                let status = r.status();
+                let mut headers = serde_json::Map::new();
+                for key in r.headers_names() {
+                    if let Some(value) = r.header(&key) {
+                        headers.insert(key, json!(value));
+                    }
+                }
+                let mut bytes = Vec::new();
+                let mut reader = r.into_reader();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    if crate::capabilities::current_cancel_token().map(|t| t.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false) {
+                        return;
+                    }
+                    match reader.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if bytes.len() + n > 1024 * 1024 {
+                                let _ = tx.send(Err("Response body exceeds 1 MiB".to_string()));
+                                return;
+                            }
+                            bytes.extend_from_slice(&chunk[..n]);
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e.to_string()));
+                            return;
+                        }
+                    }
+                }
+                let _ = tx.send(Ok(json!({ "status": status, "headers": headers, "body": String::from_utf8_lossy(&bytes) })));
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e.to_string()));
+            }
+        };
+        let _ = result;
+    });
+    loop {
+        if crate::capabilities::current_cancel_token().map(|t| t.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false) {
+            return Err("CANCELLED: HTTPS request was cancelled".into());
+        }
+        match rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(result) => return result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("HTTPS request failed".into()),
         }
     }
-    let response = match request.send_string(body) {
-        Ok(r) => r,
-        Err(ureq::Error::Status(_, r)) => r,
-        Err(e) => return Err(e.to_string()),
-    };
-    let status = response.status();
-    let mut headers = serde_json::Map::new();
-    for key in response.headers_names() {
-        if let Some(value) = response.header(&key) {
-            headers.insert(key, json!(value));
-        }
-    }
-    let mut bytes = Vec::new();
-    response.into_reader().take(1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    if bytes.len() > 1024 * 1024 {
-        return Err("Response body exceeds 1 MiB".into());
-    }
-    Ok(json!({ "status": status, "headers": headers, "body": String::from_utf8_lossy(&bytes) }))
 }
 
 #[cfg(target_os = "windows")]
@@ -212,6 +356,50 @@ mod windows {
             MessageDialogResult::Cancel => labels.len() - 1,
         };
         Ok(json!({"response": response}))
+    }
+
+    /// DPAPI (CryptProtectData) keys the ciphertext to the current user account on this machine.
+    pub mod dpapi {
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
+
+        /// Copies a DPAPI output blob into a Vec and releases the buffer that DPAPI allocated.
+        fn take(blob: CRYPT_INTEGER_BLOB) -> Vec<u8> {
+            if blob.pbData.is_null() || blob.cbData == 0 {
+                if !blob.pbData.is_null() {
+                    unsafe { LocalFree(blob.pbData as _) };
+                }
+                return Vec::new();
+            }
+            let bytes = unsafe { std::slice::from_raw_parts(blob.pbData, blob.cbData as usize) }.to_vec();
+            unsafe { LocalFree(blob.pbData as _) };
+            bytes
+        }
+
+        fn input(data: &[u8]) -> Result<CRYPT_INTEGER_BLOB, String> {
+            let len = u32::try_from(data.len()).map_err(|_| "Value is too large".to_string())?;
+            Ok(CRYPT_INTEGER_BLOB { cbData: len, pbData: data.as_ptr() as *mut u8 })
+        }
+
+        pub fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
+            let data = input(plain)?;
+            let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+            let ok = unsafe { CryptProtectData(&data, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+            if ok == 0 {
+                return Err(format!("CryptProtectData failed: {}", std::io::Error::last_os_error()));
+            }
+            Ok(take(out))
+        }
+
+        pub fn unprotect(cipher: &[u8]) -> Result<Vec<u8>, String> {
+            let data = input(cipher)?;
+            let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+            let ok = unsafe { CryptUnprotectData(&data, std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+            if ok == 0 {
+                return Err("Value cannot be decrypted by this user account".into());
+            }
+            Ok(take(out))
+        }
     }
 
     /// Power requests are per thread on Windows, so one dedicated thread owns them. Other threads
@@ -321,5 +509,37 @@ mod windows {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_round_trips_every_length() {
+        for len in 0..40u8 {
+            let bytes: Vec<u8> = (0..len).map(|i| i.wrapping_mul(37)).collect();
+            assert_eq!(base64_decode(&base64_encode(&bytes)).unwrap(), bytes);
+        }
+        assert!(base64_decode("not*base64").is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn dpapi_round_trips_and_hides_plaintext() {
+        let cipher = safe_storage_call("safeStorage.encrypt", &[Value::from("token-123")]).unwrap();
+        let cipher = cipher.as_str().unwrap().to_owned();
+        assert!(!cipher.contains("token-123"));
+        let plain = safe_storage_call("safeStorage.decrypt", &[Value::from(cipher)]).unwrap();
+        assert_eq!(plain, Value::from("token-123"));
+        assert_eq!(safe_storage_call("safeStorage.isAvailable", &[]).unwrap(), Value::Bool(true));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn dpapi_rejects_garbage_ciphertext() {
+        let garbage = base64_encode(b"not dpapi data");
+        assert!(safe_storage_call("safeStorage.decrypt", &[Value::from(garbage)]).is_err());
     }
 }

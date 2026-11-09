@@ -6,10 +6,13 @@
 //! they run without a shell.
 
 use std::{
+    cell::RefCell,
     fs,
     io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
+    sync::atomic::AtomicBool,
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -17,6 +20,18 @@ use std::{
 use serde_json::{json, Value};
 
 use crate::package::Permissions;
+
+thread_local! {
+    static CURRENT_CANCEL: RefCell<Option<Arc<AtomicBool>>> = RefCell::new(None);
+}
+
+pub fn current_cancel_token() -> Option<Arc<AtomicBool>> {
+    CURRENT_CANCEL.with(|cell| cell.borrow().clone())
+}
+
+pub fn set_current_cancel_token(token: Option<Arc<AtomicBool>>) {
+    CURRENT_CANCEL.with(|cell| *cell.borrow_mut() = token);
+}
 
 /// Largest file read or written by one call, and largest captured process output per stream.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -134,7 +149,18 @@ impl Capabilities {
                 if !self.notifications {
                     return Err("Notification is not granted in permissions.notifications".into());
                 }
-                Err("unsupported op: notifications.show".into())
+                let options = args.first().and_then(Value::as_object).ok_or("Notification options must be an object")?;
+                let title = options.get("title").and_then(Value::as_str).ok_or("Notification title must be a string")?;
+                let body = options.get("body").and_then(Value::as_str).unwrap_or("");
+                // OS toast via notify-rust (WinRT toast on Windows, Notification Center on macOS,
+                // D-Bus/Notifications on Linux). Any failure here propagates as an Err so the
+                // Electron shim's in-page-toast fallback in electron.ts `Notification.show` handles
+                // it: headless/no-daemon environments, missing grants handled above, and unsupported
+                // platforms all end at the same fallback. This runs on the bridge worker thread,
+                // so a slow toast does not freeze the WebView UI.
+                let mut notification = notify_rust::Notification::new();
+                notification.appname("TSGPUI").summary(title).body(body);
+                notification.show().map(|_| Value::Null).map_err(|error| error.to_string())
             }
             other => Err(format!("Native operation '{other}' is not available in this build")),
         }

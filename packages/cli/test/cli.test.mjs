@@ -80,9 +80,9 @@ test('host installer verifies the hash before copying', () => {
     const file=path.join(home,'input'); fs.writeFileSync(file,'host fixture');
     const hash=createHash('sha256').update('host fixture').digest('hex');
     const env={...process.env,TSGPUI_HOME:home};
-    const bad=tsgpui(['host','install','--file',file,'--sha256','0'.repeat(64)],{env});
+    const bad=tsgpui(['host','install','--renderer','native','--file',file,'--sha256','0'.repeat(64)],{env});
     assert.notEqual(bad.status,0); assert.match(bad.stderr,/mismatch/);
-    const good=tsgpui(['host','install','--file',file,'--sha256',hash],{env});
+    const good=tsgpui(['host','install','--renderer','native','--file',file,'--sha256',hash],{env});
     assert.equal(good.status,0,good.stderr);
     assert.equal(fs.readFileSync(path.join(home,'host',`${process.platform}-${process.arch}`,`tsgpui-host${process.platform==='win32'?'.exe':''}`),'utf8'),'host fixture');
   } finally {fs.rmSync(home,{recursive:true,force:true});}

@@ -6,11 +6,13 @@
 //! they run without a shell.
 
 use std::{
+    cell::RefCell,
     fs,
     io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
+    sync::atomic::AtomicBool,
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -18,6 +20,18 @@ use std::{
 use serde_json::{json, Value};
 
 use crate::{package::Permissions, platform};
+
+thread_local! {
+    static CURRENT_CANCEL: RefCell<Option<Arc<AtomicBool>>> = RefCell::new(None);
+}
+
+pub fn current_cancel_token() -> Option<Arc<AtomicBool>> {
+    CURRENT_CANCEL.with(|cell| cell.borrow().clone())
+}
+
+pub fn set_current_cancel_token(token: Option<Arc<AtomicBool>>) {
+    CURRENT_CANCEL.with(|cell| *cell.borrow_mut() = token);
+}
 
 /// Largest file read or written by one call, and largest captured process output per stream.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -33,7 +47,8 @@ pub struct Capabilities {
     read_named: Vec<(String, PathBuf)>,
     write_named: Vec<(String, PathBuf)>,
     processes: Vec<String>,
-    network_hosts: Vec<String>,
+    process_args: std::collections::BTreeMap<String, Vec<String>>,
+    network: Vec<(String, Vec<String>)>,
     app: AppIdentity,
     /// Files picked with a dialog. Clones share the list, so a grant lasts for the whole run.
     dialog_grants: Arc<Mutex<Vec<DialogGrant>>>,
@@ -71,6 +86,20 @@ impl Capabilities {
         for root in &write_roots {
             let _ = fs::create_dir_all(root);
         }
+        let network: Vec<(String, Vec<String>)> = if permissions.network_hosts.is_empty() && permissions.network_methods.is_empty() {
+            Vec::new()
+        } else if permissions.network_methods.is_empty() {
+            permissions.network_hosts.iter().map(|host| (host.clone(), Vec::new())).collect()
+        } else {
+            permissions.network_methods.iter().map(|(host, methods)| (host.clone(), methods.clone())).collect()
+        };
+        // Legacy network_hosts may be present alongside methods; merge hosts that only appear in network_hosts.
+        let mut network = network;
+        for host in &permissions.network_hosts {
+            if !network.iter().any(|(h, _)| h.eq_ignore_ascii_case(host)) {
+                network.push((host.clone(), Vec::new()));
+            }
+        }
         Self {
             base,
             read_roots,
@@ -78,7 +107,8 @@ impl Capabilities {
             read_named,
             write_named,
             processes: permissions.processes.clone(),
-            network_hosts: permissions.network_hosts.clone(),
+            process_args: permissions.process_args.clone(),
+            network,
             app: AppIdentity::default(),
             dialog_grants: Arc::default(),
             window: permissions.window,
@@ -123,11 +153,25 @@ impl Capabilities {
             }
             "dialog.message" => platform::message_dialog(&options(args)),
             "shell.openExternal" => platform::open_external(text_arg(args, 0)?).map(|_| Value::Null),
-            "net.request" => platform::https_request(&options(args), &self.network_hosts),
+            "net.request" => {
+                let opts = options(args);
+                let url = opts["url"].as_str().unwrap_or("");
+                let method = opts["method"].as_str().unwrap_or("GET");
+                // Parse host from url loosely; full validation happens in platform.
+                let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+                let allowed = self.network.iter().any(|(granted_host, methods)| {
+                    granted_host.eq_ignore_ascii_case(&host) && (methods.is_empty() || methods.iter().any(|m| m.eq_ignore_ascii_case(method)))
+                });
+                if !allowed {
+                    return Err("PERMISSION_DENIED: Network host is not granted for this host and method".into());
+                }
+                platform::https_request(&opts, &self.network.iter().map(|(h, _)| h.clone()).collect::<Vec<_>>())
+            }
             "power.setBlockers" => {
                 platform::set_power_blockers(&platform::string_list(args.first().unwrap_or(&Value::Null)))?;
                 Ok(Value::Null)
             }
+            "safeStorage.isAvailable" | "safeStorage.encrypt" | "safeStorage.decrypt" => platform::safe_storage_call(operation, args),
             "filesystem.readText" => {
                 let path = confine(&self.read_roots, text_arg(args, 0)?, true, false)?;
                 let bytes = read_capped(&path)?;
@@ -186,7 +230,17 @@ impl Capabilities {
             "process.spawn" => {
                 let command = text_arg(args, 0)?;
                 if !self.processes.iter().any(|granted| granted == command) {
-                    return Err(format!("Process '{command}' is not listed in permissions.processes"));
+                    return Err(format!("PERMISSION_DENIED: Process '{command}' is not listed in permissions.processes"));
+                }
+                // Optional argument pattern check.
+                if let Some(patterns) = self.process_args.get(command) {
+                    if !patterns.is_empty() {
+                        let extra = match args.get(1) { Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>(), _ => Vec::new() };
+                        let allowed = patterns.iter().any(|pattern| arg_pattern_matches(pattern, &extra));
+                        if !allowed {
+                            return Err(format!("PERMISSION_DENIED: Process '{command}' arguments are not allowed by permissions.process_args"));
+                        }
+                    }
                 }
                 let extra = match args.get(1) {
                     None | Some(Value::Null) => Vec::new(),
@@ -199,7 +253,7 @@ impl Capabilities {
             }
             "notifications.show" => {
                 if !self.notifications {
-                    return Err("Notifications are not granted: set permissions.notifications to true".into());
+                    return Err("PERMISSION_DENIED: Notifications are not granted: set permissions.notifications to true".into());
                 }
                 let options = args.first().and_then(Value::as_object).ok_or("Notification options must be an object")?;
                 let title = options.get("title").and_then(Value::as_str).ok_or("Notification title must be a string")?;
@@ -240,7 +294,7 @@ impl Capabilities {
             let named = if write { &self.write_named } else { &self.read_named };
             named.iter().find(|(name, _)| *name == root).map(|(_, directory)| directory.clone())
         };
-        let directory = directory.ok_or("Filesystem root is not granted")?;
+        let directory = directory.ok_or("PERMISSION_DENIED: Filesystem root is not granted")?;
         let mut scoped = self.clone();
         scoped.read_roots = if write { Vec::new() } else { vec![directory.clone()] };
         scoped.write_roots = if write { vec![directory] } else { Vec::new() };
@@ -298,7 +352,7 @@ fn named_target(value: &Value) -> Result<(String, String), String> {
 fn dialog_file_operation(grant: &DialogGrant, operation: &str, path: &str, positional: &[Value]) -> Result<Value, String> {
     let write = matches!(operation, "filesystem.writeText" | "filesystem.writeBytes" | "filesystem.mkdir" | "filesystem.remove" | "filesystem.rename");
     if write && !grant.write {
-        return Err("Filesystem root is not granted for writing".into());
+        return Err("PERMISSION_DENIED: Filesystem root is not granted for writing".into());
     }
     if !path.is_empty() {
         return Err("Dialog grant covers only the selected file".into());
@@ -391,12 +445,26 @@ fn check_size(length: usize) -> Result<(), String> {
 }
 
 fn read_capped(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
     let metadata = fs::metadata(path).map_err(io_error)?;
     if !metadata.is_file() {
         return Err("Path is not a file".into());
     }
     check_size(metadata.len() as usize)?;
-    fs::read(path).map_err(io_error)
+    let mut file = fs::File::open(path).map_err(io_error)?;
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if current_cancel_token().map(|t| t.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false) {
+            return Err("CANCELLED: file read was cancelled".into());
+        }
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => kept.extend_from_slice(&chunk[..read]),
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+    Ok(kept)
 }
 
 fn list_directory(path: &Path) -> Result<Value, String> {
@@ -456,6 +524,11 @@ fn run_process(command: &str, args: &[String], working_dir: &Path, env: &[(Strin
 
     let deadline = Instant::now() + PROCESS_TIMEOUT;
     let status = loop {
+        if current_cancel_token().map(|t| t.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("CANCELLED: process was cancelled".into());
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() >= deadline => {
@@ -515,6 +588,16 @@ fn read_stream(stream: Option<impl Read>) -> Vec<u8> {
         }
     }
     kept
+}
+
+/// Simple wildcard matching for process argument patterns. A pattern token of "*" matches any single
+/// argument token; otherwise tokens must match exactly.
+fn arg_pattern_matches(pattern: &str, args: &[String]) -> bool {
+    let pattern_tokens: Vec<&str> = pattern.split_whitespace().collect();
+    if pattern_tokens.len() != args.len() {
+        return false;
+    }
+    pattern_tokens.iter().zip(args.iter()).all(|(p, a)| *p == "*" || *p == a)
 }
 
 #[cfg(test)]

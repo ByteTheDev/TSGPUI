@@ -25,25 +25,60 @@ export function validateConfig(raw) {
   if (raw.permissions !== undefined && (!raw.permissions || typeof raw.permissions !== 'object' || Array.isArray(raw.permissions))) {
     throw new Error('permissions must be an object');
   }
-  const network = raw.permissions?.network ?? [];
+  const permissionWarnings = [];
+  const legacyKeys = ['filesystem', 'processes', 'network', 'notifications', 'ipc', 'window'];
+  for (const key of legacyKeys) {
+    if (raw.permissions && Object.prototype.hasOwnProperty.call(raw.permissions, key)) {
+      permissionWarnings.push(`legacy permission key '${key}' is deprecated; migrate to operation-scoped grants (filesystem.read, process.spawn, network.request, notifications.show, ipc.send, window.control)`);
+    }
+  }
+
+  // New operation-scoped keys (optional) override legacy values.
+  const newFsRead = raw.permissions?.['filesystem.read'];
+  const newFsWrite = raw.permissions?.['filesystem.write'];
+  const newProcessSpawn = raw.permissions?.['process.spawn'];
+  const newProcessSpawnArgs = raw.permissions?.['process.spawnArgs'];
+  const newNetworkRequest = raw.permissions?.['network.request'];
+  const newNotifications = raw.permissions?.['notifications.show'];
+  const newIpc = raw.permissions?.['ipc.send'];
+  const newWindow = raw.permissions?.['window.control'];
+
+  let network = raw.permissions?.network ?? [];
+  if (Array.isArray(newNetworkRequest)) {
+    network = newNetworkRequest.map(entry => (typeof entry === 'string' ? entry : entry?.host)).filter(Boolean);
+  }
   if (!Array.isArray(network) || network.some(host => typeof host !== 'string' || !HOST_RE.test(host) || !host.includes('.') || isIP(host) || ['localhost','local'].includes(host.toLowerCase()) || /\.(?:local|localhost|internal)$/.test(host.toLowerCase()))) {
     throw new Error('permissions.network must contain exact public host names (no wildcards or IP addresses)');
   }
   const networkHosts = [...new Set(network.map(host => host.toLowerCase()))];
+  const networkMethods = {};
+  if (Array.isArray(newNetworkRequest)) {
+    for (const entry of newNetworkRequest) {
+      if (entry && typeof entry === 'object') {
+        const host = String(entry.host).toLowerCase();
+        const methods = Array.isArray(entry.methods) ? entry.methods : [];
+        networkMethods[host] = methods.length ? methods.map(m => String(m).toUpperCase()) : [];
+      }
+    }
+  }
+
   const filesystem = raw.permissions?.filesystem ?? {};
-  if (!filesystem || typeof filesystem !== 'object' || Array.isArray(filesystem)) throw new Error('permissions.filesystem must be an object');
-  const readRoots = filesystem.read ?? [];
-  const writeRoots = filesystem.write ?? [];
+  if (filesystem && (typeof filesystem !== 'object' || Array.isArray(filesystem))) throw new Error('permissions.filesystem must be an object');
+  const readRoots = (Array.isArray(newFsRead) ? newFsRead : (filesystem.read ?? []));
+  const writeRoots = (Array.isArray(newFsWrite) ? newFsWrite : (filesystem.write ?? []));
   for (const [name, roots] of [['read', readRoots], ['write', writeRoots]]) {
     if (!Array.isArray(roots) || roots.some(root => typeof root !== 'string' || !root.trim() || root.includes('\0') || path.isAbsolute(root) || root.split(/[\\/]+/).includes('..')))
       throw new Error(`permissions.filesystem.${name} must contain project-relative directory paths without '..'`);
   }
-  const processes = raw.permissions?.processes ?? [];
+  let processes = raw.permissions?.processes ?? [];
+  if (Array.isArray(newProcessSpawn)) processes = newProcessSpawn;
   if (!Array.isArray(processes) || processes.some(command => typeof command !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(command)))
     throw new Error('permissions.processes must contain executable names');
-  const notifications = raw.permissions?.notifications ?? false;
-  const ipc = raw.permissions?.ipc ?? false;
-  const nativeWindow = raw.permissions?.window ?? false;
+  const processArgs = (newProcessSpawnArgs && typeof newProcessSpawnArgs === 'object' && !Array.isArray(newProcessSpawnArgs)) ? newProcessSpawnArgs : {};
+
+  const notifications = (typeof newNotifications === 'boolean') ? newNotifications : (raw.permissions?.notifications ?? false);
+  const ipc = (typeof newIpc === 'boolean') ? newIpc : (raw.permissions?.ipc ?? false);
+  const nativeWindow = (typeof newWindow === 'boolean') ? newWindow : (raw.permissions?.window ?? false);
   if (typeof notifications !== 'boolean') throw new Error('permissions.notifications must be true or false');
   if (typeof ipc !== 'boolean') throw new Error('permissions.ipc must be true or false');
   if (typeof nativeWindow !== 'boolean') throw new Error('permissions.window must be true or false');
@@ -61,13 +96,17 @@ export function validateConfig(raw) {
   // Where the backend runs. "hidden" runs it in an invisible window, so the primary window can close while others stay open.
   const backendWindow = raw.backendWindow ?? 'primary';
   if (!['primary','hidden'].includes(backendWindow)) throw new Error('backendWindow must be "primary" or "hidden"');
-  const renderer = raw.renderer ?? 'native';
+  const renderer = raw.renderer ?? 'webview';
   if (!['native','webview'].includes(renderer)) throw new Error('renderer must be "native" or "webview"');
   if (backendWindow === 'hidden' && renderer !== 'webview') throw new Error('backendWindow "hidden" requires the webview renderer');
   const webviewPages = raw.webviewPages ?? [];
   if (!Array.isArray(webviewPages) || webviewPages.some(page => typeof page !== 'string' || !page || path.isAbsolute(page) || page.split(/[\\/]+/).includes('..'))) throw new Error('webviewPages must contain project-relative file paths');
   const maxBundleSize = raw.maxBundleSize ?? 256 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBundleSize) || maxBundleSize <= 0) throw new Error('maxBundleSize must be a positive integer in bytes');
+  // Custom in-page schemes allowlisted for packaged assets (derived by the Electron importer).
+  const protocolRaw = raw.protocolSchemes ?? [];
+  if (!Array.isArray(protocolRaw) || protocolRaw.some(s => typeof s !== 'string' || !/^[a-z][a-z0-9+.-]*$/i.test(s) || ['http','https','ws','wss'].includes(s.toLowerCase()) || s.toLowerCase() === 'tsgpui')) throw new Error('protocolSchemes must contain valid in-page scheme names (no http/https/ws/wss or tsgpui)');
+  const protocolSchemes = [...new Set(protocolRaw.map(s => s.toLowerCase()))].sort();
   // "unified" hides the system title bar; the app draws one and marks its drag area with data-window-drag.
   // "blur" asks the window for a blurred backdrop, which Windows supports only on some systems.
   const titlebar = raw.window?.titlebar ?? 'system';
@@ -75,7 +114,7 @@ export function validateConfig(raw) {
   if (!['system','unified'].includes(titlebar)) throw new Error('window.titlebar must be "system" or "unified"');
   if (!['opaque','blur'].includes(backdrop)) throw new Error('window.backdrop must be "opaque" or "blur"');
   const normalizeRoots = roots => [...new Set(roots.map(root => path.posix.normalize(root.replaceAll('\\', '/')).replace(/^\.\//, '')))];
-  return {name:raw.name,title:raw.title || raw.name,version,bundleId,icon:raw.icon,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,backendWindow,webviewPages,maxBundleSize,fontFiles,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow},window:{titlebar,backdrop}};
+  return {name:raw.name,title:raw.title || raw.name,version,bundleId,icon:raw.icon,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,backendWindow,webviewPages,protocolSchemes,maxBundleSize,fontFiles,permissionWarnings,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow,networkMethods,processArgs},window:{titlebar,backdrop}};
 }
 function inProject(root, relative) {
   if (path.isAbsolute(relative)) throw new Error(`Absolute file path forbidden in project config: ${relative}`);
@@ -150,6 +189,7 @@ export async function readProject(projectPath) {
 }
 // `warnings` collects messages for CSS declarations that were skipped. They are not part of the bundle.
 export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend}) {
+  for (const w of (config.permissionWarnings ?? [])) warnings.push(w);
   let root;
   if (config.renderer === 'webview') {
     root = {tag:'body',key:0,text:'',attrs:{},props:{},style:{},states:{},responsive:[],children:[]};
@@ -206,7 +246,7 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
   }
   return {
     format:'tsgpui-1',
-    renderer:config.renderer ?? 'native',
+    renderer:config.renderer ?? 'webview',
     name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.tsgpui.${config.name.replaceAll("_", "-")}`,
     width:config.width,height:config.height,
     root,backend_js,assets,fonts:config.fonts ?? {},
@@ -215,7 +255,8 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     diagnostics:config.dev === true ? [...warnings] : [],
     ...(config.renderer === 'webview' ? {webview_html:webviewHtml ?? '', webview_format_version:2, webview_files:webviewFiles ?? {}, webview_entry:webviewEntry ?? '/index.html'} : {}),
     ...(config.backendWindow === 'hidden' ? {backend_window:'hidden', webview_main_html:webviewMainHtml ?? ''} : {}),
-    permissions:{network_hosts:config.permissions?.networkHosts ?? [],filesystem:config.permissions?.filesystem ?? {read:[],write:[]},processes:config.permissions?.processes ?? [],notifications:config.permissions?.notifications ?? false,ipc:config.permissions?.ipc ?? false,window:config.permissions?.window ?? false},
+    protocol_schemes: config.protocolSchemes ?? [],
+    permissions:{network_hosts:config.permissions?.networkHosts ?? [],network_methods:config.permissions?.networkMethods ?? {},filesystem:config.permissions?.filesystem ?? {read:[],write:[]},processes:config.permissions?.processes ?? [],process_args:config.permissions?.processArgs ?? {},notifications:config.permissions?.notifications ?? false,ipc:config.permissions?.ipc ?? false,window:config.permissions?.window ?? false},
     window:windowChrome
   };
 }
@@ -266,6 +307,8 @@ export async function buildPackage(projectPath, options = {}) {
     }
   }
   const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend:bundledBackend.js,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
+  const {createHash} = await import('node:crypto');
+  built.integrity = createHash('sha256').update(built.backend_js + JSON.stringify(built.root)).digest('hex');
   const json = JSON.stringify(built);
   const bytes = Buffer.from(json,'utf8');
   if (bytes.length > project.config.maxBundleSize) throw new Error(`App bundle exceeds maxBundleSize (${project.config.maxBundleSize} bytes)`);

@@ -446,9 +446,12 @@ async function doctor() {
   console.log(blocking ? `\n${blocking} problem${blocking>1?'s':''} to fix before the app can run.` : '\nNo blocking problems.');
   if (blocking) process.exitCode = 1;
 }
-// tsgpui package [--installer nsis] [--sign] [--manifest-key PATH]
+// tsgpui package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]
 // Builds the Windows executable, optionally signs it, builds an NSIS installer, and writes a SHA-256 manifest.
-// Signing uses TSGPUI_SIGN_COMMAND. The manifest is signed with an Ed25519 key from --manifest-key or TSGPUI_MANIFEST_KEY.
+// Signing uses TSGPUI_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
+// The manifest is signed with an Ed25519 key from --manifest-key or TSGPUI_MANIFEST_KEY.
+// Publishing is manual: upload the artifacts and manifest to publishUrl (from packaging.publishUrl or --publish-url).
+// electron-builder autoUpdater has no TSGPUI equivalent; ship updates via the TSGPUI release process.
 async function packageApp() {
   const installer = flag('installer', '');
   if (installer && installer !== 'nsis') throw new Error(`Unsupported installer: ${installer} (supported: nsis)`);
@@ -456,16 +459,22 @@ async function packageApp() {
   const sign = args.includes('--sign');
   const result = await buildPackage(projectDir());
   printWarnings(result.warnings);
+  let packaging = {};
+  try { packaging = JSON.parse(fs.readFileSync(path.join(projectDir(), 'tsgpui.config.json'), 'utf8')).packaging ?? {}; } catch {}
+  const publishUrl = flag('publish-url', packaging.publishUrl || '');
+  const certificateSubjectName = packaging.certificateSubjectName || '';
   const host = await hostPath(true, result.bundle.renderer);
   const output = path.join(result.paths.outDir, `${result.config.name}${suffix}`);
   const info = await packageExecutable(host, result.bundleFile, output);
   console.log(`Built native application: ${info.file}`);
   if (sign) await signArtifact(info.file);
+  if (sign && !process.env.TSGPUI_SIGN_COMMAND) console.log('Signing skipped: set TSGPUI_SIGN_COMMAND=<your sign command> (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpui package --installer nsis --sign`.');
+  if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set TSGPUI_SIGN_COMMAND to sign with that certificate.`);
   const artifacts = [info.file];
   if (installer === 'nsis') {
     const script = path.join(result.paths.outDir, `${result.config.name}.nsi`);
     const installerFile = path.join(result.paths.outDir, `${result.config.name}-setup${suffix}`);
-    await buildNsis({name: result.config.title || result.config.name, version: result.config.version, executable: info.file, output: installerFile}, script);
+    await buildNsis({name: result.config.title || result.config.name, version: result.config.version, executable: info.file, output: installerFile, publishUrl, certificateSubjectName}, script);
     console.log(`Built installer: ${installerFile}`);
     if (sign) await signArtifact(installerFile);
     artifacts.push(installerFile);
@@ -473,12 +482,14 @@ async function packageApp() {
   const manifest = path.join(result.paths.outDir, `${result.config.name}.manifest.json`);
   await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPUI_MANIFEST_KEY || ''));
   console.log(`Wrote manifest: ${manifest}`);
+  if (publishUrl) console.log(`Publish (manual): upload ${[...artifacts, manifest, ...(fs.existsSync(manifest + '.sig') ? [manifest + '.sig'] : [])].map(file => path.basename(file)).join(', ')} to publishUrl ${publishUrl}. TSGPUI has no auto-publish; electron-builder publish / autoUpdater are manual release-process steps.`);
+  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process (docs/RELEASING.md).');
 }
 
 function help() {
   console.log(`tsgpui ${VERSION}
   init [dir]                   Create a starter project
-  import electron <dir> [--out DIR] [--build] [--force]  Import an Electron app
+  import electron <dir> [--out DIR] [--build] [--force] [--fix]  Import an Electron app
   run [--project PATH]         Run a TSGPUI or Electron project (default)
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
   dev [--project PATH]         Build, launch the selected host, rebuild on change
@@ -489,7 +500,7 @@ function help() {
   host build [--renderer MODE] Compile the host from source instead (needs Rust)
   host install --file PATH --sha256 HASH [--renderer MODE]  Install a verified prebuilt host
   release manifest --file PATH Write a deterministic SHA-256 manifest to stdout
-  package [--installer nsis] [--sign] [--manifest-key PATH]  Build the exe, sign it, make an installer and manifest (Windows)
+  package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]  Build the exe, sign it, make an installer and manifest (Windows)
   doctor [--renderer MODE]     Check the setup and print the exact fix for anything missing
 Options: renderer is "native" (default) or "webview"; --host PATH overrides the selected host.`);
 }
@@ -503,19 +514,44 @@ async function main() {
   if(command==='--version' || command==='-v') return console.log(VERSION);
   if(command==='init') return init();
   if(command==='import') {
-    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: tsgpui import electron <dir> [--out <dir>] [--build] [--force]');
+    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: tsgpui import electron <dir> [--out <dir>] [--build] [--force] [--fix]');
     const options = args.slice(2);
     for(let i=0;i<options.length;i++) {
       if(options[i] === '--out') { if(!options[++i] || options[i].startsWith('--')) throw new Error('--out requires a directory'); }
-      else if(!['--build','--force'].includes(options[i])) throw new Error(`Unknown import option: ${options[i]}`);
+      else if(!['--build','--force','--fix'].includes(options[i])) throw new Error(`Unknown import option: ${options[i]}`);
+    }
+    if(args.includes('--fix')) {
+      const input = args[1];
+      const out = flag('out') || path.resolve(input) + '-tsgpui';
+      const force = args.includes('--force');
+      console.log(`--fix (dry-run): would apply fixes from TSGPUI_IMPORT_REPORT.md in ${out}.`);
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(path.resolve(input), 'package.json'), 'utf8'));
+        if (pkg.build?.appId) console.log(`--fix: add "bundleId": "${pkg.build.appId}" to tsgpui.config.json`);
+        if (pkg.build?.directories?.output) console.log(`--fix: set "outDir" to "${pkg.build.directories.output}" in tsgpui.config.json`);
+        if (pkg.build?.productName) console.log(`--fix: set "title" to "${pkg.build.productName}" in tsgpui.config.json`);
+        if (pkg.build?.win?.target) console.log(`--fix: run \`tsgpui package --installer nsis\` for win.target ${pkg.build.win.target}`);
+        if (pkg.build?.win?.certificateFile) console.log(`--fix: win.certificateFile "${pkg.build.win.certificateFile}" maps to TSGPUI_SIGN_COMMAND=<your sign command>; run \`tsgpui package --installer nsis --sign\` (keep the certificate and password outside the repo)`);
+        if (pkg.build?.win?.certificateSubjectName) console.log(`--fix: certificateSubjectName "${pkg.build.win.certificateSubjectName}" maps to TSGPUI_SIGN_COMMAND=<your sign command>; run \`tsgpui package --installer nsis --sign\``);
+        if (pkg.build?.publish) console.log(`--fix: publish maps to packaging.publishUrl; upload signed artifacts and .manifest.json to the publish URL by hand (TSGPUI has no auto-publish), after \`tsgpui package --installer nsis --sign\` with TSGPUI_MANIFEST_KEY=<path to Ed25519 key>`);
+        if (pkg.build?.win?.target && !pkg.build?.win?.certificateFile && !pkg.build?.win?.certificateSubjectName) console.log('--fix: signing is manual: set TSGPUI_SIGN_COMMAND=<your sign command> and TSGPUI_MANIFEST_KEY=<path to Ed25519 key>, then run `tsgpui package --installer nsis --sign`');
+        if (pkg.build?.win?.target) console.log('--fix: autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process (docs/BUILDING.md signing/auto-update subsection)');
+      } catch {}
+      console.log('--fix: edit permissions (network/filesystem/processes) in tsgpui.config.json, then run `tsgpui build` in ' + out + '.');
+      console.log('--fix: review TSGPUI_IMPORT_REPORT.md for file:line Fix: commands.');
+      if (!force) {
+        console.log('--fix: no files written. Add --force to allow overwriting an existing output directory.');
+        return;
+      }
+      console.log('--fix: --force given, proceeding with import (overwrite allowed).');
     }
     return importElectron(args[1],{out:flag('out'),build:args.includes('--build'),force:args.includes('--force')});
   }
   if(command==='doctor') return doctor();
   if(command==='release' && args[0]==='manifest') return releaseManifest();
   if(command==='host' && args[0]==='fetch') return fetchHosts();
-  if(command==='host' && args[0]==='install') return installHost(flag('renderer','native'));
-  if(command==='host' && args[0]==='build') return buildHost(flag('renderer','native'));
+  if(command==='host' && args[0]==='install') return installHost(flag('renderer','webview'));
+  if(command==='host' && args[0]==='build') return buildHost(flag('renderer','webview'));
   if(command==='run') return runProject();
   if(command==='compile') {
     const result=await buildPackage(projectDir());
