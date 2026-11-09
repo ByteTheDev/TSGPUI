@@ -21,7 +21,7 @@ const literal = n => n && (ts.isStringLiteralLike(n) || ts.isNoSubstitutionTempl
 const relImport = (from,to) => { let p = slash(path.relative(path.dirname(from),to)).replace(/\.ts$/, ''); return p.startsWith('.') ? p : './'+p; };
 
 export async function importElectron(input, {out, build = false, force = false} = {}) {
-  const root = await realpath(path.resolve(input)).catch(() => path.resolve(input)), dest = path.resolve(out || root + '-tsgpui');
+  const root = path.resolve(input), dest = path.resolve(out || root + '-tsgpui');
   if (inside(root,dest) || inside(dest,root)) throw new Error('Output and source directories must not contain one another');
   const pkg = JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   if (await exists(dest) && !force) throw new Error(`Output already exists: ${dest}; pass --force to reuse it`);
@@ -249,10 +249,10 @@ export async function importElectron(input, {out, build = false, force = false} 
       else {
         let resolved = dep.spec.startsWith('.') ? await resolveLocal(file,dep.spec) : null;
         if (!resolved) { try { resolved = createRequire(file).resolve(dep.spec); } catch {} }
-        if (resolved && path.isAbsolute(resolved)) {
-          const actual = await realpath(resolved).catch(() => resolved);
-          const rootReal = await realpath(root).catch(() => root);
-          if (!inside(rootReal, actual)) throw new Error(`Module '${dep.spec}' required by ${owner} resolves outside the project`);
+        // macOS: /var/folders is a symlink to /private/var/folders, so createRequire may return
+        // realpath'd paths while root is not. Normalize resolved to root's form before checks.
+        if (resolved && path.isAbsolute(resolved) && resolved.startsWith('/private/') && !root.startsWith('/private/')) resolved = resolved.replace(/^\/private/, '');
+        if (resolved && path.isAbsolute(resolved) && inside(root,resolved)) {
           if (/\.node$/i.test(resolved)) throw new Error(`Native addon '${dep.spec}' (${slash(path.relative(root,resolved))}) required by ${owner} is not supported`);
           if (!/\.(?:js|cjs|mjs|ts|json)$/i.test(resolved)) throw new Error(`Unsupported module '${dep.spec}' required by ${owner}: ${resolved}`);
           target=targetFor(resolved); await visit(resolved);
