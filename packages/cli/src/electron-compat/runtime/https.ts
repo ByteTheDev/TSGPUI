@@ -9,8 +9,11 @@ function target(input: any): {url: string, method: string, headers: any} {
   const port = o.port ? `:${o.port}` : '';
   return {url: o.url || o.href || `${protocol}//${hostname}${port}${o.path || '/'}`, method: o.method || 'GET', headers: o.headers || {}};
 }
-export function request(input: any, callback?: Function) {
-  const options = target(input), req = new EventEmitter() as any;
+export function request(input: any, optionsOrCallback?: any, callback?: Function) {
+  if (typeof optionsOrCallback === 'function') callback = optionsOrCallback;
+  const extra = typeof optionsOrCallback === 'object' && optionsOrCallback !== null ? optionsOrCallback : {};
+  const options = {...target(input), ...extra}, req = new EventEmitter() as any;
+  if (Object.keys(extra).some(k => !['method', 'headers'].includes(k))) throw new Error('https.request options override supports only method and headers');
   let body = '', ended = false;
   options.headers = {...options.headers};
   req.setHeader = (name: string, value: any) => {
@@ -22,7 +25,7 @@ export function request(input: any, callback?: Function) {
   };
   req.getHeader = (name: string) => { const key = Object.keys(options.headers).find(k => k.toLowerCase() === name.toLowerCase()); return key === undefined ? undefined : options.headers[key]; };
   req.removeHeader = (name: string) => { if (ended) throw new Error('Cannot remove headers after end'); const key = Object.keys(options.headers).find(k => k.toLowerCase() === name.toLowerCase()); if (key !== undefined) delete options.headers[key]; };
-  req.write = (chunk: any) => { if (ended) throw new Error('write after end'); body += String(chunk); return true; };
+  req.write = (chunk: any) => { if (ended) throw new Error('write after end'); if (typeof chunk !== 'string') throw new Error('https.request.write supports text bodies only'); body += chunk; return true; };
   req.end = (chunk?: any) => {
     if (ended) throw new Error('end after end');
     if (chunk !== undefined) req.write(chunk);
@@ -39,5 +42,5 @@ export function request(input: any, callback?: Function) {
   };
   return req;
 }
-export function get(input: any, callback?: Function) { const req = request(input, callback); req.end(); return req; }
+export function get(input: any, optionsOrCallback?: any, callback?: Function) { const req = request(input, optionsOrCallback, callback); req.end(); return req; }
 export default {get, request};

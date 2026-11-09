@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeSet, VecDeque},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
         Arc, Mutex,
     },
@@ -13,7 +13,7 @@ use rquickjs::{Context, Ctx, Function, Runtime};
 use serde_json::{json, Value};
 
 use crate::{
-    capabilities::{text_arg, Capabilities},
+    capabilities::{set_current_cancel_token, text_arg, Capabilities},
     ipc::IpcHub,
 };
 
@@ -83,16 +83,39 @@ struct HostPort {
     next_id: Arc<AtomicU64>,
     // Requests whose result has not been delivered yet.
     unsettled: Arc<Mutex<BTreeSet<u64>>>,
+    // Cancellation flags per request id.
+    cancels: Arc<Mutex<std::collections::HashMap<u64, Arc<AtomicBool>>>>,
     ui: Arc<Mutex<Vec<UiCommand>>>,
     // Display lists requested by `screen.displays`. The view answers each one on the UI thread.
     displays: Arc<Mutex<Vec<Sender<Value>>>>,
+    // Request ids issued while an action/task is running, for cancellation on rollback.
+    action_requests: Arc<Mutex<Option<Vec<u64>>>>,
 }
 
 impl HostPort {
     fn issue(&self) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         self.unsettled.lock().unwrap_or_else(|error| error.into_inner()).insert(id);
+        self.cancels.lock().unwrap_or_else(|error| error.into_inner()).insert(id, Arc::new(AtomicBool::new(false)));
+        if let Some(list) = self.action_requests.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
+            list.push(id);
+        }
         id
+    }
+
+    pub fn cancel(&self, id: u64) {
+        if let Some(flag) = self.cancels.lock().unwrap_or_else(|error| error.into_inner()).get(&id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+        self.unsettled.lock().unwrap_or_else(|error| error.into_inner()).remove(&id);
+    }
+
+    pub fn cancel_all(&self) {
+        for flag in self.cancels.lock().unwrap_or_else(|error| error.into_inner()).values() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        self.cancels.lock().unwrap_or_else(|error| error.into_inner()).clear();
+        self.unsettled.lock().unwrap_or_else(|error| error.into_inner()).clear();
     }
 
     fn settle_now(&self, id: u64, error: impl Into<String>) {
@@ -103,20 +126,45 @@ impl HostPort {
     // Queues `operation` for a worker thread. The result arrives later as a `Settled` event.
     fn submit(&self, id: u64, operation: String, args: Vec<Value>) {
         let port = self.clone();
+        let cancel = self.cancels.lock().unwrap_or_else(|error| error.into_inner()).get(&id).cloned().unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
         let job: Job = Box::new(move || {
-            let envelope = match port.perform(&operation, &args) {
-                Ok(value) => json!({ "ok": true, "value": value }),
-                Err(error) => json!({ "ok": false, "error": error }),
+            set_current_cancel_token(Some(cancel.clone()));
+            let envelope = if cancel.load(Ordering::SeqCst) {
+                json!({ "ok": false, "error": "CANCELLED: request was cancelled", "code": "CANCELLED" })
+            } else {
+                match port.perform(&operation, &args) {
+                    Ok(value) => json!({ "ok": true, "value": value }),
+                    Err(error) => {
+                        if error.starts_with("CANCELLED") {
+                            json!({ "ok": false, "error": error, "code": "CANCELLED" })
+                        } else if error.starts_with("PERMISSION_DENIED") {
+                            json!({ "ok": false, "error": error, "code": "PERMISSION_DENIED" })
+                        } else {
+                            json!({ "ok": false, "error": error })
+                        }
+                    }
+                }
             };
+            set_current_cancel_token(None);
+            // Cancelled requests do not deliver results.
+            if cancel.load(Ordering::SeqCst) {
+                return;
+            }
             let _ = port.events.send(HostEvent::Settled { id, envelope: envelope.to_string() });
         });
         let _ = self.jobs.send(job);
     }
 
     fn perform(&self, operation: &str, args: &[Value]) -> Result<Value, String> {
+        if operation == "host.cancel" || operation == "native.cancel" {
+            if let Some(id) = args.first().and_then(Value::as_f64) {
+                self.cancel(id as u64);
+            }
+            return Ok(Value::Null);
+        }
         if let Some(command) = operation.strip_prefix("window.") {
             if !self.capabilities.window {
-                return Err("Window control is not granted: set permissions.window to true".into());
+                return Err("PERMISSION_DENIED: Window control is not granted: set permissions.window to true".into());
             }
             let command = match command {
                 "minimize" => UiCommand::Minimize,
@@ -142,7 +190,7 @@ impl HostPort {
         }
         if operation == "ipc.send" {
             let Some(hub) = self.ipc.as_ref() else {
-                return Err("IPC is not granted: set permissions.ipc to true".into());
+                return Err("PERMISSION_DENIED: IPC is not granted: set permissions.ipc to true".into());
             };
             let channel = text_arg(args, 0)?;
             let payload = args.get(1).cloned().unwrap_or(Value::Null);
@@ -213,8 +261,10 @@ impl JsBackend {
             jobs: start_workers(),
             next_id: Arc::new(AtomicU64::new(1)),
             unsettled: Arc::new(Mutex::new(BTreeSet::new())),
+            cancels: Arc::new(Mutex::new(std::collections::HashMap::new())),
             ui: Arc::new(Mutex::new(Vec::new())),
             displays: Arc::new(Mutex::new(Vec::new())),
+            action_requests: Arc::new(Mutex::new(None)),
         };
         let mut backend = Self {
             context,
@@ -250,6 +300,7 @@ impl JsBackend {
     /// `previous` is left alone, so a failed reload keeps the running app. Host calls that `previous`
     /// still has in flight finish, but their results go nowhere.
     pub fn reload(script: &str, previous: &JsBackend) -> Result<Self, String> {
+        previous.host.cancel_all();
         let mut backend = Self::with_capabilities(script, previous.capabilities.as_ref().clone())?;
         backend.state = merge_preserved(&backend.state, &previous.initial, &previous.state);
         backend.restore_js_state();
@@ -258,6 +309,10 @@ impl JsBackend {
 
     pub fn state(&self) -> &Value {
         &self.state
+    }
+
+    pub fn cancel_all_host_requests(&mut self) {
+        self.host.cancel_all();
     }
 
     /// True while a task waits on host results, or while tasks are queued behind it.
@@ -356,8 +411,11 @@ impl JsBackend {
                 (format!("Backend listener for '{channel}'"), source)
             }
         };
+        *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = Some(Vec::new());
         let slice = self.slice(&label, Some(source));
-        self.conclude(&label, slice)
+        let result = self.conclude(&label, slice);
+        *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = None;
+        result
     }
 
     // Decides what one slice of JS work means for the task that owns it. `slice` is the envelope the
@@ -380,6 +438,9 @@ impl JsBackend {
             }
             Err(error) => {
                 self.running = None;
+                if let Some(list) = self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()).take() {
+                    for id in list { self.host.cancel(id); }
+                }
                 self.restore_js_state();
                 Err(error)
             }
@@ -391,8 +452,11 @@ impl JsBackend {
         loop {
             if let Some(Running { label }) = self.running.take() {
                 // `conclude` puts `running` back if the task is still waiting.
+                *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = Some(Vec::new());
                 let slice = self.slice(&label, None);
-                match self.conclude(&label, slice) {
+                let concluded = self.conclude(&label, slice);
+                *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = None;
+                match concluded {
                     Ok(true) => pump.changed = true,
                     Ok(false) => return,
                     Err(error) => {
@@ -578,10 +642,16 @@ const NATIVE_SETUP: &str = r#"(function() {
     const hidden = (name, value) => Object.defineProperty(globalThis, name, { value, enumerable: false, writable: false, configurable: false });
     // Each host call gets an id from Rust. Its promise waits here until the result is settled.
     const waiting = new Map();
-    const call = (operation) => (...args) => new Promise((resolve, reject) => {
+    const call = (operation) => (...args) => {
         const id = host(operation, JSON.stringify(args));
-        waiting.set(id, { resolve, reject });
-    });
+        let promise;
+        promise = new Promise((resolve, reject) => {
+            waiting.set(id, { resolve, reject });
+        });
+        promise.requestId = id;
+        promise.cancel = () => host('host.cancel', JSON.stringify([id]));
+        return promise;
+    };
     const settle = (id, envelopeJson) => {
         const entry = waiting.get(id);
         if (!entry) return;
@@ -601,6 +671,7 @@ const NATIVE_SETUP: &str = r#"(function() {
     };
     const dispatch = (channel) => Array.from(subscribers.get(channel) ?? []);
     const native = Object.freeze({
+        cancel: (id) => call('host.cancel')(id),
         window: Object.freeze({
             minimize: call('window.minimize'),
             maximize: call('window.maximize'),
@@ -636,6 +707,11 @@ const NATIVE_SETUP: &str = r#"(function() {
         clipboard: Object.freeze({
             readText: call('clipboard.readText'),
             writeText: call('clipboard.writeText')
+        }),
+        safeStorage: Object.freeze({
+            isAvailable: call('safeStorage.isAvailable'),
+            encrypt: call('safeStorage.encrypt'),
+            decrypt: call('safeStorage.decrypt')
         }),
         dialog: Object.freeze({
             openFile: (options) => call('dialog.openFile')(options ?? {}),

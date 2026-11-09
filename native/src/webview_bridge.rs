@@ -100,6 +100,9 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
         }
         return Ok(result);
     }
+    if matches!(op, "safeStorage.isAvailable" | "safeStorage.encrypt" | "safeStorage.decrypt") {
+        return platform::safe_storage_call(op, &[args["value"].clone()]);
+    }
     if op == "power.setBlockers" {
         platform::set_power_blockers(&platform::string_list(&args["types"]))?;
         return Ok(Value::Null);
@@ -162,6 +165,13 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
         let url=args["url"].as_str().ok_or("url must be a string")?;
         platform::open_external(url)?;
         return Ok(Value::Null);
+    }
+    if op=="notifications.show" {
+        // `args` arrives as the bridge object {title, body}; Capabilities expects one positional
+        // object. The grant check and notify-rust toast live in webview_capabilities.rs; a grant
+        // miss or an unavailable OS notification service returns Err, which the shim turns into
+        // its in-page toast fallback.
+        return Capabilities::from_permissions(permissions,base.to_path_buf()).call(op,&[args.clone()],&[]);
     }
     Err(format!("unsupported op: {op}"))
 }

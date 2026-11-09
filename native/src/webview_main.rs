@@ -4,10 +4,10 @@ use anyhow::{Context, Result, bail};
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::{Duration, Instant}};
 use serde_json::{json, Value};
 use tao::{
-    dpi::LogicalSize,
+    dpi::{LogicalPosition, LogicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
-    window::{Window, WindowBuilder},
+    window::{Fullscreen, Window, WindowBuilder},
 };
 use wry::{http::{header::CONTENT_TYPE, Response}, WebViewBuilder};
 #[cfg(target_os = "windows")]
@@ -17,6 +17,7 @@ use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
 #[path = "webview_package.rs"] mod package;
 #[path = "webview_capabilities.rs"] mod capabilities;
 mod platform;
+mod protocol;
 mod webview_bridge;
 
 /// Events delivered to the UI thread: page requests, and results from the bridge worker thread.
@@ -125,6 +126,9 @@ fn create_window(windows: &mut HashMap<u64, AppWindow>, target: &tao::event_loop
     let modal = args["modal"].as_bool().unwrap_or(false) && owner.is_some();
     let size = LogicalSize::new(args["width"].as_f64().unwrap_or(800.0).clamp(200.0,4096.0), args["height"].as_f64().unwrap_or(600.0).clamp(200.0,4096.0));
     let builder = WindowBuilder::new().with_title(args["title"].as_str().unwrap_or(&document.title)).with_inner_size(size);
+    let builder = builder.with_visible(args["show"].as_bool().unwrap_or(true));
+    let builder = if args["x"].as_f64().is_some() || args["y"].as_f64().is_some() { builder.with_position(LogicalPosition::new(args["x"].as_f64().unwrap_or(0.0), args["y"].as_f64().unwrap_or(0.0))) } else { builder };
+    let builder = if args["fullScreen"].as_bool().unwrap_or(false) { builder.with_fullscreen(Some(Fullscreen::Borderless(None))) } else { builder };
     let builder = with_owner(builder, owner.map(|(_, handle)| handle));
     let window = builder.build(target).map_err(|e| e.to_string())?;
     let url = format!("tsgpui://localhost{}", document.webview_entry.as_deref().unwrap_or("/index.html"));
@@ -295,7 +299,10 @@ fn main() -> Result<()> {
                             "window.watchClose" => if let Some(w) = windows.get_mut(&window_id) { w.close_watched = true; Ok(Value::Null) } else { Err("Window not found".into()) },
                             "window.send" => if let Some(w) = windows.get(&window_id) { w.webview.evaluate_script(&format!("window.__tsgpui_receive({},{})",args["channel"],args["payload"])).map(|_|Value::Null).map_err(|e|e.to_string()) } else { Err("Window not found".into()) },
                             "window.load" => if let Some(w) = windows.get(&window_id) {
-                                let path = args["path"].as_str().unwrap_or("");
+                                // `path` is the packaged path; `url` may instead carry a custom
+                                // scheme (`app://...`) that maps onto the same asset map.
+                                let url_mapped = args["url"].as_str().and_then(protocol::custom_url_to_path);
+                                let path = url_mapped.as_deref().unwrap_or_else(|| args["path"].as_str().unwrap_or(""));
                                 if !path.starts_with('/') || path.starts_with("//") || path.contains("..") || path.contains('\\') { Err("Invalid local window path".into()) }
                                 else { w.webview.load_url(&page_url(path)).map(|_|Value::Null).map_err(|e|e.to_string()) }
                             } else { Err("Window not found".into()) },
@@ -305,6 +312,18 @@ fn main() -> Result<()> {
                                 match op { "window.setTitle" => w.window.set_title(args["title"].as_str().unwrap_or("")), "window.minimize" => w.window.set_minimized(true), "window.maximize" => w.window.set_maximized(true), _ => { w.window.set_minimized(false); w.window.set_maximized(false); } };
                                 Ok(Value::Null)
                             } else { Err("Window not found".into()) },
+                            "window.show" => if let Some(w) = windows.get(&window_id) { w.window.set_visible(true); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.hide" => if let Some(w) = windows.get(&window_id) { w.window.set_visible(false); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.setFullScreen" => if let Some(w) = windows.get(&window_id) { if args["fullScreen"].as_bool().unwrap_or(false) { w.window.set_fullscreen(Some(Fullscreen::Borderless(None))); } else { w.window.set_fullscreen(None); } Ok(Value::Null) } else { Err("Window not found".into()) },
+                            // tao has no blur API; blur is tracked locally in BrowserWindow (the window keeps OS focus until another window takes it).
+                            "window.focus" => if let Some(w) = windows.get(&window_id) { w.window.set_focus(); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.blur" => if windows.contains_key(&window_id) { Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.setBounds" => if let Some(w) = windows.get(&window_id) { let x = args["x"].as_f64().unwrap_or(0.0); let y = args["y"].as_f64().unwrap_or(0.0); let width = args["width"].as_f64().unwrap_or(800.0).clamp(200.0,4096.0); let height = args["height"].as_f64().unwrap_or(600.0).clamp(200.0,4096.0); w.window.set_outer_position(LogicalPosition::new(x, y)); w.window.set_inner_size(LogicalSize::new(width, height)); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.setPosition" => if let Some(w) = windows.get(&window_id) { let x = args["x"].as_f64().unwrap_or(0.0); let y = args["y"].as_f64().unwrap_or(0.0); w.window.set_outer_position(LogicalPosition::new(x, y)); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.setSize" => if let Some(w) = windows.get(&window_id) { let width = args["width"].as_f64().unwrap_or(800.0).clamp(200.0,4096.0); let height = args["height"].as_f64().unwrap_or(600.0).clamp(200.0,4096.0); w.window.set_inner_size(LogicalSize::new(width, height)); Ok(Value::Null) } else { Err("Window not found".into()) },
+                            "window.getBounds" => if let Some(w) = windows.get(&window_id) { let scale = w.window.scale_factor(); let position = w.window.outer_position().map(|p| (p.x as f64 / scale, p.y as f64 / scale)).unwrap_or((0.0, 0.0)); let size = w.window.outer_size(); Ok(json!({"x": position.0, "y": position.1, "width": size.width as f64 / scale, "height": size.height as f64 / scale})) } else { Err("Window not found".into()) },
+                            "window.isMaximized" => if let Some(w) = windows.get(&window_id) { Ok(json!(w.window.is_maximized())) } else { Err("Window not found".into()) },
+                            "window.isMinimized" => if let Some(w) = windows.get(&window_id) { Ok(json!(w.window.is_minimized())) } else { Err("Window not found".into()) },
                             _ => Err(format!("unsupported op: {op}"))
                         }
                     }

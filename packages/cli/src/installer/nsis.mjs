@@ -5,10 +5,15 @@ function literal(value) {
   if (!value || /[\r\n"$]/.test(value)) throw new Error('Invalid NSIS metadata or path');
   return value;
 }
-export function nsisScript({name, version, executable, output}) {
+export function nsisScript({name, version, executable, output, publishUrl, certificateSubjectName}) {
   name = literal(name); version = literal(version); executable = literal(path.resolve(executable)); output = literal(path.resolve(output));
   const exe = literal(path.basename(executable));
+  const safe = value => value ? String(value).replace(/[\r\n"$]+/g, '_') : '(unset)';
   return `Unicode true
+; TSGPUI NSIS installer for ${name} ${version}
+; Signing: tsgpui package --installer nsis --sign with TSGPUI_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
+; Publish (manual): upload this installer plus the SHA-256 manifest to publishUrl ${safe(publishUrl)}
+; autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process.
 Name "${name} ${version}"
 OutFile "${output}"
 InstallDir "$PROGRAMFILES\\${name}"

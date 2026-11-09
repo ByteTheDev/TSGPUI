@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { compileProject } from '../src/compiler.mjs';
 import { mergePreserved, previewCss, renderPreviewHTML, startPreview } from '../src/preview.mjs';
 
-const config = { name: 'preview-app', title: 'Preview <App>', width: 500, height: 400 };
+const config = { name: 'preview-app', title: 'Preview <App>', renderer: 'native', width: 500, height: 400 };
 const backend = `export default { state:{ count: 0, notes: '' }, actions:{ bump(api) { api.set('count', api.get('count') + 1); } } };`;
 
 function bundleFor(html, css = '') {
@@ -83,7 +83,7 @@ test('startPreview serves the page and a version that changes only on rebuild', 
   const dir = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-preview-'));
   try {
     await mkdir(path.join(dir, 'src'), { recursive: true });
-    await writeFile(path.join(dir, 'tsgpui.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
+    await writeFile(path.join(dir, 'tsgpui.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', renderer: 'native', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
     await writeFile(path.join(dir, 'src/index.html'), '<body><p>Hello</p></body>');
     await writeFile(path.join(dir, 'src/styles.css'), 'p { color: #ff0000; }');
     await writeFile(path.join(dir, 'src/backend.ts'), backend);

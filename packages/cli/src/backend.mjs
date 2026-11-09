@@ -48,6 +48,8 @@ export async function bundleBackend(entry, projectRoot, assertInside) {
     const errors = ast.parseDiagnostics.map(d => `${location(d.start ?? 0)}: ${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`);
     const imports = new Map();
     function scan(node) {
+      const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? node.moduleSpecifier : ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' ? node.arguments[0] : undefined;
+      if (specifier && ts.isStringLiteralLike(specifier) && /\.node$/i.test(specifier.text)) errors.push(`${location(specifier.getStart(ast))}: Native addon '${specifier.text}' is not supported`);
       if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) {
         if (!node.importClause || !node.importClause.namedBindings || !ts.isNamedImports(node.importClause.namedBindings) || node.importClause.name || node.importClause.namedBindings.elements.some(e => !e.isTypeOnly)) imports.set(node.moduleSpecifier.text, node.moduleSpecifier.getStart(ast));
       }

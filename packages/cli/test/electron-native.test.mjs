@@ -27,6 +27,11 @@ function fakeNative(files = new Map()) {
   const api = {
     app: { info: answer('app.info', info), quit: answer('app.quit', null) },
     clipboard: { readText: answer('clipboard.readText', 'clip'), writeText: answer('clipboard.writeText', null) },
+    safeStorage: {
+      isAvailable: answer('safeStorage.isAvailable', true),
+      encrypt: answer('safeStorage.encrypt', text => Buffer.from(`enc:${text}`).toString('base64')),
+      decrypt: answer('safeStorage.decrypt', encoded => Buffer.from(encoded, 'base64').toString('utf8').replace(/^enc:/, '')),
+    },
     dialog: {
       openFile: answer('dialog.openFile', { canceled: false, paths: ['/data/picked'] }),
       saveFile: answer('dialog.saveFile', { canceled: false, path: '/data/saved' }),
@@ -119,6 +124,18 @@ test('native app, dialog, clipboard and screen calls return the shapes the shims
   assert.equal(await e.clipboard.readText(), 'clip');
   await e.screen.refresh();
   assert.equal(e.screen.getPrimaryDisplay().bounds.width, 1280);
+});
+
+test('safeStorage encrypts and decrypts through the native API as promises and bytes', async () => {
+  const { api, calls } = fakeNative();
+  const { load } = nativeRuntime(api);
+  const { safeStorage } = load('electron');
+  assert.equal(await safeStorage.isEncryptionAvailable(), true);
+  const encrypted = await safeStorage.encryptString('secret');
+  assert.ok(encrypted instanceof Uint8Array, 'ciphertext is returned as bytes');
+  assert.equal(await safeStorage.decryptString(encrypted), 'secret');
+  const sent = calls.filter(([name]) => name === 'safeStorage.decrypt')[0][1][0];
+  assert.equal(sent, Buffer.from(encrypted).toString('base64'), 'decrypt receives the same bytes as base64');
 });
 
 test('native process results expose the exit status the shims emit', async () => {

@@ -55,7 +55,7 @@ QuickJS memory and execution time are limited as described in the safety documen
 
 ## Versioned binary format
 
-On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The native host limits embedded payload reads to 16 MiB; the WebView host uses a 1 GiB limit. This prototype container format is not signed, encrypted, or tamper-proof.
+On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The native host limits embedded payload reads to 16 MiB; the WebView host uses a 1 GiB limit. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
 
 ## Remaining roadmap
 
