@@ -21,7 +21,7 @@ const literal = n => n && (ts.isStringLiteralLike(n) || ts.isNoSubstitutionTempl
 const relImport = (from,to) => { let p = slash(path.relative(path.dirname(from),to)).replace(/\.ts$/, ''); return p.startsWith('.') ? p : './'+p; };
 
 export async function importElectron(input, {out, build = false, force = false} = {}) {
-  const root = path.resolve(input), dest = path.resolve(out || root + '-tsgpui');
+  const root = await realpath(path.resolve(input)).catch(() => path.resolve(input)), dest = path.resolve(out || root + '-tsgpui');
   if (inside(root,dest) || inside(dest,root)) throw new Error('Output and source directories must not contain one another');
   const pkg = JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   if (await exists(dest) && !force) throw new Error(`Output already exists: ${dest}; pass --force to reuse it`);
