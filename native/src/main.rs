@@ -6,6 +6,7 @@ mod package;
 mod network;
 mod runtime;
 mod style;
+mod accessibility;
 mod text_input;
 mod menus;
 mod view;

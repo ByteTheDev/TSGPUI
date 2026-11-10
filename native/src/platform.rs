@@ -1,7 +1,8 @@
 //! Platform operations shared by the native GPUI host and the WebView host: clipboard, native
 //! dialogs, external links, power blockers and the allowlisted HTTPS transport. Each runs once here,
 //! so both renderers answer the same requests the same way. Clipboard, dialogs and power blockers
-//! are implemented on Windows; other systems reject them with a clear error.
+//! are implemented on Windows, macOS and Linux; safeStorage uses DPAPI on Windows and reports
+//! unavailable elsewhere.
 
 use serde_json::{json, Value};
 
@@ -18,9 +19,14 @@ pub fn clipboard_read_text() -> Result<String, String> {
     windows::clipboard::read_text()
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 pub fn clipboard_read_text() -> Result<String, String> {
-    Err(WINDOWS_ONLY.into())
+    macos::clipboard_read_text()
+}
+
+#[cfg(target_os = "linux")]
+pub fn clipboard_read_text() -> Result<String, String> {
+    linux::clipboard_read_text()
 }
 
 #[cfg(target_os = "windows")]
@@ -28,9 +34,14 @@ pub fn clipboard_write_text(text: &str) -> Result<(), String> {
     windows::clipboard::write_text(text)
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn clipboard_write_text(_text: &str) -> Result<(), String> {
-    Err(WINDOWS_ONLY.into())
+#[cfg(target_os = "macos")]
+pub fn clipboard_write_text(text: &str) -> Result<(), String> {
+    macos::clipboard_write_text(text)
+}
+
+#[cfg(target_os = "linux")]
+pub fn clipboard_write_text(text: &str) -> Result<(), String> {
+    linux::clipboard_write_text(text)
 }
 
 /// Shows an open dialog. Result: `{ canceled, paths }`.
@@ -40,8 +51,8 @@ pub fn open_file_dialog(args: &Value) -> Result<Value, String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn open_file_dialog(_args: &Value) -> Result<Value, String> {
-    Err(WINDOWS_ONLY.into())
+pub fn open_file_dialog(args: &Value) -> Result<Value, String> {
+    Ok(dialogs::open_file_dialog(args))
 }
 
 /// Shows a save dialog. Result: `{ canceled, path }`.
@@ -51,8 +62,8 @@ pub fn save_file_dialog(args: &Value) -> Result<Value, String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn save_file_dialog(_args: &Value) -> Result<Value, String> {
-    Err(WINDOWS_ONLY.into())
+pub fn save_file_dialog(args: &Value) -> Result<Value, String> {
+    Ok(dialogs::save_file_dialog(args))
 }
 
 /// Shows a message box. Result: `{ response }`, the index of the chosen button.
@@ -62,8 +73,8 @@ pub fn message_dialog(args: &Value) -> Result<Value, String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn message_dialog(_args: &Value) -> Result<Value, String> {
-    Err(WINDOWS_ONLY.into())
+pub fn message_dialog(args: &Value) -> Result<Value, String> {
+    dialogs::message_dialog(args)
 }
 
 /// Sets the power blockers. `types` holds `prevent-app-suspension` and/or `prevent-display-sleep`;
@@ -73,9 +84,14 @@ pub fn set_power_blockers(types: &[String]) -> Result<(), String> {
     windows::power::set_blockers(types)
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn set_power_blockers(_types: &[String]) -> Result<(), String> {
-    Err("Power save blockers are supported on Windows only".into())
+#[cfg(target_os = "macos")]
+pub fn set_power_blockers(types: &[String]) -> Result<(), String> {
+    macos::set_power_blockers(types)
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_power_blockers(types: &[String]) -> Result<(), String> {
+    linux::set_power_blockers(types)
 }
 
 /// Runs a `safeStorage.*` operation. Values are protected with DPAPI on Windows, so only the current
@@ -511,6 +527,237 @@ mod windows {
         }
     }
 }
+
+#[cfg(not(target_os = "windows"))]
+mod dialogs {
+    use super::string_list;
+    use serde_json::{json, Value};
+
+    pub fn open_file_dialog(args: &Value) -> Value {
+        let mut dialog = rfd::FileDialog::new();
+        for filter in args["filters"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+            let name = filter["name"].as_str().unwrap_or("Files").to_owned();
+            let extensions = string_list(&filter["extensions"]);
+            dialog = dialog.add_filter(name, extensions.as_slice());
+        }
+        if args["multiple"].as_bool().unwrap_or(false) {
+            match dialog.pick_files() {
+                Some(paths) => json!({"canceled": false, "paths": paths.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>() }),
+                None => json!({"canceled": true, "paths": []}),
+            }
+        } else {
+            match dialog.pick_file() {
+                Some(path) => json!({"canceled": false, "paths": [path.to_string_lossy().into_owned()]}),
+                None => json!({"canceled": true, "paths": []}),
+            }
+        }
+    }
+
+    pub fn save_file_dialog(args: &Value) -> Value {
+        let mut dialog = rfd::FileDialog::new();
+        for filter in args["filters"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+            let name = filter["name"].as_str().unwrap_or("Files").to_owned();
+            let extensions = string_list(&filter["extensions"]);
+            dialog = dialog.add_filter(name, extensions.as_slice());
+        }
+        if let Some(default) = args["defaultPath"].as_str() {
+            let path = std::path::Path::new(default);
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                dialog = dialog.set_directory(parent);
+            }
+            if let Some(name) = path.file_name() {
+                dialog = dialog.set_file_name(name.to_string_lossy().into_owned());
+            }
+        }
+        match dialog.save_file() {
+            Some(path) => json!({"canceled": false, "path": path.to_string_lossy().into_owned()}),
+            None => json!({"canceled": true, "path": null}),
+        }
+    }
+
+    pub fn message_dialog(args: &Value) -> Result<Value, String> {
+        use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
+        let labels = match string_list(&args["buttons"]) {
+            list if list.is_empty() => vec!["OK".to_owned()],
+            list => list,
+        };
+        let buttons = match labels.as_slice() {
+            [a] => MessageButtons::OkCustom(a.clone()),
+            [a, b] => MessageButtons::OkCancelCustom(a.clone(), b.clone()),
+            [a, b, c] => MessageButtons::YesNoCancelCustom(a.clone(), b.clone(), c.clone()),
+            other => return Err(format!("message dialogs support up to three buttons, not {}", other.len())),
+        };
+        let level = match args["type"].as_str() {
+            Some("error") => MessageLevel::Error,
+            Some("warning") => MessageLevel::Warning,
+            _ => MessageLevel::Info,
+        };
+        let result = MessageDialog::new()
+            .set_title(args["title"].as_str().unwrap_or(""))
+            .set_description(args["message"].as_str().unwrap_or(""))
+            .set_level(level)
+            .set_buttons(buttons)
+            .show();
+        let response = match result {
+            MessageDialogResult::Custom(label) => labels.iter().position(|l| *l == label).unwrap_or(0),
+            MessageDialogResult::Ok | MessageDialogResult::Yes => 0,
+            MessageDialogResult::No => 1,
+            MessageDialogResult::Cancel => labels.len() - 1,
+        };
+        Ok(json!({"response": response}))
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::process::{Command, Stdio};
+    use std::sync::{Mutex, OnceLock};
+
+    pub fn clipboard_read_text() -> Result<String, String> {
+        let out = Command::new("pbpaste").output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    }
+
+    pub fn clipboard_write_text(text: &str) -> Result<(), String> {
+        use std::io::Write;
+        let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("pbcopy failed".into());
+        }
+        Ok(())
+    }
+
+    static POWER_CHILD: OnceLock<Mutex<Option<std::process::Child>>> = OnceLock::new();
+    fn power_child() -> &'static Mutex<Option<std::process::Child>> {
+        POWER_CHILD.get_or_init(|| Mutex::new(None))
+    }
+
+    pub fn set_power_blockers(types: &[String]) -> Result<(), String> {
+        for kind in types {
+            match kind.as_str() {
+                "prevent-app-suspension" | "prevent-display-sleep" => {}
+                other => return Err(format!("Unknown power save blocker: {other}")),
+            }
+        }
+        if let Some(mut child) = power_child().lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if types.is_empty() {
+            return Ok(());
+        }
+        let mut args: Vec<&str> = Vec::new();
+        let mut idle = false;
+        let mut display = false;
+        for kind in types {
+            match kind.as_str() {
+                "prevent-app-suspension" => idle = true,
+                "prevent-display-sleep" => {
+                    idle = true;
+                    display = true;
+                }
+                _ => {}
+            }
+        }
+        if display {
+            args.push("-d");
+        }
+        if idle {
+            args.push("-i");
+        }
+        let child = Command::new("caffeinate").args(&args).spawn().map_err(|e| e.to_string())?;
+        *power_child().lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::process::{Command, Stdio};
+    use std::sync::{Mutex, OnceLock};
+
+    fn try_read(cmd: &str, args: &[&str]) -> Result<String, String> {
+        let out = Command::new(cmd).args(args).output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    }
+
+    fn try_write(cmd: &str, args: &[&str], text: &str) -> Result<(), String> {
+        use std::io::Write;
+        let mut child = Command::new(cmd).args(args).stdin(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("{cmd} failed"));
+        }
+        Ok(())
+    }
+
+    pub fn clipboard_read_text() -> Result<String, String> {
+        if let Ok(s) = try_read("wl-paste", &["--no-newline"]) {
+            return Ok(s);
+        }
+        if let Ok(s) = try_read("xclip", &["-selection", "clipboard", "-o"]) {
+            return Ok(s);
+        }
+        if let Ok(s) = try_read("xsel", &["--clipboard", "--output"]) {
+            return Ok(s);
+        }
+        Err("No clipboard utility found (install wl-clipboard, xclip, or xsel)".into())
+    }
+
+    pub fn clipboard_write_text(text: &str) -> Result<(), String> {
+        if try_write("wl-copy", &[], text).is_ok() {
+            return Ok(());
+        }
+        if try_write("xclip", &["-selection", "clipboard"], text).is_ok() {
+            return Ok(());
+        }
+        if try_write("xsel", &["--clipboard", "--input"], text).is_ok() {
+            return Ok(());
+        }
+        Err("No clipboard utility found (install wl-clipboard, xclip, or xsel)".into())
+    }
+
+    static POWER_CHILD: OnceLock<Mutex<Option<std::process::Child>>> = OnceLock::new();
+    fn power_child() -> &'static Mutex<Option<std::process::Child>> {
+        POWER_CHILD.get_or_init(|| Mutex::new(None))
+    }
+
+    pub fn set_power_blockers(types: &[String]) -> Result<(), String> {
+        for kind in types {
+            match kind.as_str() {
+                "prevent-app-suspension" | "prevent-display-sleep" => {}
+                other => return Err(format!("Unknown power save blocker: {other}")),
+            }
+        }
+        if let Some(mut child) = power_child().lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if types.is_empty() {
+            return Ok(());
+        }
+        let child = Command::new("systemd-inhibit")
+            .args(["--what=sleep:idle", "--who=TSGPUI", "--why=power blocker", "tail", "-f", "/dev/null"])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        *power_child().lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+        Ok(())
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -66,6 +66,10 @@ impl AppView {
         // While the inspector is active, app controls behave like plain boxes so a click selects
         // the element instead of invoking it.
         let enabled = !disabled && !self.inspector;
+        // ARIA/role metadata is carried for a future GPUI accessibility surface.
+        // GPUI 0.2.2 exposes no such API, so this is currently a no-op.
+        let _aria = crate::accessibility::AriaMetadata::from_node(node);
+        crate::accessibility::apply(&_aria);
         let form_action = if is_form { node.attrs.get("data-submit").cloned().or(inherited_submit) } else { inherited_submit };
         let form_node = if is_form { Some(node.clone()) } else { inherited_form };
         let element_id: gpui::SharedString = format!("tsgpui:{}{}", node.key, repeat_suffix).into();
@@ -591,7 +595,10 @@ impl AppView {
                 }
             }
             if node.children.is_empty() && node.tag == "button" {
-                if let Some(label) = node.attrs.get("aria-label") { element = element.child(label.clone()); }
+                let label = node.attrs.get("aria-label")
+                    .or_else(|| node.attrs.get("title"))
+                    .or_else(|| node.attrs.get("alt"));
+                if let Some(label) = label { element = element.child(label.clone()); }
             }
             if is_form {
                 if let Some(message) = self.validation_errors.get(&node.key) { element = element.child(div().child(message.clone())); }

@@ -75,6 +75,14 @@ const nativeRoutes: Record<string, Route> = {
   'window.setBounds': () => { compatWarnings.push('BrowserWindow setBounds has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
   'window.setPosition': () => { compatWarnings.push('BrowserWindow setPosition has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
   'window.setSize': () => { compatWarnings.push('BrowserWindow setSize has no native chrome effect in the native renderer; bounds are tracked locally'); return Promise.resolve(null); },
+  // Host-side queries are tracked locally in the shim; the native renderer has no chrome to read, so
+  // these resolve to the last locally tracked values when the native API lacks them.
+  'window.getBounds': (api: any) => (typeof api?.window?.getBounds === 'function' ? api.window.getBounds() : (compatWarnings.push('BrowserWindow getBounds has no native chrome source in the native renderer; returning locally tracked bounds is not available over the host'), Promise.resolve(null))),
+  'window.isMaximized': (api: any) => (typeof api?.window?.isMaximized === 'function' ? api.window.isMaximized() : (compatWarnings.push('BrowserWindow isMaximized has no native chrome source in the native renderer; state is tracked locally'), Promise.resolve(null))),
+  'window.isMinimized': (api: any) => (typeof api?.window?.isMinimized === 'function' ? api.window.isMinimized() : (compatWarnings.push('BrowserWindow isMinimized has no native chrome source in the native renderer; state is tracked locally'), Promise.resolve(null))),
+  'window.isVisible': (api: any) => (typeof api?.window?.isVisible === 'function' ? api.window.isVisible() : (compatWarnings.push('BrowserWindow isVisible has no native chrome source in the native renderer; state is tracked locally'), Promise.resolve(null))),
+  'window.isFullScreen': (api: any) => (typeof api?.window?.isFullScreen === 'function' ? api.window.isFullScreen() : (compatWarnings.push('BrowserWindow isFullScreen has no native chrome source in the native renderer; state is tracked locally'), Promise.resolve(null))),
+  'window.isFocused': (api: any) => (typeof api?.window?.isFocused === 'function' ? api.window.isFocused() : (compatWarnings.push('BrowserWindow isFocused has no native chrome source in the native renderer; state is tracked locally'), Promise.resolve(null))),
 };
 function nativeHost(op: string, args: any): Promise<any> {
   const route = nativeRoutes[op];

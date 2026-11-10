@@ -87,9 +87,14 @@ fn display_list(window: &Window) -> Value {
 }
 
 /// Sends a native window lifecycle event to the page that runs the app's main-process code.
-fn notify_main(windows: &HashMap<u64, AppWindow>, id: u64, name: &str) {
+fn notify_main(windows: &HashMap<u64, AppWindow>, id: u64, name: &str, payload: Option<Value>) {
     if let Some(main) = windows.get(&backend_id(windows)) {
-        let _ = main.webview.evaluate_script(&format!("globalThis.__tsgpui_window_event?.({id},{})", json!(name)));
+        let script = if let Some(payload) = payload {
+            format!("globalThis.__tsgpui_window_event?.({},{},{})", id, json!(name), payload)
+        } else {
+            format!("globalThis.__tsgpui_window_event?.({},{})", id, json!(name))
+        };
+        let _ = main.webview.evaluate_script(&script);
     }
 }
 
@@ -338,32 +343,44 @@ fn main() -> Result<()> {
                 if let Some(id) = windows.iter().find_map(|(id, w)| (*id != BACKEND_ID && w.window.id() == window_id).then_some(*id)) {
                     match event {
                         // A page that subscribed to 'close' decides: it calls window.close if the close is not prevented.
-                        WindowEvent::CloseRequested if windows.get(&id).is_some_and(|w| w.close_watched) => notify_main(&windows, id, "close-requested"),
+                        WindowEvent::CloseRequested if windows.get(&id).is_some_and(|w| w.close_watched) => notify_main(&windows, id, "close-requested", None),
                         WindowEvent::CloseRequested => {
                             remove_window(&mut windows, id);
                             if let Some(main) = windows.get(&backend_id(&windows)) { let _ = main.webview.evaluate_script(&format!("globalThis.__tsgpui_window_closed?.({id})")); }
                             if !backend_hidden && !user_windows_open(&windows) { *control_flow = ControlFlow::Exit; }
                         }
-                        WindowEvent::Focused(focused) => notify_main(&windows, id, if focused { "focus" } else { "blur" }),
-                        WindowEvent::Moved(_) => notify_main(&windows, id, "move"),
+                        WindowEvent::Focused(focused) => notify_main(&windows, id, if focused { "focus" } else { "blur" }, None),
+                        WindowEvent::Moved(_) => {
+                            let payload = windows.get(&id).map(|w| {
+                                let scale = w.window.scale_factor();
+                                let pos = w.window.outer_position().ok();
+                                let size = w.window.outer_size();
+                                json!({"x": pos.map(|p| p.x as f64 / scale).unwrap_or(0.0), "y": pos.map(|p| p.y as f64 / scale).unwrap_or(0.0), "width": size.width as f64 / scale, "height": size.height as f64 / scale})
+                            });
+                            notify_main(&windows, id, "move", payload);
+                        }
                         WindowEvent::Resized(_) => {
                             // Minimize, maximize and restore are derived from the window state after each resize.
-                            let changes: Vec<&str> = match windows.get_mut(&id) {
+                            let changes: Vec<(&str, Option<Value>)> = match windows.get_mut(&id) {
                                 Some(w) => {
                                     let (minimized, maximized) = (w.window.is_minimized(), w.window.is_maximized());
                                     let (was_minimized, was_maximized) = (w.minimized, w.maximized);
                                     w.minimized = minimized;
                                     w.maximized = maximized;
+                                    let scale = w.window.scale_factor();
+                                    let pos = w.window.outer_position().ok();
+                                    let size = w.window.outer_size();
+                                    let bounds = json!({"x": pos.map(|p| p.x as f64 / scale).unwrap_or(0.0), "y": pos.map(|p| p.y as f64 / scale).unwrap_or(0.0), "width": size.width as f64 / scale, "height": size.height as f64 / scale});
                                     let mut changes = Vec::new();
-                                    if minimized && !was_minimized { changes.push("minimize"); }
-                                    if maximized && !was_maximized && !minimized { changes.push("maximize"); }
-                                    if !minimized && !maximized && (was_minimized || was_maximized) { changes.push("restore"); }
-                                    changes.push("resize");
+                                    if minimized && !was_minimized { changes.push(("minimize", None)); }
+                                    if maximized && !was_maximized && !minimized { changes.push(("maximize", None)); }
+                                    if !minimized && !maximized && (was_minimized || was_maximized) { changes.push(("restore", None)); }
+                                    changes.push(("resize", Some(bounds)));
                                     changes
                                 }
                                 None => Vec::new(),
                             };
-                            for name in changes { notify_main(&windows, id, name); }
+                            for (name, payload) in changes { notify_main(&windows, id, name, payload); }
                         }
                         _ => {}
                     }
