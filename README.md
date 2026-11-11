@@ -10,9 +10,9 @@ bun run tsgpui linux-arm64 --project examples/counter
 bun run tsgpui all --project examples/counter
 ```
 
-The targets are `windows-x64`, `windows-arm64`, `macos-x64`, `macos-arm64`, `linux-x64`, and `linux-arm64` (the `win32` and `darwin` spellings also work). You can also use `build --target windows-x64,linux-arm64`. Explicit target builds include the target in their output names in `dist`. Cross-target packaging requires a verified prebuilt host for each target; missing hosts are downloaded when available. `all` reports failures and exits unsuccessfully if any target could not be built. macOS apps are unsigned. The [building guide](docs/BUILDING.md) covers targets, hosts, packaging and Electron conversion in detail.
+The targets are `windows-x64`, `windows-arm64`, `macos-x64`, `macos-arm64`, `linux-x64`, and `linux-arm64` (the `win32` and `darwin` spellings also work). Prebuilt hosts are published for every target except `macos-x64`; that target needs a locally built host. You can also use `build --target windows-x64,linux-arm64`. Explicit target builds include the target in their output names in `dist`. Cross-target packaging requires a verified prebuilt host for each target; missing hosts are downloaded when available. `all` reports failures and exits unsuccessfully if any target could not be built. macOS apps are unsigned. The [building guide](docs/BUILDING.md) covers targets, hosts, packaging and Electron conversion in detail.
 
-Run `tsgpui` or `tsgpui run` in a TSGPUI or Electron project directory to start it. `tsgpui build` and the target shortcuts also detect Electron projects. Electron projects are converted into a new temporary directory; build output and the compatibility report are located there, and their paths are printed. Electron compatibility is incomplete: inspect the report before relying on the result. The conversion does not modify the source, although it may run the project's own build script if renderer assets are missing.
+Run `tsgpui` or `tsgpui run` in a TSGPUI or Electron project directory to start it. `tsgpui build` and the target shortcuts also detect Electron projects. Electron projects are converted into a new temporary directory; build output and the compatibility report are located there, and their paths are printed. Every Electron 33 export is classified as implemented, partial, or unsupported in the coverage ledger (`packages/cli/src/electron-compat/coverage.mjs`), and a test fails when the ledger is out of date. The conversion does not modify the source, although it may run the project's own build script if renderer assets are missing. Read the report before relying on the result, and import only projects you trust.
 
 ### Experimental desktop apps with HTML, CSS, and TypeScript
 
@@ -51,6 +51,15 @@ Set the renderer in your project's `tsgpui.config.json`:
 ```
 
 Use `"native"` or omit the setting for the default. The WebView uses WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux. See the [renderer and syntax reference](docs/SUPPORTED_SYNTAX.md) for platform requirements and behavior.
+
+## What's new in 0.4.0
+
+- **Full Electron compatibility coverage.** `tsgpui import electron <dir>` converts an Electron project and writes a review report; every Electron 33 export is classified as implemented, partial, or unsupported, with a test guarding the ledger.
+- **Electron shims on both hosts.** `require('electron')`, `fs`, `path`, `os`, `child_process`, `https`, and `net` run in QuickJS on the native and WebView hosts.
+- **WebView renderer** (`renderer: "webview"`) for browser-style HTML/CSS via WebView2, WKWebView, or WebKitGTK.
+- **Named filesystem roots** and picked-file grants for `api.native.filesystem`.
+- **Prebuilt hosts** for six targets (`win32-x64`, `win32-arm64`, `darwin-arm64`, `linux-x64`, `linux-arm64`), downloaded and verified against `hosts.json`.
+- **Windows packaging** can produce a signed executable and an NSIS installer.
 
 ## Get started
 
@@ -181,7 +190,7 @@ Point `TSGPUI_HOST` to a compatible precompiled host when building without a loc
 - Fixed, automatic, and unequal `fr` grid tracks are emulated with proportional flex sizing. The built-in component library includes `Sidebar`, `Toolbar`, `SegmentedControl`, `SearchField`, `ListRow`, table layout components, `CodeEditor`, `EmptyState`, and `Sheet`. Custom TTF/OTF fonts can be bundled.
 - Use a current host, package it unsigned, then sign the finished artifact. See the [release guide](docs/RELEASING.md) for platform signing and notarization.
 - No RAM or startup benchmarks have been performed. Do not assume results reported for other GPUI apps apply here.
-- Electron import is partial. Conversion writes a report that lists each Electron API the app uses that is partial or unsupported, and it runs the project's build script when no built renderer exists. Read the report, and import only projects you trust. The native and WebView renderers both run the compatibility shims; the native renderer has one window and no page, so extra windows, page messages and `ipcRenderer` need `renderer: "webview"`. See the [supported syntax reference](docs/SUPPORTED_SYNTAX.md#renderer-selection), the [safety notes](docs/SAFETY.md), and the [changelog](CHANGELOG.md).
+- Electron import covers all Electron 33 exports: each is implemented, partial, or unsupported in the coverage ledger, and the native and WebView renderers both run the compatibility shims (`require('electron')`, `fs`, `path`, `os`, `child_process`, `https`, `net`). The native renderer has one window and no page, so extra windows, page messages and `ipcRenderer` need `renderer: "webview"`. Conversion writes a report listing each API the app uses that is partial or unsupported and runs the project's build script when no built renderer exists. Read the report and import only projects you trust. See the [supported syntax reference](docs/SUPPORTED_SYNTAX.md#renderer-selection), the [safety notes](docs/SAFETY.md), and the [changelog](CHANGELOG.md).
 
 ## Build a Windows EXE in GitHub Actions
 
