@@ -69,7 +69,7 @@ jobs:
           node packages/cli/bin/tsgpui.mjs build --project runner-sample --host native/target/release/tsgpui-webview-host.exe
       - name: Run Windows end-to-end check
         if: matrix.target == 'windows-x64'
-        run: node scripts/e2e-windows.mjs runner-sample/dist/electron-sample.exe e2e-report.json
+        run: node scripts/e2e-windows.mjs runner-sample/release/electron-sample.exe e2e-report.json
       - name: Upload Windows end-to-end report
         if: always() && matrix.target == 'windows-x64'
         uses: actions/upload-artifact@v4
