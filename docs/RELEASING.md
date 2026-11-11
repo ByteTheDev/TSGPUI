@@ -4,7 +4,9 @@
 
 The `release-hosts` workflow builds the native and WebView hosts for six targets (win32-x64, win32-arm64, darwin-x64, darwin-arm64, linux-x64 and linux-arm64), attests their build provenance, and attaches them with `hosts.json` to the release. The CLI checks each downloaded host against that manifest.
 
-The signing helper reads `TSGPUI_SIGN_COMMAND` from the environment, appends the artifact path, and does not log its command or output. Keep certificates and credentials outside the repository. If the variable is missing, the artifact is unsigned. As a convenience, you can also set `TSGPUI_CERT_FILE` (plus optional `TSGPUI_CERT_PASSWORD`) on Windows to auto-build a `signtool` command, or `TSGPUI_CODESIGN_IDENTITY` on macOS to auto-build a `codesign` command; `TSGPUI_SIGN_COMMAND` always takes precedence.
+The signing helper reads `TSGPUI_SIGN_COMMAND` from the environment, appends the artifact path, and does not log its command or output. Keep certificates and credentials outside the repository. If the variable is missing, the artifact is unsigned. As a convenience, you can also set `TSGPUI_CERT_FILE` (plus optional `TSGPUI_CERT_PASSWORD`) on Windows to auto-build a `signtool` command, `TSGPUI_CODESIGN_IDENTITY` on macOS to auto-build a `codesign` command, or `TSGPUI_GPG_KEY` on Linux to auto-build a `gpg --detach-sign` command; `TSGPUI_SIGN_COMMAND` always takes precedence.
+
+Any artifact can be signed directly with `tsgpui sign --file PATH` (add `--notarize` on macOS to run `xcrun notarytool`, which needs `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_APP_PASSWORD`). On macOS, `TSGPUI package` is Windows-only; build with `tsgpui build` and then `tsgpui sign --file ... --notarize`.
 
 The manifest helper writes SHA-256 hashes for supplied artifacts. An optional Ed25519 private key path produces a detached base64 signature over the exact manifest bytes. The host does not verify signatures yet; verification requires a Rust change owned by another agent.
 

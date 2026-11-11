@@ -139,6 +139,28 @@ export const screen = Object.assign(new EventEmitter(), {
   },
 });
 
+// Host-driven display events. The host calls this global when monitors change; the shim
+// re-reads the display list when possible and re-emits the Electron-style event.
+const gScreen: any = globalThis;
+function handleDisplayEvent(name: string, display?: any, details?: any) {
+  try {
+    const evt = String(name || '');
+    const payloadDisplay = display && typeof display === 'object' ? display : undefined;
+    if (evt === 'display-added' || evt === 'display-removed' || evt === 'display-metrics-changed') {
+      screen.emit(evt, {}, payloadDisplay ?? {}, details);
+    } else {
+      screen.emit(evt, {}, payloadDisplay ?? {});
+    }
+  } catch (error) { try { console.error('screen event failed:', error); } catch {} }
+}
+gScreen.__tsgpui_display_event = (name: string, ...args: any[]) => handleDisplayEvent(name, args[0], args[1]);
+gScreen.__tsgpui_screen_event = gScreen.__tsgpui_display_event;
+gScreen.__tsgpui_display_changed = (payload?: any) => {
+  // Best-effort refresh; ignored when no host is available.
+  try { void (screen as any).refresh?.(); } catch {}
+  handleDisplayEvent('display-metrics-changed', payload);
+};
+
 // Ports joined in the same process. Messages are structured-cloned, delivered asynchronously, and never transferred.
 function cloneValue(value: any, transferables: any[]): any {
   if (typeof structuredClone === 'function') {

@@ -10,7 +10,7 @@ import {buildPackage,readProject} from '../src/compiler.mjs';
 import {importElectron} from '../src/import-electron.mjs';
 import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
-import {signArtifact,resolveSignCommand,writeManifest} from '../src/signing.mjs';
+import {signArtifact,resolveSignCommand,notarizeArtifact,writeManifest,findSigntool,findCodesign,findGpg,findNotarytool} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
 import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuiHome,verifyCachedHost} from '../src/hosts.mjs';
 
@@ -486,6 +486,16 @@ async function packageApp() {
   if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process (docs/RELEASING.md).');
 }
 
+// Sign (and optionally notarize) an arbitrary artifact on any platform.
+async function signCommand() {
+  const file = flag('file', null);
+  if (!file) throw new Error('Use `tsgpui sign --file PATH [--notarize]`.');
+  const target = path.resolve(file);
+  if (!fs.existsSync(target)) throw new Error(`File not found: ${target}`);
+  const signed = await signArtifact(target);
+  if (signed) console.log(`Signed: ${target}`);
+  if (args.includes('--notarize')) await notarizeArtifact(target);
+}
 function help() {
   console.log(`tsgpui ${VERSION}
   init [dir]                   Create a starter project
@@ -501,6 +511,7 @@ function help() {
   host install --file PATH --sha256 HASH [--renderer MODE]  Install a verified prebuilt host
   release manifest --file PATH Write a deterministic SHA-256 manifest to stdout
   package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]  Build the exe, sign it, make an installer and manifest (Windows)
+  sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via TSGPUI_SIGN_COMMAND or platform env vars)
   doctor [--renderer MODE]     Check the setup and print the exact fix for anything missing
 Options: renderer is "native" (default) or "webview"; --host PATH overrides the selected host.`);
 }
@@ -564,6 +575,7 @@ async function main() {
     return buildTargets(await prepareProject(projectDir()), targets);
   }
   if(command==='package') return packageApp();
+  if(command==='sign') return signCommand();
   if(command==='dev') return dev();
   if(command==='preview') return preview();
   throw new Error(`Unknown command: ${command}. Run \`tsgpui help\`.`);

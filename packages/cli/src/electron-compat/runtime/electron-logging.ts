@@ -23,7 +23,9 @@ export class NetLog {
 
 export const netLog = new NetLog();
 
-// powerMonitor state tracking (no power events are emitted).
+// powerMonitor state tracking. Power events are delivered by the host through
+// `globalThis.__tsgpui_power_event`; the setters below keep the cached state in
+// sync and emit the matching Electron event when it changes.
 let powerOnBatteryState = false;
 let powerIdleTimeState = 0;
 let powerIdleStateValue: string = 'active';
@@ -34,7 +36,28 @@ export class PowerMonitor extends EventEmitter {
     return powerOnBatteryState;
   }
   set onBatteryPower(value: boolean) {
-    powerOnBatteryState = !!value;
+    const next = !!value;
+    if (next === powerOnBatteryState) return;
+    powerOnBatteryState = next;
+    this.emit(next ? 'on-battery' : 'on-ac');
+  }
+  /** Called by the host bridge when the OS reports a power transition. */
+  handlePowerEvent(name: string, ...args: any[]): void {
+    switch (name) {
+      case 'suspend':
+      case 'resume':
+      case 'shutdown':
+      case 'lock-screen':
+      case 'unlock-screen':
+        break;
+      case 'on-ac':
+        powerOnBatteryState = false;
+        break;
+      case 'on-battery':
+        powerOnBatteryState = true;
+        break;
+    }
+    this.emit(name, ...args);
   }
   getSystemIdleState(_idleThreshold?: number): string {
     const threshold = typeof _idleThreshold === 'number' && Number.isFinite(_idleThreshold) ? _idleThreshold : 0;
@@ -57,6 +80,17 @@ export class PowerMonitor extends EventEmitter {
 }
 
 export const powerMonitor = new PowerMonitor();
+
+// Host-driven power events. The native/WebView host calls this global when the OS
+// reports a transition; it updates cached state and re-emits the Electron event.
+const gPower: any = globalThis;
+gPower.__tsgpui_power_event = (name: string, ...args: any[]) => {
+  try { (powerMonitor as any).handlePowerEvent?.(String(name), ...args); }
+  catch (error) { try { console.error('powerMonitor event failed:', error); } catch {} }
+};
+// Aliases that hosts or tests may use.
+gPower.__tsgpui_powerEvent = gPower.__tsgpui_power_event;
+gPower.__tsgpui_power = gPower.__tsgpui_power_event;
 
 export class PushNotifications extends EventEmitter {
   register(..._args: any[]): boolean {

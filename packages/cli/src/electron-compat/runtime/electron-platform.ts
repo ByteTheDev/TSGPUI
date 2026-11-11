@@ -16,9 +16,12 @@ export class ShareMenu {
 // derives dark mode from the renderer's prefers-color-scheme media query when available.
 class SystemPreferences extends EventEmitter {
   private dark: any;
+  private reducedMotion: any;
+  private inverted: any;
   private userDefaults = new Map<string, any>();
   defaults: Record<string, any> = {};
   accentColor: string = '';
+  private _accessibilityDisplayShouldReduceMotion: boolean = false;
   isAeroGlassEnabled(): boolean { return false; }
   private notificationSubs = new Map<number, { event: string; callback: Function; scope: string }>();
   private nextNotificationId = 0;
@@ -29,15 +32,35 @@ class SystemPreferences extends EventEmitter {
     this.dark = win?.matchMedia?.('(prefers-color-scheme: dark)');
     if (this.dark?.addEventListener) this.dark.addEventListener('change', () => this.emit('color-changed'));
     else if (this.dark?.addListener) this.dark.addListener(() => this.emit('color-changed'));
+    this.reducedMotion = win?.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (this.reducedMotion?.addEventListener) this.reducedMotion.addEventListener('change', () => this.handleSystemEvent('accessibility-display-options-changed'));
+    else if (this.reducedMotion?.addListener) this.reducedMotion.addListener(() => this.handleSystemEvent('accessibility-display-options-changed'));
+    this.inverted = win?.matchMedia?.('(inverted-colors: inverted)');
+    if (this.inverted?.addEventListener) this.inverted.addEventListener('change', () => this.emit('color-changed'));
+    else if (this.inverted?.addListener) this.inverted.addListener(() => this.emit('color-changed'));
   }
 
   isDarkMode(): boolean { return !!this.dark?.matches; }
-  getAccentColor(): string { return this.accentColor; }
+  getAccentColor(): string {
+    // Best-effort: read the CSS accent-color of the root element when a document is present.
+    try {
+      const doc: any = (globalThis as any)?.document;
+      const value = doc?.documentElement ? (globalThis as any)?.getComputedStyle?.(doc.documentElement)?.accentColor : '';
+      if (typeof value === 'string' && value && value !== 'auto') return value.replace(/\s/g, '').toLowerCase();
+    } catch {}
+    return this.accentColor;
+  }
   get effectiveAppearance(): string { return this.isDarkMode() ? 'dark' : 'light'; }
   set effectiveAppearance(_value: string) { /* read-only best-effort; ignored */ }
   getColor(_color: string): string { return ''; }
   getSystemColor(_color: string): string { return ''; }
-  getAnimationSettings(): any { return { shouldRenderRichAnimation: true, scrollAnimationsEnabledBySystem: true, prefersReducedMotion: false }; }
+  isInvertedColorScheme(): boolean { return !!this.inverted?.matches; }
+  get accessibilityDisplayShouldReduceMotion(): boolean {
+    if (this._accessibilityDisplayShouldReduceMotion) return true;
+    return !!this.reducedMotion?.matches;
+  }
+  set accessibilityDisplayShouldReduceMotion(value: boolean) { this._accessibilityDisplayShouldReduceMotion = !!value; }
+  getAnimationSettings(): any { return { shouldRenderRichAnimation: !this.accessibilityDisplayShouldReduceMotion, scrollAnimationsEnabledBySystem: true, prefersReducedMotion: this.accessibilityDisplayShouldReduceMotion }; }
   getMediaAccessStatus(_mediaType: string): string { return 'not-determined'; }
   askForMediaAccess(_mediaType: string): Promise<boolean> { return Promise.resolve(false); }
   canPromptTouchID(): boolean { return false; }
@@ -45,6 +68,13 @@ class SystemPreferences extends EventEmitter {
   isTrustedAccessibilityClient(_prompt?: boolean): boolean { return false; }
   isSwipeTrackingFromScrollEventsEnabled(): boolean { return false; }
   accessibilityDisplayShouldReduceTransparency: boolean = false;
+
+  handleSystemEvent(name: string, ...args: any[]): void {
+    if (name === 'accessibility-display-options-changed') {
+      this.emit('accessibility-display-options-changed' as any);
+    }
+    this.emit(name, ...args);
+  }
 
   getUserDefault(key: string, _type: string): any {
     if (this.userDefaults.has(key)) return this.userDefaults.get(key);
@@ -90,6 +120,17 @@ class SystemPreferences extends EventEmitter {
   unsubscribeWorkspaceNotification(id: number): void { this.notificationSubs.delete(id); }
 }
 export const systemPreferences = new SystemPreferences();
+
+const gSystem: any = globalThis;
+gSystem.__tsgpui_system_preferences_event = (name: string, ...args: any[]) => {
+  try {
+    const sp = systemPreferences as any;
+    if (typeof sp.handleSystemEvent === 'function') sp.handleSystemEvent(String(name), ...args);
+    else sp.emit?.(String(name), ...args);
+  } catch (error) { try { console.error('systemPreferences event failed:', error); } catch {} }
+};
+gSystem.__tsgpui_system_event = gSystem.__tsgpui_system_preferences_event;
+gSystem.__tsgpui_theme_event = gSystem.__tsgpui_system_preferences_event;
 
 // Partial shim for Electron's TouchBar. Returns an inspectable object.
 export class TouchBarButton { constructor(options?: any) { Object.assign(this, options || {}); } }

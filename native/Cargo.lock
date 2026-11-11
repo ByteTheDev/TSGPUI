@@ -6903,6 +6903,7 @@ dependencies = [
  "futures",
  "gpui",
  "gtk",
+ "image",
  "notify-rust",
  "rfd",
  "rquickjs",
