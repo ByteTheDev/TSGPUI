@@ -10,6 +10,9 @@ let displays: Display[] = [];
 let primaryDisplay: Display | null = null;
 let displaysError: Error | null = null;
 let displaysLoaded = false;
+let cursorPoint: {x: number; y: number} | null = null;
+let cursorLoaded = false;
+let cursorError: Error | null = null;
 
 function toDisplay(raw: any, index: number): Display {
   const bounds = {x: Number(raw.x), y: Number(raw.y), width: Number(raw.width), height: Number(raw.height)};
@@ -17,11 +20,46 @@ function toDisplay(raw: any, index: number): Display {
   return {id: index + 1, bounds, workArea: {...bounds}, size, workAreaSize: {...size}, scaleFactor: Number(raw.scaleFactor) || 1, rotation: 0, internal: false, touchSupport: 'unknown', colorDepth: 24};
 }
 
+function displayKey(d: Display) { return `${d.bounds.x},${d.bounds.y},${d.bounds.width},${d.bounds.height}`; }
+async function refreshCursor() {
+  const ops = ['screen.cursor', 'screen.getCursorScreenPoint', 'screen.cursorScreenPoint'];
+  for (const op of ops) {
+    try {
+      const result: any = await host(op);
+      const point = result && typeof result === 'object' && result.point && typeof result.point.x === 'number'
+        ? result.point
+        : (result && typeof result.x === 'number' && typeof result.y === 'number' ? {x: result.x, y: result.y} : null);
+      if (point) { cursorPoint = {x: Number(point.x), y: Number(point.y)}; cursorError = null; cursorLoaded = true; return; }
+    } catch (error) {
+      cursorError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  cursorLoaded = true;
+}
 async function refreshDisplays() {
+  const previous = displaysLoaded ? [...displays] : [];
   try {
     const result = await host('screen.displays');
     const list = Array.isArray(result?.displays) ? result.displays : [];
-    displays = list.map(toDisplay);
+    const next = list.map(toDisplay);
+    // Emit display change events based on the previous snapshot.
+    if (displaysLoaded) {
+      const prevKeys = new Map(previous.map(d => [displayKey(d), d]));
+      const nextKeys = new Map(next.map(d => [displayKey(d), d]));
+      for (const [key, d] of nextKeys) {
+        if (!prevKeys.has(key)) screen.emit('display-added', {}, d);
+        else {
+          const old = prevKeys.get(key)!;
+          if (old.scaleFactor !== d.scaleFactor || old.bounds.width !== d.bounds.width || old.bounds.height !== d.bounds.height) {
+            screen.emit('display-metrics-changed', {}, d, {bounds: true, workArea: true, scaleFactor: old.scaleFactor !== d.scaleFactor, rotation: false});
+          }
+        }
+      }
+      for (const [key, d] of prevKeys) {
+        if (!nextKeys.has(key)) screen.emit('display-removed', {}, d);
+      }
+    }
+    displays = next;
     const primary = list.findIndex((raw: any) => raw.primary === true);
     primaryDisplay = displays[primary >= 0 ? primary : 0] ?? null;
     displaysError = null;
@@ -29,6 +67,7 @@ async function refreshDisplays() {
     displaysError = error instanceof Error ? error : new Error(String(error));
   }
   displaysLoaded = true;
+  await refreshCursor().catch(() => { cursorLoaded = true; });
 }
 const loading = refreshDisplays();
 
@@ -69,8 +108,11 @@ export const screen = Object.assign(new EventEmitter(), {
     return best;
   },
   getCursorScreenPoint(): Point {
-    throw new Error('screen.getCursorScreenPoint is not available: the host reports cursor position asynchronously');
+    if (!cursorLoaded) throw new Error('screen information is still loading; await screen.refresh() first');
+    if (cursorError && !cursorPoint) throw cursorError;
+    return cursorPoint ? {...cursorPoint} : {x: 0, y: 0};
   },
+  async refreshCursor() { await refreshCursor(); if (cursorError) throw cursorError; },
 });
 
 // Ports joined in the same process. Messages are structured-cloned, delivered asynchronously, and never transferred.
@@ -78,7 +120,8 @@ export class MessagePortMain extends EventEmitter {
   private peer: MessagePortMain | null = null;
   private started = false;
   private closed = false;
-  private queue: any[] = [];
+  private transferred = false;
+  private queue: Array<{ data: any; ports: any[] }> = [];
   /** Starts delivery. Adding a 'message' listener also starts the port, as in Electron. */
   on(name: string | symbol, fn: Function): this {
     super.on(name, fn);
@@ -94,16 +137,40 @@ export class MessagePortMain extends EventEmitter {
     if (peer && !peer.closed) peer.close();
   }
   postMessage(message: any, transfer?: any[]) {
-    if (transfer?.length) throw new Error('MessagePortMain.postMessage does not transfer ports or buffers');
+    if (this.transferred) throw new Error('MessagePortMain has been transferred');
     if (this.closed || !this.peer) return;
-    const data = typeof structuredClone === 'function' ? structuredClone(message) : message;
-    this.peer.deliver(data);
+    const ports: any[] = [];
+    const transferables: any[] = [];
+    for (const item of transfer || []) {
+      if (item instanceof MessagePortMain) {
+        ports.push(item);
+      } else if (item instanceof ArrayBuffer) {
+        transferables.push(item);
+      } else if (ArrayBuffer.isView(item)) {
+        transferables.push((item as any).buffer);
+      } else {
+        throw new Error('MessagePortMain.postMessage does not transfer this value');
+      }
+    }
+    let data: any;
+    try {
+      data = typeof structuredClone === 'function'
+        ? structuredClone(message, transferables.length ? { transfer: transferables } : undefined)
+        : message;
+    } catch {
+      data = message;
+    }
+    this.peer.deliver(data, ports);
   }
-  /** @internal */ deliver(data: any) { if (this.closed) return; this.queue.push(data); this.flush(); }
+  /** @internal */ deliver(data: any, ports: any[] = []) { if (this.closed) return; this.queue.push({ data, ports }); this.flush(); }
   /** @internal */ link(peer: MessagePortMain) { this.peer = peer; }
   private flush() {
     if (!this.started) return;
-    while (this.queue.length) { const data = this.queue.shift(); Promise.resolve().then(() => this.emit('message', {data, ports: []})); }
+    while (this.queue.length) {
+      const entry = this.queue.shift() as any;
+      const ports = entry.ports || [];
+      Promise.resolve().then(() => this.emit('message', { data: entry.data, ports }));
+    }
   }
 }
 
@@ -117,8 +184,9 @@ export class MessageChannelMain {
 let pageZoom = 1;
 let insertedCount = 0;
 const insertedStyles = new Map<string, any>();
+const webFrameFrames: any[] = [];
 const pageDocument = () => (globalThis as any).document;
-export const webFrame = {
+export const webFrame: any = {
   setZoomFactor(factor: number) {
     if (!(factor > 0)) throw new RangeError('zoom factor must be positive');
     pageZoom = factor;
@@ -146,6 +214,20 @@ export const webFrame = {
   executeJavaScript(code: string): Promise<any> {
     try { return Promise.resolve((0, (globalThis as any).eval)(code)); } catch (error) { return Promise.reject(error); }
   },
+  // Frame tree basics.
+  name: '',
+  routingId: 1,
+  get parent() { return null; },
+  get opener() { return null; },
+  get top() { return webFrame; },
+  get firstChild() { return null; },
+  get nextSibling() { return null; },
+  get frames() { return webFrameFrames; },
+  get url() {
+    try { return (globalThis as any).location?.href || ''; } catch { return ''; }
+  },
+  findFrameByName(_name: string) { return null; },
+  findFrameByRoutingId(routingId: number) { return routingId === webFrame.routingId ? webFrame : null; },
 };
 
 // Keeps power blockers alive while the app runs. The host applies the combined state with SetThreadExecutionState (Windows).
@@ -169,5 +251,50 @@ export const powerSaveBlocker = {
     applyBlockers();
   },
   isStarted(id: number): boolean { return activeBlockers.has(id); },
+};
+
+// Tray icon shim. Native tray chrome is not available, so this keeps inspectable state and emits
+// the events Electron exposes without blocking on the host.
+export class Tray extends EventEmitter {
+  image: any;
+  private _toolTip = '';
+  private _title = '';
+  private _contextMenu: any = null;
+  destroyed = false;
+  constructor(image?: any) { super(); this.image = image ?? null; }
+  setImage(image: any) { this.image = image ?? null; }
+  setToolTip(toolTip: string) { this._toolTip = String(toolTip ?? ''); }
+  getToolTip() { return this._toolTip; }
+  setTitle(title: string) { this._title = String(title ?? ''); }
+  getTitle() { return this._title; }
+  setContextMenu(menu: any) { this._contextMenu = menu ?? null; }
+  getContextMenu() { return this._contextMenu; }
+  popUpContextMenu(menu?: any, position?: any) { /* no native popup */ }
+  getBounds() { return {x: 0, y: 0, width: 0, height: 0}; }
+  isDestroyed() { return this.destroyed; }
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.emit('destroyed');
+  }
+}
+
+// Global shortcuts are process-global in Electron. The shim keeps an in-memory registry so apps can
+// register, query and unregister accelerators; delivery of global key events is not available here.
+const globalShortcuts = new Map<string, Function>();
+export const globalShortcut = {
+  register(accelerator: string, callback: Function): boolean {
+    if (typeof accelerator !== 'string' || !accelerator) throw new TypeError('globalShortcut.register requires an accelerator string');
+    if (typeof callback !== 'function') throw new TypeError('globalShortcut.register requires a callback');
+    globalShortcuts.set(accelerator, callback);
+    return true;
+  },
+  registerAll(accelerators: string[], callback: Function) {
+    if (!Array.isArray(accelerators)) throw new TypeError('globalShortcut.registerAll requires an array');
+    for (const accelerator of accelerators) this.register(String(accelerator), callback);
+  },
+  unregister(accelerator: string) { globalShortcuts.delete(String(accelerator)); },
+  unregisterAll() { globalShortcuts.clear(); },
+  isRegistered(accelerator: string): boolean { return globalShortcuts.has(String(accelerator)); },
 };
 

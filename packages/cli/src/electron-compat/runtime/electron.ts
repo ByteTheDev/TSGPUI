@@ -65,9 +65,29 @@ export const net: any = _lazyValue('electron-net', 'net');
 export const nativeImage: any = _lazyValue('electron-image', 'nativeImage');
 export const nativeTheme: any = _lazyValue('electron-theme', 'nativeTheme');
 export const screen: any = _lazyValue('electron-system', 'screen');
+export const Tray: any = _lazyValue('electron-system', 'Tray');
+export const globalShortcut: any = _lazyValue('electron-system', 'globalShortcut');
 export const MessageChannelMain: any = _lazyValue('electron-system', 'MessageChannelMain');
 export const MessagePortMain: any = _lazyValue('electron-system', 'MessagePortMain');
 export const webFrame: any = _lazyValue('electron-system', 'webFrame');
+export const BaseWindow: any = _lazyValue('electron-views', 'BaseWindow');
+export const BrowserView: any = _lazyValue('electron-views', 'BrowserView');
+export const View: any = _lazyValue('electron-views', 'View');
+export const WebContentsView: any = _lazyValue('electron-webcontentsview', 'WebContentsView');
+export const webFrameMain: any = _lazyValue('electron-webcontentsview', 'webFrameMain');
+export const contentTracing: any = _lazyValue('electron-webcontentsview', 'contentTracing');
+export const crashReporter: any = _lazyValue('electron-capture', 'crashReporter');
+export const desktopCapturer: any = _lazyValue('electron-capture', 'desktopCapturer');
+export const inAppPurchase: any = _lazyValue('electron-capture', 'inAppPurchase');
+export const netLog: any = _lazyValue('electron-logging', 'netLog');
+export const powerMonitor: any = _lazyValue('electron-logging', 'powerMonitor');
+export const pushNotifications: any = _lazyValue('electron-logging', 'pushNotifications');
+export const ShareMenu: any = _lazyValue('electron-platform', 'ShareMenu');
+export const systemPreferences: any = _lazyValue('electron-platform', 'systemPreferences');
+export const TouchBar: any = _lazyValue('electron-platform', 'TouchBar');
+export const utilityProcess: any = _lazyValue('electron-utilities', 'utilityProcess');
+export const webUtils: any = _lazyValue('electron-utilities', 'webUtils');
+export const autoUpdater: any = _lazyValue('electron-utilities', 'autoUpdater');
 export const powerSaveBlocker: any = _lazyValue('electron-system', 'powerSaveBlocker');
 export const session: any = _lazyValue('electron-session', 'session');
 export const Session: any = _lazyValue('electron-session', 'Session');
@@ -94,7 +114,7 @@ g.__tsgpui_window_closed = (id: number) => windows.get(id)?.didClose();
 // The host reports native window lifecycle changes (focus, blur, resize, move, minimize, maximize, restore,
 // show, hide, ready-to-show, enter-full-screen, leave-full-screen, will-move, will-resize)
 // and user close requests (close-requested). Only windows with a 'close' listener receive close-requested.
-g.__tsgpui_window_event = (id: number, name: string) => windows.get(id)?.dispatchNative(name);
+g.__tsgpui_window_event = (id: number, name: string, ...args: any[]) => windows.get(id)?.dispatchNative(name, ...args);
 function numberOr(value: any, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
 export class BrowserWindow extends EventEmitter {
   id: number; options: any; destroyed = false; webContents: any; parent: BrowserWindow | null = null; private created: Promise<any>; private closeWatched = false; private visible: boolean; private fullScreen: boolean; private fullScreenable: boolean;
@@ -122,19 +142,31 @@ export class BrowserWindow extends EventEmitter {
     this.webContents = {id: this.id, isDestroyed: () => this.destroyed, send: (channel: string, payload: any) => { if (this.id === 1 && g.__tsgpui_emit && g.__tsgpui_window_id !== 0) g.__tsgpui_emit(channel, payload); else void this.command('window.send', {channel,payload}).catch(console.error); }, on: events.on.bind(events), once: events.once.bind(events), removeListener: events.removeListener.bind(events),
       loadURL: (url: string) => this.id === 1 ? Promise.reject(new Error('webContents.loadURL is not supported for the first window')) : this.loadURL(url),
       loadFile: (file: string) => this.id === 1 ? Promise.reject(new Error('webContents.loadFile is not supported for the first window')) : this.loadFile(file),
-      goBack: () => unsupported('webContents.goBack'), goForward: () => unsupported('webContents.goForward'),
-      canGoBack: () => unsupported('webContents.canGoBack'), canGoForward: () => unsupported('webContents.canGoForward'),
-      reload: () => unsupported('webContents.reload'), reloadIgnoringCache: () => unsupported('webContents.reloadIgnoringCache'),
-      openDevTools: () => unsupported('webContents.openDevTools'), closeDevTools: () => unsupported('webContents.closeDevTools'),
-      isDevToolsOpened: () => unsupported('webContents.isDevToolsOpened')};
+      goBack() { warn('webContents.goBack'); },
+      goForward() { warn('webContents.goForward'); },
+      canGoBack() { return false; },
+      canGoForward() { return false; },
+      reload() { warn('webContents.reload'); },
+      reloadIgnoringCache() { warn('webContents.reloadIgnoringCache'); },
+      openDevTools() { warn('webContents.openDevTools'); },
+      closeDevTools() { warn('webContents.closeDevTools'); },
+      isDevToolsOpened() { return false; },
+      getTitle() { try { return (g.document?.title) || ''; } catch { return ''; } },
+      getURL() { try { return (g.location?.href) || ''; } catch { return ''; } },
+      isLoading() { return false; },
+      executeJavaScript(code: string) { try { return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
+    };
   }
   /** Subscribing to 'close' asks the host to report user close requests, so listeners can cancel them. */
   on(name: string | symbol, fn: Function): this {
     if (name === 'close' && !this.closeWatched && !this.destroyed) { this.closeWatched = true; void this.command('window.watchClose').catch(console.error); }
     return super.on(name, fn);
   }
-  dispatchNative(name: string) {
+  dispatchNative(name: string, ...args: any[]) {
     if (this.destroyed) return;
+    // An event may carry geometry (from the native host) or a single payload object (from tests).
+    const payload: any = args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? args[0] : (args.length >= 4 ? {x: args[0], y: args[1], width: args[2], height: args[3]} : undefined);
+    const num = (value: any, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
     if (name === 'close-requested') { this.requestClose(); return; }
     if (name === 'ready-to-show') { this.emitReadyToShow(); return; }
     if (name === 'show') { if (!this.visible) { this.visible = true; this.emit('show'); } return; }
@@ -143,11 +175,32 @@ export class BrowserWindow extends EventEmitter {
     if (name === 'leave-full-screen') { if (this.fullScreen) { this.fullScreen = false; this.emit('leave-full-screen'); } return; }
     if (name === 'focus') { if (!this.focused) { this.focused = true; this.emit('focus'); } return; }
     if (name === 'blur') { if (this.focused) { this.focused = false; this.emit('blur'); } return; }
-    if (name === 'minimize') { if (!this.minimized) { this.minimized = true; this.emit('minimize'); } return; }
+    if (name === 'minimize') { if (!this.minimized) { this.minimized = true; this.maximized = false; this.emit('minimize'); } return; }
     if (name === 'maximize') { if (!this.maximized || this.minimized) { this.maximized = true; this.minimized = false; this.emit('maximize'); } return; }
+    if (name === 'unmaximize') { if (this.maximized) { this.maximized = false; this.emit('unmaximize'); } return; }
     if (name === 'restore') { if (this.minimized || this.maximized) { this.minimized = false; this.maximized = false; this.emit('restore'); } return; }
-    if (name === 'move') { this.emit('will-move'); this.emit('move'); return; }
-    if (name === 'resize') { this.emit('will-resize'); this.emit('resize'); return; }
+    if (name === 'move' || name === 'moved') {
+      if (payload && (typeof payload.x === 'number' || typeof payload.y === 'number')) {
+        if (typeof payload.x === 'number') this.bounds.x = num(payload.x, this.bounds.x);
+        if (typeof payload.y === 'number') this.bounds.y = num(payload.y, this.bounds.y);
+        if (typeof payload.width === 'number') this.bounds.width = Math.max(200, Math.min(4096, num(payload.width, this.bounds.width)));
+        if (typeof payload.height === 'number') this.bounds.height = Math.max(200, Math.min(4096, num(payload.height, this.bounds.height)));
+      }
+      if (name === 'move') { this.emit('will-move'); this.emit('move'); }
+      else { this.emit('moved'); }
+      return;
+    }
+    if (name === 'resize' || name === 'resized') {
+      if (payload && (typeof payload.width === 'number' || typeof payload.height === 'number' || typeof payload.x === 'number' || typeof payload.y === 'number')) {
+        if (typeof payload.x === 'number') this.bounds.x = num(payload.x, this.bounds.x);
+        if (typeof payload.y === 'number') this.bounds.y = num(payload.y, this.bounds.y);
+        if (typeof payload.width === 'number') this.bounds.width = Math.max(200, Math.min(4096, num(payload.width, this.bounds.width)));
+        if (typeof payload.height === 'number') this.bounds.height = Math.max(200, Math.min(4096, num(payload.height, this.bounds.height)));
+      }
+      if (name === 'resize') { this.emit('will-resize'); this.emit('resize'); }
+      else { this.emit('resized'); }
+      return;
+    }
     this.emit(name);
   }
   private emitReadyToShow() { this.readyToShowEmitted = true; this.emit('ready-to-show'); }
@@ -180,6 +233,9 @@ export class BrowserWindow extends EventEmitter {
   setFullScreenable(fullScreenable: boolean) { this.fullScreenable = !!fullScreenable; }
   isMaximized(): boolean { return this.maximized; }
   isMinimized(): boolean { return this.minimized; }
+  isFocused(): boolean { return this.focused; }
+  isNormal(): boolean { return !this.minimized && !this.maximized && !this.fullScreen; }
+  unmaximize() { if (this.destroyed) return; if (!this.maximized) return; this.maximized = false; this.emit('unmaximize'); if (this.id !== 1) void this.command('window.restore').catch(console.error); }
   getBounds(): {x: number; y: number; width: number; height: number} { return {x: this.bounds.x, y: this.bounds.y, width: this.bounds.width, height: this.bounds.height}; }
   getSize(): {width: number; height: number} { return {width: this.bounds.width, height: this.bounds.height}; }
   getPosition(): [number, number] { return [this.bounds.x, this.bounds.y]; }
@@ -290,8 +346,7 @@ export class Notification extends EventEmitter {
   }
   static isSupported() { return true; }
 }
-export class Tray { constructor(_image?: any) { throw new Error('Tray is not supported by TSGPUI'); } }
-export const globalShortcut = { register(_accelerator: string, _fn: Function): boolean { throw new Error('globalShortcut.register is not supported by TSGPUI'); }, unregister(_accelerator: string) { throw new Error('globalShortcut.unregister is not supported by TSGPUI'); }, unregisterAll() { throw new Error('globalShortcut.unregisterAll is not supported by TSGPUI'); }, isRegistered(_accelerator: string): boolean { throw new Error('globalShortcut.isRegistered is not supported by TSGPUI'); } };
+// Tray and globalShortcut implementations live in electron-system.ts.
 // Everything else in Electron's surface is generated into electron-coverage.ts: each name is an
 // `unsupportedModule` that throws a clear error on first use, instead of being undefined.
 export * from './electron-coverage';

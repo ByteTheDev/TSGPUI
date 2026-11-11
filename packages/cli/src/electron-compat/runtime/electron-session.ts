@@ -40,7 +40,6 @@ type SetCookieDetails = Cookie & { url: string; name: string; value: string };
 type RemoveCookieDetails = { url: string; name: string; domain?: string; path?: string };
 
 function cookieKey(cookie: { url?: string; name: string; domain?: string; path?: string }): string {
-  // Prefer domain+path scoping; fall back to url. Name is always significant.
   const scope = cookie.domain ? `${cookie.domain}${cookie.path || '/'}` : cookie.url || '';
   return `${scope}::${cookie.name}`;
 }
@@ -68,7 +67,6 @@ function matches(cookie: Cookie, details: GetCookiesDetails = {}): boolean {
   if (details.domain != null && cookie.domain !== details.domain && cookie.domain !== details.domain?.replace(/^\./, '')) return false;
   if (details.path != null && cookie.path !== details.path) return false;
   if (details.url != null) {
-    // Cheap host match: exact url or same origin/host contained in the stored url.
     try {
       const want = new URL(details.url);
       if (cookie.url) {
@@ -88,7 +86,6 @@ function matches(cookie: Cookie, details: GetCookiesDetails = {}): boolean {
   if (details.secure === true && !cookie.secure) return false;
   if (details.includeHttpOnly !== true && cookie.httpOnly) return false;
   if (details.session === true && !cookie.session) {
-    // In-memory cookies without an expiry behave like session cookies.
     if (cookie.expirationDate != null) return false;
   }
   return true;
@@ -97,9 +94,6 @@ function matches(cookie: Cookie, details: GetCookiesDetails = {}): boolean {
 async function hostCookies(action: 'get' | 'set' | 'clear' | 'remove' | 'flush', payload: Record<string, any>): Promise<any | null> {
   try {
     const result = await host('session.cookies', { action, ...payload });
-    // A successful host call that did not return a shaped result means the
-    // native host stubbed the operation without backing it. Treat an empty
-    // object without cookies/seeds as unavailable so the memory fallback runs.
     if (result == null) return null;
     if (action === 'get' && result && typeof result === 'object' && !Array.isArray(result) && result.cookies === undefined) return null;
     return result;
@@ -110,6 +104,8 @@ async function hostCookies(action: 'get' | 'set' | 'clear' | 'remove' | 'flush',
 
 export class Session extends EventEmitter {
   partition: string;
+  persist: boolean;
+  private storagePathValue: string | null;
   // Per-session in-memory store. Keyed by domain/path+name or url+name.
   private store = new Map<string, Cookie>();
   private cookiesApi: {
@@ -123,22 +119,28 @@ export class Session extends EventEmitter {
   constructor(partition = '') {
     super();
     this.partition = partition;
+    this.persist = typeof partition === 'string' && partition.startsWith('persist:');
+    this.storagePathValue = this.persist ? null : null;
     this.cookiesApi = {
       get: (details?: GetCookiesDetails) => this.getCookies(details ?? {}),
       set: (details: SetCookieDetails) => this.setCookies(details),
       remove: (details: RemoveCookieDetails) => this.removeCookie(details),
-      flush: () => Promise.resolve(),
+      flush: () => this.flushStorageData(),
       clear: () => this.clearCookies(),
     };
   }
 
   get cookies() { return this.cookiesApi; }
 
+  get storagePath(): string | null { return this.storagePathValue; }
+  set storagePath(value: string | null) { this.storagePathValue = value; }
+
+  isPersistent(): boolean { return this.persist; }
+
   async getCookies(details: GetCookiesDetails = {}): Promise<Cookie[]> {
     const hostResult = await hostCookies('get', { details: { ...details, partition: this.partition || undefined } });
     if (Array.isArray(hostResult)) return [...hostResult];
     if (hostResult && Array.isArray(hostResult.cookies)) return [...hostResult.cookies];
-    // Memory fallback: filter by provided details.
     return [...this.store.values()].filter(c => matches(c, details));
   }
 
@@ -149,7 +151,6 @@ export class Session extends EventEmitter {
     this.store.set(cookieKey(normalized), normalized);
   }
 
-  // Aliases matching the Electron namespace (cookies.set) and the flat query form.
   async set(cookie: SetCookieDetails): Promise<void> { return this.setCookies(cookie); }
 
   async removeCookie(details: RemoveCookieDetails): Promise<void> {
@@ -166,21 +167,68 @@ export class Session extends EventEmitter {
   }
 
   async clearCache(): Promise<void> {
-    const hostResult = await hostCookies('clear', { partition: this.partition || undefined, cache: true });
-    if (hostResult === null) compatWarnings.push('session.clearCache is not supported and has no effect');
+    try { const r = await host('session.clearCache', { partition: this.partition || undefined }); if (r == null) compatWarnings.push('session.clearCache is not supported and has no effect'); } catch { compatWarnings.push('session.clearCache is not supported and has no effect'); }
   }
 
-  async clearData(): Promise<void> {
-    const hostResult = await hostCookies('clear', { partition: this.partition || undefined, data: true });
+  async clearStorageData(options: any = {}): Promise<void> {
+    try { const r = await host('session.clearStorageData', { partition: this.partition || undefined, options }); if (r == null) { compatWarnings.push('session.clearStorageData is not supported and has no effect'); this.store.clear(); } } catch { compatWarnings.push('session.clearStorageData is not supported and has no effect'); this.store.clear(); }
+  }
+
+  async clearData(options: any = {}): Promise<void> {
+    const hostResult = await hostCookies('clear', { partition: this.partition || undefined, data: true, options });
     if (hostResult === null) {
       compatWarnings.push('session.clearData is not supported and has no effect');
       this.store.clear();
     }
   }
 
-  async flushStorageData(): Promise<void> {
-    return;
+  async clearAuthCache(): Promise<void> {
+    compatWarnings.push('session.clearAuthCache is not supported and has no effect');
   }
+
+  async clearHostResolverCache(): Promise<void> {
+    compatWarnings.push('session.clearHostResolverCache is not supported and has no effect');
+  }
+
+  async clearCodeCaches(): Promise<void> {
+    compatWarnings.push('session.clearCodeCaches is not supported and has no effect');
+  }
+
+  async flushStorageData(): Promise<void> {
+    try { await host('session.flushStorageData', { partition: this.partition || undefined }); } catch { /* ignore */ }
+  }
+
+  async getCacheSize(): Promise<number> {
+    try {
+      const r = await host('session.getCacheSize', { partition: this.partition || undefined });
+      if (typeof r === 'number') return r;
+      if (r && typeof r === 'object') {
+        if (typeof r.size === 'number') return r.size;
+        if (typeof r.cacheSize === 'number') return r.cacheSize;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async setProxy(config: any): Promise<void> {
+    compatWarnings.push('session.setProxy is not supported and has no effect');
+  }
+  async resolveProxy(url: string): Promise<string> {
+    return 'DIRECT';
+  }
+  async forceReloadProxyConfig(): Promise<void> { return; }
+
+  async setUserAgent(userAgent: string, acceptLanguages?: string): Promise<void> {
+    compatWarnings.push('session.setUserAgent is not supported and has no effect');
+  }
+  getUserAgent(): string { return ''; }
+
+  getPreloads(): string[] { return []; }
+  setPreloads(preloads: string[]): void { compatWarnings.push('session.setPreloads is not supported and has no effect'); }
+
+  async closeAllConnections(): Promise<void> { return; }
 }
 
 const partitions = new Map<string, Session>();
@@ -200,12 +248,9 @@ export const session = Object.assign(native(), {
     return sess;
   },
   fromPath(): Session {
-    // Path-based sessions are out of scope for the WebView host; fall back to the default.
     compatWarnings.push('session.fromPath is not supported; returning the default session');
     return session.defaultSession;
   },
 });
 
-// Share the singleton with the plain Session class export so
-// `new Session()` in user code still gets instance methods.
 export const DefaultSession = session.defaultSession;

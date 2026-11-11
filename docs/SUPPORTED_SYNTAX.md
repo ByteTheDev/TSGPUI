@@ -108,7 +108,7 @@ The native renderer has one window and no page. `window.create`, `window.load` a
 
 In the browser preview (`tsgpui preview`), file and process calls run through the preview server with the same grants and path rules. The page's token and the `Host` header are checked, so other websites cannot make these calls. `window.setTitle` and `window.close` work in the page. `minimize`, `maximize` and `restore` need the native host. IPC works only within the page, with no peers. Batch files do not run in the preview, because Node cannot start them without a shell.
 
-ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics. WebView mode uses the platform browser's accessibility behavior.
+ARIA and role attributes are accepted as metadata, and `aria-label` is shown as a visible fallback for unlabeled buttons and checkboxes. GPUI 0.2.2 does not expose an accessibility tree API, so these attributes are not yet announced as native screen-reader semantics. The host keeps the parsed metadata in `native/src/accessibility.rs` (with a TODO module for the future GPUI mapping); WebView mode uses the platform browser's accessibility behavior.
 
 Tags must be properly nested and explicitly closed, except void tags such as `input` and `img`, and self-closed `<use .../>`. The document must have one root element.
 
