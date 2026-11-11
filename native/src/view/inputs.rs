@@ -249,6 +249,22 @@ impl AppView {
         }
     }
 
+    // The index one page up or down from `index`, keeping the caret's horizontal position.
+    fn page_index(&self, field_key: &str, value: &str, index: usize, down: bool) -> usize {
+        let Some(area) = self.areas.get(field_key) else { return index; };
+        let area = area.borrow();
+        let caret = area.point_for_index(index);
+        let visible = area.visible_height().max(area.line_height);
+        let target_y = if down { caret.y + visible } else { caret.y - visible };
+        if target_y < px(0.0) {
+            0
+        } else if target_y > area.content_height {
+            value.len()
+        } else {
+            text_input::clamp_to_boundary(value, area.index_for_point(point(caret.x, target_y)))
+        }
+    }
+
     // Single-line <input> fields. The text is an ordinary child; the caret and selection are
     // painted by a canvas that shapes the text with the element's inherited style, so positions
     // match what GPUI draws. Printable text arrives through the EntityInputHandler, which is what
@@ -464,7 +480,7 @@ impl AppView {
                 cx.notify();
                 return true;
             }
-            "left" | "right" if secondary => {
+            "left" | "right" if secondary || modifiers.alt => {
                 let target = if key_name == "left" {
                     text_input::previous_word_boundary(&value, head)
                 } else {
@@ -493,6 +509,10 @@ impl AppView {
                 let target = self.vertical_index(field_key, &value, head, key_name == "down");
                 moved = Some(if modifiers.shift { Selection { anchor: selection.anchor, head: target } } else { Selection::caret(target) });
             }
+            "pageup" | "pagedown" if field.multiline && !secondary => {
+                let target = self.page_index(field_key, &value, head, key_name == "pagedown");
+                moved = Some(if modifiers.shift { Selection { anchor: selection.anchor, head: target } } else { Selection::caret(target) });
+            }
             "enter" if field.multiline && !secondary => edit = Some((range.clone(), "\n".to_string())),
             "a" if secondary => moved = Some(Selection { anchor: 0, head: value.len() }),
             "c" if secondary => {
@@ -510,7 +530,7 @@ impl AppView {
                     edit = Some((range.clone(), text));
                 }
             }
-            "backspace" | "delete" if secondary => {
+            "backspace" | "delete" if secondary || modifiers.alt => {
                 let target = if !selection.is_empty() {
                     range.clone()
                 } else if key_name == "backspace" {

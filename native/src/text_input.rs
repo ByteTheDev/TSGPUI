@@ -187,6 +187,51 @@ impl Selection {
     }
 }
 
+/// Moves the caret up one logical line, keeping its column when possible.
+pub fn previous_logical_line(text: &str, index: usize) -> usize {
+    let index = clamp_to_boundary(text, index);
+    let current_start = line_start(text, index);
+    if current_start == 0 {
+        return 0;
+    }
+    let column = index - current_start;
+    let previous_start = line_start(text, current_start - 1);
+    let previous_end = line_end(text, current_start - 1);
+    previous_start + column.min(previous_end - previous_start)
+}
+
+/// Moves the caret down one logical line, keeping its column when possible.
+pub fn next_logical_line(text: &str, index: usize) -> usize {
+    let index = clamp_to_boundary(text, index);
+    let current_start = line_start(text, index);
+    let current_end = line_end(text, index);
+    if current_end >= text.len() {
+        return text.len();
+    }
+    let next_start = current_end + 1;
+    if next_start > text.len() {
+        return text.len();
+    }
+    let column = index - current_start;
+    let next_end = line_end(text, next_start);
+    (next_start + column.min(next_end - next_start)).min(text.len())
+}
+
+// Common aliases for the helpers above, so callers using either naming style find them.
+pub fn prev_boundary(text: &str, index: usize) -> usize { previous_boundary(text, index) }
+pub fn next_char(text: &str, index: usize) -> usize { next_boundary(text, index) }
+pub fn prev_char(text: &str, index: usize) -> usize { previous_boundary(text, index) }
+pub fn word_left(text: &str, index: usize) -> usize { previous_word_boundary(text, index) }
+pub fn word_right(text: &str, index: usize) -> usize { next_word_boundary(text, index) }
+pub fn prev_word(text: &str, index: usize) -> usize { previous_word_boundary(text, index) }
+pub fn next_word(text: &str, index: usize) -> usize { next_word_boundary(text, index) }
+pub fn start_of_line(text: &str, index: usize) -> usize { line_start(text, index) }
+pub fn end_of_line(text: &str, index: usize) -> usize { line_end(text, index) }
+pub fn line_up(text: &str, index: usize) -> usize { previous_logical_line(text, index) }
+pub fn line_down(text: &str, index: usize) -> usize { next_logical_line(text, index) }
+pub fn up(text: &str, index: usize) -> usize { previous_logical_line(text, index) }
+pub fn down(text: &str, index: usize) -> usize { next_logical_line(text, index) }
+
 #[cfg(test)]
 mod tests {
     use super::*;
