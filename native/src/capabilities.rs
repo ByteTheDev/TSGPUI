@@ -187,6 +187,11 @@ impl Capabilities {
         }
         match operation {
             "app.info" => Ok(self.app_info()),
+            // Minimal in-app update support: the TS autoUpdater checks the feed and downloads the
+            // artifact itself, then asks the host to quit (and opens the installer via
+            // shell.openExternal). Quitting the native GPUI process is driven by UiCommand::Quit in
+            // the runtime, so capabilities only needs to accept the operation here.
+            "app.quit" | "app.exit" | "updater.install" | "updater.quitAndInstall" => Ok(Value::Null),
             "clipboard.readText" => platform::clipboard_read_text().map(Value::from),
             "clipboard.writeText" => platform::clipboard_write_text(text_arg(args, 0)?).map(|_| Value::Null),
             "dialog.openFile" => {

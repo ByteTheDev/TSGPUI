@@ -40,7 +40,7 @@ app: 'lifecycle (whenReady, quit, window-all-closed), getPath for provided paths
     session: 'defaultSession and fromPartition cookies (get/set/remove, getCookies/setCookies/clearCookies) use host(\'session.cookies\') when the host provides it and otherwise an in-memory Map per partition; cache/storage controls, persistence flags and storagePath are exposed; path-based sessions are unsupported',
     protocol: 'handle and registerFileProtocol serve in-page schemes (app, file and custom allowlisted schemes) from packaged assets via webviewPages; binary and streaming response bodies are normalized; remote/http proxy protocols and privileged-scheme semantics other than recording are partial',
     globalShortcut: 'register/unregister forward to the host (RegisterHotKey on Windows) and keep an in-memory registry for isRegistered; OS-level delivery is Windows-first',
-    autoUpdater: 'partial shim: checks report no update and emit update-not-available; no download/install',
+    autoUpdater: 'checks a configured update feed, emits update-available or update-not-available, downloads and verifies the update artifact, and installs it on quitAndInstall',
     BaseWindow: 'partial shim: window-style helpers and bounds tracking; multi-view layout unsupported',
     BrowserView: 'partial shim: view bounds tracking and stub webContents; multi-view layout unsupported',
     View: 'partial shim: bounds tracking, visibility and events; view hierarchy unsupported',

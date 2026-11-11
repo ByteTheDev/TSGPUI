@@ -451,7 +451,7 @@ async function doctor() {
 // Signing uses TSGPUI_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
 // The manifest is signed with an Ed25519 key from --manifest-key or TSGPUI_MANIFEST_KEY.
 // Publishing is manual: upload the artifacts and manifest to publishUrl (from packaging.publishUrl or --publish-url).
-// electron-builder autoUpdater has no TSGPUI equivalent; ship updates via the TSGPUI release process.
+// In-app updates use autoUpdater against the published installer plus .manifest.json; TSGPUI provides the runtime shim and release artifacts.
 async function packageApp() {
   const installer = flag('installer', '');
   if (installer && installer !== 'nsis') throw new Error(`Unsupported installer: ${installer} (supported: nsis)`);
@@ -480,10 +480,10 @@ async function packageApp() {
     artifacts.push(installerFile);
   }
   const manifest = path.join(result.paths.outDir, `${result.config.name}.manifest.json`);
-  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPUI_MANIFEST_KEY || ''));
+  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPUI_MANIFEST_KEY || ''), result.config.version);
   console.log(`Wrote manifest: ${manifest}`);
-  if (publishUrl) console.log(`Publish (manual): upload ${[...artifacts, manifest, ...(fs.existsSync(manifest + '.sig') ? [manifest + '.sig'] : [])].map(file => path.basename(file)).join(', ')} to publishUrl ${publishUrl}. TSGPUI has no auto-publish; electron-builder publish / autoUpdater are manual release-process steps.`);
-  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process (docs/RELEASING.md).');
+  if (publishUrl) console.log(`Publish (manual): upload ${[...artifacts, manifest, ...(fs.existsSync(manifest + '.sig') ? [manifest + '.sig'] : [])].map(file => path.basename(file)).join(', ')} to publishUrl ${publishUrl}. Configure the app's autoUpdater feed URL to this publishUrl (plus the manifest) so installed apps can update in place.`);
+  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: configure autoUpdater.setFeedURL(...) to the published manifest URL; TSGPUI downloads, verifies and installs the update on quitAndInstall().');
 }
 
 // Sign (and optionally notarize) an arbitrary artifact on any platform.

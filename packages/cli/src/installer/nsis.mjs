@@ -13,7 +13,7 @@ export function nsisScript({name, version, executable, output, publishUrl, certi
 ; TSGPUI NSIS installer for ${name} ${version}
 ; Signing: tsgpui package --installer nsis --sign with TSGPUI_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
 ; Publish (manual): upload this installer plus the SHA-256 manifest to publishUrl ${safe(publishUrl)}
-; autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process.
+; In-app updates are supported: configure autoUpdater.setFeedURL(...) to the published manifest URL.
 Name "${name} ${version}"
 OutFile "${output}"
 InstallDir "$PROGRAMFILES\\${name}"

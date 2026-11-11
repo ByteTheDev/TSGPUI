@@ -546,3 +546,41 @@ test('minimize, maximize and restore update isMinimized and isMaximized', async 
   secondary.maximize(); await flush();
   assert.deepEqual(events, []); assert.equal(secondary.isMaximized(), true);
 });
+
+test('autoUpdater reports an available update from the feed', async () => {
+  const {load, context} = runtime();
+  context.TextEncoder = TextEncoder;
+  context.TextDecoder = TextDecoder;
+  context.__tsgpui_host = async (op) => {
+    if (op === 'app.info') return {name: 'Example', version: '1.2'};
+    if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/app.exe'})};
+    return {};
+  };
+  const e = load('electron');
+  const autoUpdater = e.autoUpdater;
+  autoUpdater.setFeedURL('https://example.com/feed.json');
+  let updateAvailable;
+  autoUpdater.on('update-available', (info) => { updateAvailable = info; });
+  const result = await autoUpdater.checkForUpdates();
+  assert.equal(result.isUpdateAvailable, true);
+  assert.equal(updateAvailable.version, '2.0.0');
+});
+
+test('autoUpdater reports no update when the feed version is older', async () => {
+  const {load, context} = runtime();
+  context.TextEncoder = TextEncoder;
+  context.TextDecoder = TextDecoder;
+  context.__tsgpui_host = async (op) => {
+    if (op === 'app.info') return {name: 'Example', version: '1.2'};
+    if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '1.0.0', url: 'https://example.com/app.exe'})};
+    return {};
+  };
+  const e = load('electron');
+  const autoUpdater = e.autoUpdater;
+  autoUpdater.setFeedURL('https://example.com/feed.json');
+  let updateNotAvailable;
+  autoUpdater.on('update-not-available', (info) => { updateNotAvailable = info; });
+  const result = await autoUpdater.checkForUpdates();
+  assert.equal(result.isUpdateAvailable, false);
+  assert.ok(updateNotAvailable);
+});

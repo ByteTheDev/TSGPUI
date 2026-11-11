@@ -173,5 +173,8 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
         // its in-page toast fallback.
         return Capabilities::from_permissions(permissions,base.to_path_buf()).call(op,&[args.clone()],&[]);
     }
+    if matches!(op, "app.quit" | "app.exit" | "updater.install" | "updater.quitAndInstall") {
+        return Ok(Value::Null);
+    }
     Err(format!("unsupported op: {op}"))
 }
