@@ -19,6 +19,7 @@ use std::{
 
 use serde_json::{json, Value};
 
+use image::{DynamicImage, ImageFormat};
 use crate::{package::Permissions, platform};
 
 thread_local! {
@@ -37,6 +38,53 @@ pub fn set_current_cancel_token(token: Option<Arc<AtomicBool>>) {
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ENTRIES: usize = 10_000;
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(10);
+
+static IMAGE_STORE: Mutex<Vec<Option<DynamicImage>>> = Mutex::new(Vec::new());
+
+fn store_image(img: DynamicImage) -> usize {
+    let mut store = IMAGE_STORE.lock().unwrap_or_else(|e| e.into_inner());
+    store.push(Some(img));
+    store.len()
+}
+
+fn load_image(handle: usize) -> Option<DynamicImage> {
+    let store = IMAGE_STORE.lock().unwrap_or_else(|e| e.into_inner());
+    handle.checked_sub(1).and_then(|idx| store.get(idx)).and_then(|slot| slot.clone())
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHA[(n >> 18) & 63] as char);
+        out.push(ALPHA[(n >> 12) & 63] as char);
+        if chunk.len() > 1 { out.push(ALPHA[(n >> 6) & 63] as char); } else { out.push('='); }
+        if chunk.len() > 2 { out.push(ALPHA[n & 63] as char); } else { out.push('='); }
+    }
+    out
+}
+
+fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0;
+    for c in text.chars() {
+        if c == '=' { break; }
+        let idx = ALPHA.iter().position(|&b| b == c as u8).ok_or("Invalid base64")? as u32;
+        acc = (acc << 6) | idx;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Capabilities {
