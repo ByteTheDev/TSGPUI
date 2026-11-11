@@ -1,5 +1,6 @@
 import { host, compatWarnings } from './host';
 import { EventEmitter } from './events';
+import { recordNetLog } from './electron-logging';
 
 // Permission-checked HTTPS transport shim. Deepened to support binary request
 // bodies, response streaming, redirect handling, request cancellation and an
@@ -278,6 +279,7 @@ export const net = {
         if (aborted) return;
         const status = result?.status ?? result?.statusCode ?? 200;
         const respHeaders = result?.headers || {};
+        recordNetLog({url, method, status, headers: respHeaders});
         // Redirect handling
         const loc = respHeaders.location || respHeaders.Location;
         if (loc && status >= 300 && status < 400) {
@@ -311,6 +313,7 @@ export const net = {
         if (callback) callback(response);
       } catch (error: any) {
         if (aborted) return;
+        recordNetLog({url, method, error: String(error?.message || error)});
         req.emit('error', error instanceof Error ? error : new Error(String(error)));
       }
     }

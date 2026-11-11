@@ -19,11 +19,16 @@ use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
 mod platform;
 mod protocol;
 mod webview_bridge;
+mod image_store;
+mod tray;
+mod hotkeys;
 
 /// Events delivered to the UI thread: page requests, and results from the bridge worker thread.
 enum UserEvent {
     Request(u64, Value),
     Finished(u64, Value),
+    /// A native tray or hotkey event was queued; wake the loop so it can be delivered.
+    Wake,
 }
 
 struct AppWindow {
@@ -73,11 +78,12 @@ fn user_windows_open(windows: &HashMap<u64, AppWindow>) -> bool {
 /// Lists the monitors in device-independent pixels. The primary display is marked.
 fn display_list(window: &Window) -> Value {
     let primary = window.primary_monitor().map(|m| { let p = m.position(); (p.x, p.y) });
-    let displays: Vec<Value> = window.available_monitors().map(|monitor| {
+    let displays: Vec<Value> = window.available_monitors().enumerate().map(|(index, monitor)| {
         let scale = monitor.scale_factor().max(0.01);
         let position = monitor.position();
         let size = monitor.size();
         json!({
+            "id": index + 1,
             "x": f64::from(position.x) / scale, "y": f64::from(position.y) / scale,
             "width": f64::from(size.width) / scale, "height": f64::from(size.height) / scale,
             "scaleFactor": scale, "primary": primary == Some((position.x, position.y)),
@@ -95,6 +101,20 @@ fn notify_main(windows: &HashMap<u64, AppWindow>, id: u64, name: &str, payload: 
             format!("globalThis.__tsgpui_window_event?.({},{})", id, json!(name))
         };
         let _ = main.webview.evaluate_script(&script);
+    }
+}
+
+/// Delivers tray clicks, menu choices and global shortcut presses to the compatibility shim.
+fn deliver_native_events(windows: &HashMap<u64, AppWindow>) {
+    let events = crate::tray::poll_events();
+    if events.is_empty() {
+        return;
+    }
+    if let Some(main) = windows.get(&backend_id(windows)) {
+        for event in events {
+            let script = format!("globalThis.__tsgpui_host_event?.({},{})", event["channel"], event["payload"]);
+            let _ = main.webview.evaluate_script(&script);
+        }
     }
 }
 
@@ -213,6 +233,10 @@ fn main() -> Result<()> {
     let base = bundle_file.as_ref().and_then(|p|p.parent()).map(std::path::Path::to_path_buf)
         .or_else(||std::env::current_exe().ok().and_then(|p|p.parent().map(std::path::Path::to_path_buf))).unwrap_or_default();
     let mut bundle_modified = bundle_file.as_deref().and_then(|file| std::fs::metadata(file).and_then(|meta| meta.modified()).ok());
+    let mut next_power_poll = Instant::now();
+    let mut next_state_poll = Instant::now();
+    let mut last_displays: Option<Vec<Value>> = None;
+    let mut last_preferences: Option<Value> = None;
 
     #[cfg(target_os = "linux")]
     gtk::init().context("Unable to initialize GTK/WebKitGTK for the WebView renderer")?;
@@ -220,6 +244,8 @@ fn main() -> Result<()> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let worker_proxy = proxy.clone();
+    let wake_proxy = proxy.clone();
+    crate::tray::set_event_notifier(move || { let _ = wake_proxy.send_event(UserEvent::Wake); });
     let window = WindowBuilder::new()
         .with_title(&document.title)
         .with_inner_size(LogicalSize::new(f64::from(document.width), f64::from(document.height)))
@@ -258,6 +284,7 @@ fn main() -> Result<()> {
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(450));
         match event {
+            Event::UserEvent(UserEvent::Wake) => deliver_native_events(&windows),
             Event::UserEvent(UserEvent::Finished(origin, done)) => {
                 if let Some(w) = windows.get(&origin) { resolve_raw(&w.webview, done["id"].as_u64().unwrap_or(0), done["ok"].as_bool().unwrap_or(false), &done["value"]); }
             }
@@ -286,6 +313,12 @@ fn main() -> Result<()> {
             }
             Event::UserEvent(UserEvent::Request(_, request)) if request["op"] == "app.quit" => {
                 *control_flow = ControlFlow::Exit;
+            }
+            Event::UserEvent(UserEvent::Request(origin, request)) if origin != backend_id(&windows) && matches!(request["op"].as_str().unwrap_or(""), op if op.starts_with("tray.") || op.starts_with("globalShortcut.")) => {
+                // Tray icons and hotkeys are app-level objects. Only the page that runs the
+                // backend may create them; a renderer page could otherwise watch keystrokes.
+                let id = request["id"].as_u64().unwrap_or(0);
+                if let Some(w) = windows.get(&origin) { resolve(&w.webview, id, &Err("Tray and global shortcut operations are only available to the app backend".into())); }
             }
             Event::UserEvent(UserEvent::Request(origin, request)) if !request["op"].as_str().unwrap_or("").starts_with("window.") => {
                 // Bridge calls can block for a long time, so they run on the worker thread.
@@ -387,6 +420,61 @@ fn main() -> Result<()> {
                 }
             },
             Event::MainEventsCleared => {
+                deliver_native_events(&windows);
+                // Power transitions are short-lived, so they are checked twice a second. Theme
+                // and monitor changes are slower and only need a periodic snapshot.
+                if Instant::now() >= next_power_poll {
+                    next_power_poll = Instant::now() + Duration::from_millis(500);
+                    if let Some(main) = windows.get(&backend_id(&windows)) {
+                        for event in platform::take_power_events() {
+                            let script = format!("globalThis.__tsgpui_power_event?.({})", json!(event));
+                            let _ = main.webview.evaluate_script(&script);
+                        }
+                    }
+                }
+                if Instant::now() >= next_state_poll {
+                    next_state_poll = Instant::now() + Duration::from_secs(3);
+                    if let Some(main) = windows.get(&backend_id(&windows)) {
+                        let preferences = platform::system_preferences();
+                        if last_preferences.as_ref() != Some(&preferences) {
+                            let first = last_preferences.is_none();
+                            last_preferences = Some(preferences);
+                            if !first {
+                                let _ = main.webview.evaluate_script("globalThis.__tsgpui_system_preferences_event?.('color-changed')");
+                            }
+                        }
+                        if let Some(window) = windows.get(&1).or_else(|| windows.values().next()) {
+                            let displays = display_list(&window.window);
+                            let next: Vec<Value> = displays["displays"].as_array().cloned().unwrap_or_default();
+                            if let Some(previous) = last_displays.replace(next.clone()) {
+                                let display_id = |display: &Value| display["id"].as_u64().unwrap_or(0);
+                                let previous_ids: std::collections::HashSet<u64> = previous.iter().map(display_id).collect();
+                                let next_ids: std::collections::HashSet<u64> = next.iter().map(display_id).collect();
+                                for display in &next {
+                                    if !previous_ids.contains(&display_id(display)) {
+                                        let script = format!("globalThis.__tsgpui_display_event?.('display-added',{},null)", display);
+                                        let _ = main.webview.evaluate_script(&script);
+                                    }
+                                }
+                                for display in &previous {
+                                    if !next_ids.contains(&display_id(display)) {
+                                        let script = format!("globalThis.__tsgpui_display_event?.('display-removed',{},null)", display);
+                                        let _ = main.webview.evaluate_script(&script);
+                                    }
+                                }
+                                for display in &next {
+                                    if let Some(old) = previous.iter().find(|old| display_id(old) == display_id(display)) {
+                                        if old != display {
+                                            let details = json!({"bounds": true, "workArea": true, "scaleFactor": old["scaleFactor"] != display["scaleFactor"], "rotation": false});
+                                            let script = format!("globalThis.__tsgpui_display_event?.('display-metrics-changed',{},{})", display, details);
+                                            let _ = main.webview.evaluate_script(&script);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 if let Some(file) = bundle_file.as_ref() {
                     let changed = std::fs::metadata(file).and_then(|meta| meta.modified()).ok();
                     if changed.is_some() && changed != bundle_modified {

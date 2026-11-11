@@ -1,10 +1,17 @@
 import { EventEmitter } from './events';
+import fs from './fs';
+import path from './path';
+import { info, infoReady } from './os';
 
-// Partial shim for Electron's crashReporter: records crash parameters locally and never uploads.
+// Partial shim for Electron's crashReporter. Native crash dumps need Crashpad/minidumps, which
+// the embedded engines do not expose. The shim records the crash parameters and writes crash
+// metadata under `<userData>/crashes`, where a host-side crash handler or a packaging step can
+// collect it. Nothing is uploaded.
 const crashExtraParameters = new Map<string, string>();
 let crashParameters: Record<string, string> = {};
 let crashUploadToServer = false;
-const crashReports: Array<{ date: number; id: string }> = [];
+let crashReports: Array<{ date: number; id: string }> = [];
+let nextCrashId = 1;
 
 function snapshotParameters(): Record<string, string> {
   const out: Record<string, string> = { ...crashParameters };
@@ -12,11 +19,32 @@ function snapshotParameters(): Record<string, string> {
   return out;
 }
 
+function crashesDirectory(): string {
+  const root = info.paths?.userData || info.paths?.appFolder || '/';
+  return path.join(root, 'crashes');
+}
+
+function crashPayload(event: string, extra: Record<string, any> = {}): Record<string, any> {
+  return {
+    event,
+    productName: crashParameters.productName || info.name || '',
+    version: crashParameters.version || info.version || '',
+    platform: info.platform || '',
+    uploaded: false,
+    parameters: snapshotParameters(),
+    ...extra,
+  };
+}
+
 export class CrashReporter {
+  private ready: Promise<void> = Promise.resolve();
+
   start(options: any = {}) {
     const opts = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
     crashParameters = {};
     crashExtraParameters.clear();
+    crashReports = [];
+    nextCrashId = 1;
     for (const key of Object.keys(opts)) {
       const value = (opts as any)[key];
       if (value === undefined || value === null) continue;
@@ -28,11 +56,43 @@ export class CrashReporter {
         crashParameters[String(key)] = String(value);
       }
     }
-    // Local crash logging only: never upload.
     crashUploadToServer = false;
-    try { console.error('crashReporter started (local only, no upload)', snapshotParameters()); } catch { /* ignore */ }
+    // Create `<userData>/crashes` and persist the reporter settings. Failures are recorded in the
+    // console, not thrown, because Electron's start() is synchronous.
+    this.ready = infoReady.then(async () => {
+      const directory = crashesDirectory();
+      try { await fs.promises.mkdir(directory); } catch { /* already exists or no write root */ }
+      try {
+        await fs.promises.writeFile(path.join(directory, 'crash-reporter.json'),
+          JSON.stringify(crashPayload('started', {startedAt: Date.now()}), null, 2));
+      } catch (error: any) {
+        try { console.error('crashReporter: cannot write the crashes folder:', error?.message || error); } catch {}
+      }
+    }).catch(() => {});
+    try { console.error('crashReporter started (local only, no upload)', JSON.stringify(snapshotParameters())); } catch { /* ignore */ }
     return undefined;
   }
+
+  /**
+   * TSGPUI addition: records a crash and writes a JSON dump under `<userData>/crashes`. Call this
+   * from a global error handler; the host does not intercept native crashes.
+   */
+  captureCrash(reason: any = 'unknown', extra: Record<string, any> = {}): { date: number; id: string } {
+    const date = Date.now();
+    const id = `${date}-${nextCrashId++}`;
+    const report = {date, id};
+    crashReports.push(report);
+    void this.ready.then(async () => {
+      const directory = crashesDirectory();
+      try { await fs.promises.mkdir(directory); } catch { /* already exists */ }
+      await fs.promises.writeFile(path.join(directory, `crash-${id}.json`),
+        JSON.stringify(crashPayload('crash', {date, id, reason: String(reason), ...extra}), null, 2));
+    }).catch((error: any) => {
+      try { console.error('crashReporter: cannot write a crash dump:', error?.message || error); } catch {}
+    });
+    return report;
+  }
+
   getLastCrashReport() {
     return crashReports.length ? crashReports[crashReports.length - 1] : null;
   }

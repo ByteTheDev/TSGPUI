@@ -1,6 +1,9 @@
 import { host, compatWarnings } from './host';
 import { EventEmitter } from './events';
 import { View } from './electron-views';
+import fs from './fs';
+import path from './path';
+import { info } from './os';
 
 // Partial shims for Electron APIs that TSGPUI cannot fully back with native chrome.
 //
@@ -80,8 +83,27 @@ export class WebContentsView extends View {
 }
 
 // webFrameMain: frame internals are unavailable. Construction and lookup are exposed
-// as no-ops; executeJavaScript falls back to eval when possible.
+// as no-ops; the main frame can still deliver messages to the page.
 const frames = new Map<string, WebFrameMain>();
+
+function deliverToPage(channel: string, payload: any): void {
+  const g: any = globalThis;
+  try {
+    if (typeof g.__tsgpui_emit === 'function' && g.__tsgpui_window_id !== 0) {
+      g.__tsgpui_emit(channel, payload);
+      return;
+    }
+    if (g.window && typeof g.window.__tsgpui_receive === 'function') {
+      g.window.__tsgpui_receive(channel, payload);
+      return;
+    }
+    void host('window.send', {channel, payload}).catch((error: any) => {
+      compatWarnings.push(`webFrameMain could not deliver '${channel}': ${error?.message || error}`);
+    });
+  } catch (error: any) {
+    compatWarnings.push(`webFrameMain could not deliver '${channel}': ${error?.message || error}`);
+  }
+}
 
 export class WebFrameMain extends EventEmitter {
   processId: number;
@@ -139,8 +161,18 @@ export class WebFrameMain extends EventEmitter {
   }
   collectJavaScriptCallStack(): never { return unsupported('WebFrameMain.collectJavaScriptCallStack'); }
   reload() { compatWarnings.push('WebFrameMain.reload is not supported and has no effect'); }
-  send(_channel: string, ..._args: any[]) { compatWarnings.push('WebFrameMain.send is not supported and has no effect'); }
-  postMessage(_channel: string, _message: any, _transfer?: any[]) { compatWarnings.push('WebFrameMain.postMessage is not supported and has no effect'); }
+  send(channel: string, ...args: any[]) {
+    if (this._destroyed) throw new Error('WebFrameMain has been destroyed');
+    const payload = args.length <= 1 ? args[0] : args;
+    deliverToPage(String(channel), payload);
+  }
+  postMessage(channel: string, message: any, transfer?: any[]) {
+    if (this._destroyed) throw new Error('WebFrameMain has been destroyed');
+    if (Array.isArray(transfer) && transfer.length) {
+      compatWarnings.push('WebFrameMain.postMessage copies transferables; ports and buffers are not transferred');
+    }
+    deliverToPage(String(channel), message);
+  }
 }
 
 // webFrameMain module-level object (Electron exports this as an object, not a class).
@@ -153,23 +185,64 @@ export const webFrameMain: any = Object.assign(
   },
 );
 
-// contentTracing: tracing is unavailable; expose no-op/empty implementations.
+// contentTracing: Chromium's tracing internals are not available. The shim records a Chrome
+// tracing-event JSON timeline of the recording window, which tools such as Perfetto or
+// chrome://tracing can open. It contains TSGPUI markers, not renderer/GPU thread events.
+const DEFAULT_CATEGORIES = ['*', 'blink', 'cc', 'gpu', 'netlog', 'renderer', 'toplevel', 'tracing', 'ui', 'v8', 'viz', 'views', 'webview'];
+let tracingRecording = false;
+let tracingStartedAt = 0;
+let tracingCategories: string[] = [];
+
+function traceFilePath(requested?: string): string {
+  if (typeof requested === 'string' && requested) {
+    if (path.isAbsolute(requested)) return requested;
+    return path.join(info.paths?.userData || info.paths?.appFolder || '/', requested);
+  }
+  return path.join(info.paths?.userData || info.paths?.appFolder || '/', `trace-${Date.now()}.json`);
+}
+
 export const contentTracing: any = {
   getCategories(): Promise<string[]> {
-    compatWarnings.push('contentTracing.getCategories is not supported; returning an empty list');
-    return Promise.resolve([]);
+    return Promise.resolve([...new Set([...DEFAULT_CATEGORIES, ...tracingCategories])]);
   },
   getTraceBufferUsage(): Promise<{ value: number; percentageUsed: number }> {
-    compatWarnings.push('contentTracing.getTraceBufferUsage is not supported');
-    return Promise.resolve({ value: 0, percentageUsed: 0 });
+    return Promise.resolve({ value: tracingRecording ? 1 : 0, percentageUsed: tracingRecording ? 1 : 0 });
   },
-  startRecording(_options?: any): Promise<void> {
-    compatWarnings.push('contentTracing.startRecording is not supported and has no effect');
+  startRecording(options?: any): Promise<void> {
+    if (tracingRecording) return Promise.reject(new Error('contentTracing.startRecording is already recording'));
+    const opts = options && typeof options === 'object' ? options : {};
+    tracingCategories = Array.isArray(opts.categories) ? opts.categories.map(String) : [];
+    tracingStartedAt = Date.now();
+    tracingRecording = true;
+    compatWarnings.push('contentTracing records TSGPUI timing markers, not Chromium renderer or GPU events');
     return Promise.resolve();
   },
-  stopRecording(_resultFilePath?: string): Promise<string> {
-    compatWarnings.push('contentTracing.stopRecording is not supported');
-    return Promise.resolve('');
+  async stopRecording(resultFilePath?: string): Promise<string> {
+    if (!tracingRecording) return '';
+    tracingRecording = false;
+    const stoppedAt = Date.now();
+    const duration = Math.max(0, stoppedAt - tracingStartedAt);
+    const target = traceFilePath(resultFilePath);
+    const events: any[] = [
+      {name: 'process_name', cat: '__metadata', ph: 'M', pid: 1, tid: 1, ts: 0, args: {name: info.name || 'TSGPUI app'}},
+      {
+        name: 'TSGPUI content trace', cat: 'tsgpui', ph: 'X', pid: 1, tid: 1,
+        ts: tracingStartedAt * 1000, dur: duration * 1000,
+        args: {categories: tracingCategories, platform: info.platform || '', version: info.version || ''},
+      },
+    ];
+    const payload = {
+      traceEvents: events,
+      displayTimeUnit: 'ms',
+      metadata: {source: 'tsgpui', categories: tracingCategories, startedAt: new Date(tracingStartedAt).toISOString(), stoppedAt: new Date(stoppedAt).toISOString()},
+    };
+    try {
+      await fs.promises.writeFile(target, JSON.stringify(payload));
+      return target;
+    } catch (error: any) {
+      compatWarnings.push(`contentTracing.stopRecording could not write ${target}: ${error?.message || error}`);
+      return '';
+    }
   },
 };
 

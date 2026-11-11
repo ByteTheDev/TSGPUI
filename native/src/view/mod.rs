@@ -71,6 +71,11 @@ pub struct AppView {
     persist_path: Option<PathBuf>,
     // Set by the backend's `window.setTitle`. Until then the document's title is shown.
     title_override: Option<String>,
+    // Native state polled for powerMonitor and systemPreferences events.
+    last_power_poll: Option<Instant>,
+    last_state_poll: Option<Instant>,
+    last_displays: Option<Vec<Value>>,
+    last_system_preferences: Option<Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -255,6 +260,7 @@ impl AppView {
             scroll_handles: HashMap::new(), areas: HashMap::new(),
             build_error: None, panel_open: false, panel_tab: PanelTab::Problems, inspector: false,
             selected_node: None, diagnostics, dev, persist_path, title_override: None,
+            last_power_poll: None, last_state_poll: None, last_displays: None, last_system_preferences: None,
         }
     }
 
@@ -399,7 +405,7 @@ impl AppView {
                         eprintln!("TSGPUI: {error}");
                     }
                     let commands = view.backend.take_ui_commands();
-                    let changed = pump.changed || !commands.is_empty();
+                    let mut changed = pump.changed || !commands.is_empty();
                     for command in commands {
                         view.apply_ui_command(window, cx, command);
                     }
@@ -407,6 +413,7 @@ impl AppView {
                         // A closed receiver means the backend stopped waiting, so there is nothing to tell.
                         let _ = reply.send(display_list(window, cx));
                     }
+                    if view.poll_native_state(window, cx) { changed = true; }
                     if changed {
                         cx.notify();
                     }
@@ -414,6 +421,60 @@ impl AppView {
                 if result.is_err() { break; }
             }
         }).detach();
+    }
+
+    // Polls the OS for power, appearance and display changes and hands them to the shim as
+    // host events. Power is checked twice a second so suspend/resume is delivered promptly; the
+    // slower appearance/display check is enough for monitor hot-plug and theme changes.
+    fn poll_native_state(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        let now = Instant::now();
+        let mut changed = false;
+        if self.last_power_poll.map_or(true, |last| now.duration_since(last) >= Duration::from_millis(500)) {
+            self.last_power_poll = Some(now);
+            for event in crate::platform::take_power_events() {
+                if self.backend.emit_global("__tsgpui_power_event", &[Value::from(event)]).is_ok() { changed = true; }
+            }
+        }
+        if self.last_state_poll.map_or(true, |last| now.duration_since(last) >= Duration::from_secs(3)) {
+            self.last_state_poll = Some(now);
+            let preferences = crate::platform::system_preferences();
+            if self.last_system_preferences.as_ref() != Some(&preferences) {
+                let first = self.last_system_preferences.is_none();
+                self.last_system_preferences = Some(preferences);
+                if !first && self.backend.emit_global("__tsgpui_system_preferences_event", &[Value::from("color-changed")]).is_ok() {
+                    changed = true;
+                }
+            }
+            let displays = display_list(window, cx);
+            let next: Vec<Value> = displays.as_array().cloned().unwrap_or_default();
+            if let Some(previous) = self.last_displays.replace(next.clone()) {
+                let display_id = |display: &Value| display["id"].as_u64().unwrap_or(0);
+                let previous_ids: std::collections::HashSet<u64> = previous.iter().map(display_id).collect();
+                let next_ids: std::collections::HashSet<u64> = next.iter().map(display_id).collect();
+                for display in &next {
+                    if !previous_ids.contains(&display_id(display)) {
+                        let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-added"), display.clone(), Value::Null]);
+                        changed = true;
+                    }
+                }
+                for display in &previous {
+                    if !next_ids.contains(&display_id(display)) {
+                        let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-removed"), display.clone(), Value::Null]);
+                        changed = true;
+                    }
+                }
+                for display in &next {
+                    if let Some(old) = previous.iter().find(|old| display_id(old) == display_id(display)) {
+                        if old != display {
+                            let details = serde_json::json!({"bounds": true, "workArea": true, "scaleFactor": old["scaleFactor"] != display["scaleFactor"], "rotation": false});
+                            let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-metrics-changed"), display.clone(), details]);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        changed
     }
 
     fn apply_ui_command(&mut self, window: &mut Window, cx: &mut Context<Self>, command: UiCommand) {
@@ -490,6 +551,7 @@ fn display_list(window: &Window, cx: &App) -> serde_json::Value {
     serde_json::Value::Array(cx.displays().iter().map(|display| {
         let bounds = display.bounds();
         serde_json::json!({
+            "id": u32::from(display.id()),
             "x": f32::from(bounds.origin.x),
             "y": f32::from(bounds.origin.y),
             "width": f32::from(bounds.size.width),

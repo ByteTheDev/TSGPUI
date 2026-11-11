@@ -58,7 +58,10 @@ pub fn url_path(path: &str) -> Option<String> {
 #[cfg(test)]
 mod protocol_tests {
     use super::{decode, url_path};
+    use serde_json::json;
     use wry::http::Uri;
+
+    use crate::package::Permissions;
 
     #[test]
     fn request_paths_match_bundle_keys() {
@@ -79,6 +82,26 @@ mod protocol_tests {
     fn asset_base64_decodes() {
         assert_eq!(decode("Ym9keSB7fQ==").unwrap(), b"body {}");
         assert!(decode("normal text").is_err());
+    }
+
+    #[test]
+    fn native_image_operations_route_through_the_bridge() {
+        let base = std::env::temp_dir().join(format!("tsgpui-bridge-image-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("assets")).unwrap();
+        let source = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255])));
+        let mut png = Vec::new();
+        source.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        std::fs::write(base.join("assets/icon.png"), &png).unwrap();
+        let mut permissions = Permissions::default();
+        permissions.filesystem.read.push("assets".into());
+        let mut session = super::Session::default();
+        let created = super::call("nativeImage.createFromPath", &json!({ "root": "assets", "path": "icon.png" }), &permissions, &base, "App", "1.0", &mut session).unwrap();
+        assert_eq!(created["width"], json!(2));
+        let encoded = super::call("nativeImage.toPNG", &json!({ "handle": created["handle"] }), &permissions, &base, "App", "1.0", &mut session).unwrap();
+        assert!(!encoded["base64"].as_str().unwrap().is_empty());
+        std::fs::write(base.join("outside.png"), &png).unwrap();
+        let denied = super::call("nativeImage.createFromPath", &json!({ "path": base.join("outside.png").to_string_lossy() }), &permissions, &base, "App", "1.0", &mut session);
+        assert!(denied.unwrap_err().contains("PERMISSION_DENIED"));
     }
 }
 
@@ -103,9 +126,42 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
     if matches!(op, "safeStorage.isAvailable" | "safeStorage.encrypt" | "safeStorage.decrypt") {
         return platform::safe_storage_call(op, &[args["value"].clone()]);
     }
+    if op.starts_with("nativeImage.") {
+        // Decoded images live in the host. `{ root, path }` addresses a permission root, userData
+        // or a dialog-selected file exactly as `filesystem.*` does; the root is resolved here and
+        // the image call sees one absolute read root.
+        let mut scoped = permissions.clone();
+        let mut actual = args.clone();
+        if op == "nativeImage.createFromPath" {
+            let path = args["path"].as_str().ok_or("path must be a string")?;
+            if let Some(root) = args.get("root").and_then(Value::as_str) {
+                let (directory, resolved) = if let Some((_, file, _)) = session.grants.iter().find(|(name, _, _)| name == root) {
+                    if !path.is_empty() { return Err("Dialog grant covers only the selected file".into()); }
+                    (file.clone(), file.to_string_lossy().into_owned())
+                } else if root == "userData" {
+                    let directory = crate::package::state_file(name).and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| base.to_path_buf());
+                    (directory, path.to_string())
+                } else if permissions.filesystem.read.iter().any(|granted| granted == root) {
+                    (base.join(root), path.to_string())
+                } else {
+                    return Err("PERMISSION_DENIED: Filesystem root is not granted".into());
+                };
+                scoped.filesystem.read = vec![directory.to_string_lossy().into_owned()];
+                actual["path"] = Value::String(resolved);
+                if let Some(object) = actual.as_object_mut() { object.remove("root"); }
+            }
+        }
+        return Capabilities::from_permissions(&scoped, base.to_path_buf()).call(op, &[actual], &[]);
+    }
     if op == "power.setBlockers" {
         platform::set_power_blockers(&platform::string_list(&args["types"]))?;
         return Ok(Value::Null);
+    }
+    if op == "power.state" {
+        return Ok(platform::power_snapshot());
+    }
+    if op == "systemPreferences.info" {
+        return Ok(platform::system_preferences());
     }
     if op == "app.info" {
         let home=std::env::var_os(if cfg!(windows) {"USERPROFILE"} else {"HOME"}).map(PathBuf::from).unwrap_or_default();
@@ -175,6 +231,12 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
     }
     if matches!(op, "app.quit" | "app.exit" | "updater.install" | "updater.quitAndInstall") {
         return Ok(Value::Null);
+    }
+    if op.starts_with("tray.") {
+        return crate::tray::call(op, args);
+    }
+    if op.starts_with("globalShortcut.") {
+        return crate::hotkeys::call(op, args);
     }
     Err(format!("unsupported op: {op}"))
 }

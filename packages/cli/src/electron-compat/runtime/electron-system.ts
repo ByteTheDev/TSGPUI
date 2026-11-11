@@ -17,10 +17,11 @@ let cursorError: Error | null = null;
 function toDisplay(raw: any, index: number): Display {
   const bounds = {x: Number(raw.x), y: Number(raw.y), width: Number(raw.width), height: Number(raw.height)};
   const size = {width: bounds.width, height: bounds.height};
-  return {id: index + 1, bounds, workArea: {...bounds}, size, workAreaSize: {...size}, scaleFactor: Number(raw.scaleFactor) || 1, rotation: 0, internal: false, touchSupport: 'unknown', colorDepth: 24};
+  const hostId = Number(raw.id);
+  return {id: Number.isFinite(hostId) && hostId > 0 ? hostId : index + 1, bounds, workArea: {...bounds}, size, workAreaSize: {...size}, scaleFactor: Number(raw.scaleFactor) || 1, rotation: 0, internal: false, touchSupport: 'unknown', colorDepth: 24};
 }
 
-function displayKey(d: Display) { return `${d.bounds.x},${d.bounds.y},${d.bounds.width},${d.bounds.height}`; }
+function displayKey(d: Display) { return String(d.id ?? `${d.bounds.x},${d.bounds.y},${d.bounds.width},${d.bounds.height}`); }
 async function refreshCursor() {
   const ops = ['screen.cursor', 'screen.getCursorScreenPoint', 'screen.cursorScreenPoint'];
   for (const op of ops) {
@@ -36,22 +37,28 @@ async function refreshCursor() {
   }
   cursorLoaded = true;
 }
-async function refreshDisplays() {
+async function refreshDisplays(emitEvents = true) {
   const previous = displaysLoaded ? [...displays] : [];
   try {
     const result = await host('screen.displays');
     const list = Array.isArray(result?.displays) ? result.displays : [];
     const next = list.map(toDisplay);
     // Emit display change events based on the previous snapshot.
-    if (displaysLoaded) {
+    if (displaysLoaded && emitEvents) {
       const prevKeys = new Map(previous.map(d => [displayKey(d), d]));
       const nextKeys = new Map(next.map(d => [displayKey(d), d]));
       for (const [key, d] of nextKeys) {
         if (!prevKeys.has(key)) screen.emit('display-added', {}, d);
         else {
           const old = prevKeys.get(key)!;
-          if (old.scaleFactor !== d.scaleFactor || old.bounds.width !== d.bounds.width || old.bounds.height !== d.bounds.height) {
-            screen.emit('display-metrics-changed', {}, d, {bounds: true, workArea: true, scaleFactor: old.scaleFactor !== d.scaleFactor, rotation: false});
+          const metrics = {
+            bounds: old.bounds.x !== d.bounds.x || old.bounds.y !== d.bounds.y || old.bounds.width !== d.bounds.width || old.bounds.height !== d.bounds.height,
+            workArea: old.workArea.width !== d.workArea.width || old.workArea.height !== d.workArea.height,
+            scaleFactor: old.scaleFactor !== d.scaleFactor,
+            rotation: old.rotation !== d.rotation,
+          };
+          if (metrics.bounds || metrics.workArea || metrics.scaleFactor || metrics.rotation) {
+            screen.emit('display-metrics-changed', {}, d, metrics);
           }
         }
       }
@@ -99,7 +106,7 @@ function nearestDisplay(point: Point): Display {
 
 export const screen = Object.assign(new EventEmitter(), {
   /** TSGPUI addition: re-read the displays from the host and wait for the result. */
-  async refresh() { await refreshDisplays(); if (displaysError) throw displaysError; },
+  async refresh() { await refreshDisplays(true); if (displaysError) throw displaysError; },
   getPrimaryDisplay(): Display { requireDisplays(); return primaryDisplay as Display; },
   getAllDisplays(): Display[] { return [...requireDisplays()]; },
   getDisplayNearestPoint(point: Point): Display {
@@ -142,22 +149,30 @@ export const screen = Object.assign(new EventEmitter(), {
 // Host-driven display events. The host calls this global when monitors change; the shim
 // re-reads the display list when possible and re-emits the Electron-style event.
 const gScreen: any = globalThis;
+function displayPayload(display: any): any {
+  if (!display || typeof display !== 'object') return {};
+  if (display.bounds && typeof display.bounds === 'object') return display;
+  if (typeof display.x === 'number' && typeof display.width === 'number') return toDisplay(display, displays.length);
+  return display;
+}
 function handleDisplayEvent(name: string, display?: any, details?: any) {
   try {
     const evt = String(name || '');
-    const payloadDisplay = display && typeof display === 'object' ? display : undefined;
+    const payloadDisplay = displayPayload(display);
     if (evt === 'display-added' || evt === 'display-removed' || evt === 'display-metrics-changed') {
-      screen.emit(evt, {}, payloadDisplay ?? {}, details);
+      screen.emit(evt, {}, payloadDisplay, details);
     } else {
-      screen.emit(evt, {}, payloadDisplay ?? {});
+      screen.emit(evt, {}, payloadDisplay);
     }
+    // The host's event may carry only a summary. Re-read the full list without emitting the same
+    // change a second time, so `getAllDisplays()` and hit tests see the new geometry.
+    if (evt.startsWith('display-')) void refreshDisplays(false);
   } catch (error) { try { console.error('screen event failed:', error); } catch {} }
 }
 gScreen.__tsgpui_display_event = (name: string, ...args: any[]) => handleDisplayEvent(name, args[0], args[1]);
 gScreen.__tsgpui_screen_event = gScreen.__tsgpui_display_event;
 gScreen.__tsgpui_display_changed = (payload?: any) => {
-  // Best-effort refresh; ignored when no host is available.
-  try { void (screen as any).refresh?.(); } catch {}
+  void refreshDisplays(false);
   handleDisplayEvent('display-metrics-changed', payload);
 };
 

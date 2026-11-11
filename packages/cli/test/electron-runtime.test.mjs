@@ -10,7 +10,7 @@ function runtime(page = false) {
   const calls = [], subscriptions = new Map(), files = new Map();
   const info = {name:'Example', version:'1.2', platform:'linux', paths:{home:'/home', temp:'/tmp', appFolder:'/app', userData:'/data'}, roots:[{name:'userData',path:'/data',access:'write'}]};
   const host = async (op, args = {}) => { calls.push([op,args]); switch(op) { case 'app.info': return info; case 'filesystem.writeText': files.set(args.path,args.text); return {}; case 'filesystem.readText': return {text:files.get(args.path)}; case 'filesystem.writeBytes': files.set(args.path,args.base64); return {}; case 'filesystem.readBytes': return {base64:files.get(args.path)}; case 'filesystem.list': return {entries:['a']}; case 'filesystem.stat': return {type:'file',size:3}; case 'process.spawn': return {status:0,stdout:'ok',stderr:''}; case 'dialog.openFile': return {canceled:false,paths:['/data/a']}; case 'dialog.saveFile': return {canceled:false,path:'/data/a'}; case 'dialog.message': return {response:1}; case 'clipboard.readText': return {text:'clip'}; case 'ipc.invoke': return context.__tsgpui_ipc_dispatch('invoke',args.channel,args.payload); case 'ipc.send': return context.__tsgpui_ipc_dispatch('send',args.channel,args.payload); default: return {}; } };
-  const context = vm.createContext({console, Uint8Array, Promise, Map, setTimeout, __tsgpui_host:host});
+  const context = vm.createContext({console, Uint8Array, Promise, Map, setTimeout, URL, TextEncoder, TextDecoder, __tsgpui_host:host});
   context.__tsgpui_emit = (channel,payload) => { for (const fn of subscriptions.get(channel) || []) fn(payload); };
   if (page) context.window = {tsgpui:{invoke:host,on(channel,fn) { const a = subscriptions.get(channel) || []; a.push(fn); subscriptions.set(channel,a); return () => { const i = a.indexOf(fn); if (i >= 0) a.splice(i,1); }; }}, matchMedia:() => ({matches:true})};
   const cache = new Map();
@@ -95,7 +95,7 @@ test('menu templates create inspectable nested items and reject invalid operatio
   assert.throws(() => menu.popup(), /native menus are not available/);
   e.Menu.setApplicationMenu(null); assert.equal(e.Menu.getApplicationMenu(),null);
 });
-test('nativeImage preserves PNG bytes and reports dimensions, while unsupported conversions fail', async () => {
+test('nativeImage preserves PNG bytes and reports dimensions without host image support', async () => {
   const image = runtime().load('electron').nativeImage;
   const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXkAAAAASUVORK5CYII=';
   const value = image.createFromDataURL('data:image/png;base64,' + base64);
@@ -106,6 +106,38 @@ test('nativeImage preserves PNG bytes and reports dimensions, while unsupported 
   assert.equal(image.createEmpty().getSize().width,0);
   assert.equal(value.resize({width:2,height:2}).getSize().width, 2);
   assert.equal((await image.createFromPath('x.png')).isEmpty(), true);
+});
+test('nativeImage uses host pixels for encoding, resizing and cropping', async () => {
+  const {load,context,calls} = runtime();
+  context.__tsgpui_host = async (op, args = {}) => {
+    calls.push([op,args]);
+    switch (op) {
+      case 'app.info': return {name:'Example', version:'1.2', platform:'linux', paths:{}, roots:[{name:'data',path:'/data',access:'read'}]};
+      case 'nativeImage.createFromPath': return {handle:1,width:3,height:2,scaleFactor:1};
+      case 'nativeImage.resize': return {handle:2,width:6,height:4,scaleFactor:1};
+      case 'nativeImage.crop': return {handle:3,width:1,height:1,scaleFactor:1};
+      case 'nativeImage.getSize': return args.handle === 2 ? {width:6,height:4} : {width:3,height:2};
+      case 'nativeImage.toPNG': return {base64: args.handle === 2 ? 'BgcI' : 'AQID'};
+      case 'nativeImage.toJPEG': return {base64:'BAUG'};
+      default: return {};
+    }
+  };
+  const image = load('electron').nativeImage;
+  const value = await image.createFromPath('/data/icon.png');
+  assert.equal(value.isEmpty(), false);
+  assert.deepEqual([value.getSize().width, value.getSize().height], [3, 2]);
+  assert.equal(value.getAspectRatio(), 1.5);
+  assert.deepEqual(Array.from(value.toPNG()), [1, 2, 3]);
+  assert.deepEqual(Array.from(value.toJPEG()), [4, 5, 6]);
+  assert.equal(value.toDataURL(), 'data:image/png;base64,AQID');
+  const resized = value.resize({width:6});
+  assert.deepEqual([resized.getSize().width, resized.getSize().height], [6, 4]);
+  await resized.whenReady();
+  assert.deepEqual(Array.from(resized.toPNG()), [6, 7, 8]);
+  const cropped = value.crop({x:1, y:1, width:1, height:1});
+  assert.deepEqual([cropped.getSize().width, cropped.getSize().height], [1, 1]);
+  assert.ok(calls.some(([op, args]) => op === 'nativeImage.resize' && args.handle === 1 && args.width === 6 && args.height === 4));
+  assert.ok(calls.some(([op, args]) => op === 'nativeImage.crop' && args.handle === 1 && args.x === 1 && args.y === 1));
 });
 test('nativeTheme tracks effective theme and media changes', () => {
   const {load,context} = runtime(true);
@@ -583,4 +615,422 @@ test('autoUpdater reports no update when the feed version is older', async () =>
   const result = await autoUpdater.checkForUpdates();
   assert.equal(result.isUpdateAvailable, false);
   assert.ok(updateNotAvailable);
+});
+
+test('protocol registers schemes, applies privileges and normalizes streaming bodies', async () => {
+  const {load} = runtime();
+  const protocolModule = load('protocol');
+  const p = protocolModule.protocol;
+  p.registerSchemesAsPrivileged([{scheme: 'app', privileges: {standard: true, secure: true, corsEnabled: true, supportFetchAPI: true}}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(protocolModule.getPrivilegedSchemes())), ['app']);
+  assert.deepEqual(JSON.parse(JSON.stringify(protocolModule.getSchemePrivileges('app'))), {standard: true, secure: true, corsEnabled: true, supportFetchAPI: true});
+  assert.throws(() => p.registerSchemesAsPrivileged('app'), /array of schemes/);
+  let seen;
+  p.handle('app', request => {
+    seen = request;
+    return {status: 200, headers: {}, body: (async function* () { yield 'he'; yield 'llo'; })()};
+  });
+  assert.equal(p.isProtocolRegistered('app'), true);
+  const response = await protocolModule.dispatchRequest('app://localhost/index.html');
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.text(), 'hello');
+  assert.deepEqual(Array.from(response.body), [104, 101, 108, 108, 111]);
+  assert.equal(response.headers['access-control-allow-origin'], '*');
+  assert.equal(seen.isSecure, true);
+  assert.equal(seen.privileges.standard, true);
+  assert.deepEqual(Array.from(new Uint8Array(response.arrayBuffer())), [104, 101, 108, 108, 111]);
+  p.unregisterProtocol('app');
+  assert.equal(p.isProtocolHandled('app'), false);
+  assert.equal(p.isProtocolRegistered('app'), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(protocolModule.getPrivilegedSchemes())), ['app']);
+});
+
+test('protocol callback handlers and file protocols work, and unregister removes them', async () => {
+  const {load} = runtime();
+  const protocolModule = load('protocol');
+  const p = protocolModule.protocol;
+  p.handle('cb', (request, callback) => { setTimeout(() => callback({data: 'ok', mimeType: 'text/plain'}), 0); });
+  const response = await protocolModule.dispatchRequest('cb://localhost/value');
+  assert.equal(response.text(), 'ok');
+  assert.equal(response.headers['content-type'], 'text/plain');
+  p.unregisterProtocol('cb');
+  assert.equal(p.isProtocolHandled('cb'), false);
+  assert.equal(p.isProtocolRegistered('cb'), false);
+  await assert.rejects(protocolModule.dispatchRequest('cb://localhost/value'), /no handler registered/);
+  p.registerFileProtocol('assets');
+  assert.equal(await protocolModule.dispatchRequest('assets://localhost/dir/index.html'), 'tsgpui://localhost/dir/index.html');
+  p.unregisterProtocol('assets');
+  assert.equal(p.isProtocolRegistered('assets'), false);
+  p.registerStringProtocol('text', () => '<p>hello</p>');
+  const text = await protocolModule.dispatchRequest('text://localhost/value');
+  assert.equal(text.text(), '<p>hello</p>');
+  assert.equal(text.headers['content-type'], 'text/plain');
+  p.unregisterProtocol('text');
+  p.registerBufferProtocol('buffer', () => ({data: 'bytes', mimeType: 'application/octet-stream'}));
+  const buffer = await protocolModule.dispatchRequest('buffer://localhost/value');
+  assert.equal(buffer.text(), 'bytes');
+  assert.equal(buffer.headers['content-type'], 'application/octet-stream');
+  p.unregisterProtocol('buffer');
+  p.registerStreamProtocol('stream', () => (async function* () { yield 'a'; yield 'b'; })());
+  const stream = await protocolModule.dispatchRequest('stream://localhost/value');
+  assert.equal(stream.text(), 'ab');
+  p.unregisterProtocol('stream');
+  assert.throws(() => p.registerHttpProtocol('https', () => ({url: 'https://example.com'})), /remote scheme/);
+  assert.throws(() => p.handle('https', () => ({url: 'https://example.com'})), /remote scheme/);
+  p.interceptHttpProtocol('https', request => ({url: 'https://example.com' + request.path}));
+  assert.equal(p.isProtocolIntercepted('https'), true);
+  p.unregisterProtocol('https');
+  assert.equal(p.isProtocolIntercepted('https'), false);
+});
+
+test('protocol proxies remote responses through the permission-checked net transport', async () => {
+  const {load, context, calls} = runtime();
+  context.__tsgpui_host = async (op, args) => {
+    calls.push([op, args]);
+    if (op === 'net.request') return {status: 201, headers: {'content-type': 'text/plain', 'x-result': 'ok'}, body: 'remote'};
+    return {};
+  };
+  const protocolModule = load('protocol');
+  const p = protocolModule.protocol;
+  p.registerHttpProtocol('proxy', () => ({
+    url: 'https://example.com/resource',
+    method: 'POST',
+    headers: {'x-token': 'one'},
+    uploadData: [{bytes: new Uint8Array([104, 105])}],
+  }));
+  const response = await protocolModule.dispatchRequest('proxy://localhost/');
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.text(), 'remote');
+  assert.equal(response.headers['x-result'], 'ok');
+  const call = calls.find(([op]) => op === 'net.request');
+  assert.equal(call[1].url, 'https://example.com/resource');
+  assert.equal(call[1].method, 'POST');
+  assert.equal(call[1].body, 'hi');
+  assert.equal(call[1].headers['x-token'], 'one');
+  p.unhandle('proxy');
+});
+
+test('persistent session cookies round-trip through userData', async () => {
+  const {load, context, calls} = runtime();
+  const files = new Map();
+  context.__tsgpui_host = async (op, args) => {
+    calls.push([op, args]);
+    if (op === 'session.cookies') throw new Error('session cookies are not hosted');
+    if (op === 'filesystem.writeText') { files.set(args.path, args.text); return {}; }
+    if (op === 'filesystem.readText') {
+      if (!files.has(args.path)) throw new Error('missing');
+      return {text: files.get(args.path)};
+    }
+    return {};
+  };
+  const {Session} = load('electron-session');
+  const persistent = new Session('persist:deep');
+  await persistent.cookies.set({url: 'https://example.com/', name: 'token', value: 'abc', expirationDate: Date.now() / 1000 + 3600});
+  const file = [...files.keys()].find(name => name.includes('persist_deep'));
+  assert.ok(file, 'a cookie file is written for a persistent partition');
+  assert.equal(JSON.parse(files.get(file)).length, 1);
+  const reloaded = new Session('persist:deep');
+  const cookies = await reloaded.cookies.get({url: 'https://example.com/'});
+  assert.equal(cookies.length, 1);
+  assert.equal(cookies[0].value, 'abc');
+  await reloaded.cookies.remove({url: 'https://example.com/', name: 'token'});
+  assert.equal((await reloaded.cookies.get({url: 'https://example.com/'})).length, 0);
+  const transient = new Session('persist:deep2');
+  await transient.cookies.set({url: 'https://example.com/', name: 'sid', value: 'x'});
+  const transientFile = [...files.keys()].find(name => name.includes('persist_deep2'));
+  assert.deepEqual(JSON.parse(files.get(transientFile)), []);
+});
+
+test('session cookies fall back to memory when the host returns an empty answer', async () => {
+  const {load} = runtime();
+  const session = load('electron').session.defaultSession;
+  await session.cookies.set({url: 'https://example.com/', name: 'n', value: 'v'});
+  const cookies = await session.cookies.get({url: 'https://example.com/'});
+  assert.equal(cookies.length, 1);
+  assert.equal(cookies[0].value, 'v');
+  await session.cookies.remove({url: 'https://example.com/', name: 'n'});
+  assert.equal((await session.cookies.get({url: 'https://example.com/'})).length, 0);
+});
+
+test('session clearStorageData and clearData filter storage types', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
+  const cleared = [];
+  context.localStorage = {clear() { cleared.push('local'); }};
+  context.sessionStorage = {clear() { cleared.push('session'); }};
+  const session = load('electron').session.defaultSession;
+  await session.cookies.set({url: 'https://example.com/', name: 'a', value: '1'});
+  await session.clearStorageData({storages: ['cookies', 'localstorage']});
+  assert.equal((await session.cookies.get({url: 'https://example.com/'})).length, 0);
+  assert.deepEqual(cleared, ['local', 'session']);
+  await assert.rejects(session.clearStorageData({storages: ['not-a-storage']}), /unknown storage/);
+  await session.clearData({storages: ['cookies']});
+});
+
+test('session permission handlers and user agent are invocable', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
+  const navigatorValue = {userAgent: 'old-agent'};
+  context.navigator = navigatorValue;
+  const session = load('electron').session.defaultSession;
+  session.setPermissionRequestHandler((_wc, permission, callback) => callback(permission === 'notifications'));
+  assert.equal(await session.requestPermission({permission: 'notifications'}), true);
+  assert.equal(await session.requestPermission({permission: 'geolocation'}), false);
+  assert.throws(() => session.setPermissionRequestHandler(42), /function or null/);
+  session.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-read');
+  assert.equal(await session.checkPermission('clipboard-read', 'https://example.com'), true);
+  assert.equal(await session.checkPermission('geolocation', 'https://example.com'), false);
+  await session.setUserAgent('TSGPUI/1.0');
+  assert.equal(session.getUserAgent(), 'TSGPUI/1.0');
+  assert.equal(navigatorValue.userAgent, 'TSGPUI/1.0');
+});
+
+test('session webRequest listeners and download item stubs are inspectable', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => {
+    if (op === 'session.downloadURL') return {savePath: '/tmp/file.bin', receivedBytes: 3};
+    throw new Error('not hosted');
+  };
+  const session = load('electron').session.defaultSession;
+  session.setDownloadPath('/tmp');
+  let seen = 0;
+  session.webRequest.onBeforeRequest({urls: ['https://example.com/*']}, (_details, callback) => { seen += 1; callback({cancel: false}); });
+  assert.equal(session.webRequest._emit('onBeforeRequest', {url: 'https://example.com/a'}).length, 1);
+  assert.equal(session.webRequest._emit('onBeforeRequest', {url: 'https://other.test/'}).length, 0);
+  assert.equal(seen, 1);
+  let item;
+  session.on('will-download', (_event, download) => { item = download; });
+  session.downloadURL('https://example.com/file.bin');
+  assert.ok(item, 'will-download receives a DownloadItem');
+  assert.equal(item.getFilename(), 'file.bin');
+  assert.equal(item.getSavePath(), '/tmp/file.bin');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(item.getState(), 'completed');
+  assert.equal(item.getReceivedBytes(), 3);
+  assert.equal(item.isDone(), true);
+  session.createInterruptedDownload({url: 'https://example.com/part.bin', totalBytes: 10});
+  const interrupted = session.getDownloadItems().at(-1);
+  assert.equal(interrupted.getState(), 'interrupted');
+  assert.equal(interrupted.canResume(), true);
+  session.once('will-download', event => event.preventDefault());
+  session.downloadURL('https://example.com/cancelled.bin');
+  const cancelled = session.getDownloadItems().at(-1);
+  assert.equal(cancelled.getState(), 'cancelled');
+  assert.equal(cancelled.isDone(), true);
+});
+
+test('webContents tracks navigation state, load events, zoom and findInPage', async () => {
+  const {load, context, calls} = runtime();
+  context.__tsgpui_host = async (op, args) => { calls.push([op, args]); return {}; };
+  context.document = {title: '', documentElement: {style: {}}};
+  const e = load('electron');
+  const primary = new e.BrowserWindow({title: 'Primary'});
+  const child = new e.BrowserWindow({title: 'Child'});
+  await flush();
+  const events = [];
+  for (const name of ['did-start-loading', 'did-stop-loading', 'did-finish-load']) child.webContents.on(name, () => events.push(name));
+  await child.loadFile('pages/index.html');
+  assert.deepEqual(events, ['did-start-loading', 'did-finish-load', 'did-stop-loading']);
+  assert.equal(child.webContents.isLoading(), false);
+  assert.equal(child.webContents.getURL(), 'file:///pages/index.html');
+  assert.equal(child.webContents.getTitle(), 'Child');
+  child.setTitle('Renamed');
+  assert.equal(child.webContents.getTitle(), 'Renamed');
+  events.length = 0;
+  child.webContents.reload();
+  await flush();
+  assert.deepEqual(events, ['did-start-loading', 'did-finish-load', 'did-stop-loading']);
+  assert.ok(calls.filter(([op]) => op === 'window.load').length >= 2);
+  child.webContents.setZoomFactor(1.5);
+  assert.equal(context.document.documentElement.style.zoom, '1.5');
+  assert.equal(child.webContents.getZoomFactor(), 1.5);
+  assert.throws(() => child.webContents.setZoomFactor(0), /positive factor/);
+  let found;
+  child.webContents.on('found-in-page', (_event, result) => { found = result; });
+  assert.equal(child.webContents.findInPage('needle'), 1);
+  await flush();
+  assert.equal(found.requestId, 1);
+  assert.equal(found.matches, 0);
+  assert.equal(found.finalUpdate, true);
+  assert.throws(() => child.webContents.stopFindInPage('nope'), /unknown action/);
+  const warnings = load('host').compatWarnings;
+  child.webContents.openDevTools();
+  assert.equal(warnings.some(warning => /openDevTools/.test(warning)), false);
+  const primaryFailures = [];
+  primary.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => primaryFailures.push([code, description, url, isMainFrame]));
+  await assert.rejects(primary.loadURL('https://example.com'), /webContents.loadURL/);
+  assert.equal(primaryFailures.length, 1);
+  assert.equal(primaryFailures[0][0], -2);
+  assert.equal(primaryFailures[0][3], true);
+});
+
+test('webContents stop cancels loading and suppresses a late did-finish-load', async () => {
+  const {load, context, calls} = runtime();
+  const e = load('electron');
+  const primary = new e.BrowserWindow();
+  const child = new e.BrowserWindow();
+  await flush();
+  let release;
+  context.__tsgpui_host = async (op, args) => {
+    calls.push([op, args]);
+    if (op === 'window.load') return new Promise(resolve => { release = resolve; });
+    return {};
+  };
+  const finishes = [];
+  const stops = [];
+  child.webContents.on('did-finish-load', () => finishes.push('finish'));
+  child.webContents.on('did-stop-loading', () => stops.push('stop'));
+  const loading = child.loadFile('slow.html');
+  await flush();
+  assert.equal(child.webContents.isLoading(), true);
+  child.webContents.stop();
+  assert.equal(child.webContents.isLoading(), false);
+  assert.equal(stops.length, 1);
+  release({});
+  await loading;
+  await flush();
+  assert.equal(finishes.length, 0);
+  assert.equal(primary.webContents.isLoading(), false);
+});
+
+test('webContents emits did-fail-load when the host rejects a load', async () => {
+  const {load, context} = runtime();
+  const e = load('electron');
+  new e.BrowserWindow();
+  const child = new e.BrowserWindow();
+  await flush();
+  context.__tsgpui_host = async (op) => {
+    if (op === 'window.load') throw new Error('missing page');
+    return {};
+  };
+  const failures = [];
+  child.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => failures.push([code, description, url, isMainFrame]));
+  await assert.rejects(child.loadFile('missing.html'), /missing page/);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0][0], -2);
+  assert.equal(failures[0][1], 'missing page');
+  assert.equal(failures[0][3], true);
+});
+
+test('powerMonitor seeds state from the host and re-emits host events', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => op === 'power.state'
+    ? {onBattery: true, idleTime: 42, thermalState: 'fair', locked: false}
+    : {};
+  const e = load('electron');
+  const monitor = e.powerMonitor;
+  await monitor.refresh();
+  assert.equal(monitor.isOnBatteryPower(), true);
+  assert.equal(monitor.getSystemIdleTime(), 42);
+  assert.equal(monitor.getCurrentThermalState(), 'fair');
+  const seen = [];
+  monitor.on('on-ac', () => seen.push('on-ac'));
+  monitor.on('lock-screen', () => seen.push('lock'));
+  context.__tsgpui_power_event('on-ac');
+  context.__tsgpui_power_event('lock-screen');
+  assert.deepEqual(seen, ['on-ac', 'lock']);
+  assert.equal(monitor.isOnBatteryPower(), false);
+  assert.equal(monitor.getSystemIdleState(10), 'locked');
+});
+
+test('systemPreferences reads host appearance, colors and motion', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => op === 'systemPreferences.info'
+    ? {darkMode: true, accentColor: '0078d7', colors: {window: '#123456'}, reduceMotion: true, invertedColors: true}
+    : {};
+  const e = load('electron');
+  const preferences = e.systemPreferences;
+  await preferences.refresh();
+  assert.equal(preferences.isDarkMode(), true);
+  assert.equal(preferences.getAccentColor(), '0078d7');
+  assert.equal(preferences.getColor('window'), '#123456');
+  assert.equal(preferences.getColor('window-text'), '#ffffff');
+  assert.equal(preferences.accessibilityDisplayShouldReduceMotion, true);
+  assert.equal(preferences.isInvertedColorScheme(), true);
+});
+
+test('screen normalizes host display events and refreshes its cache', async () => {
+  const {load, context} = runtime();
+  context.__tsgpui_host = async (op) => op === 'screen.displays'
+    ? {displays: [{id: 7, x: 0, y: 0, width: 800, height: 600, scaleFactor: 1, primary: true}]}
+    : {};
+  const e = load('electron');
+  await e.screen.refresh();
+  const added = [];
+  e.screen.on('display-added', (_event, display) => added.push(display));
+  context.__tsgpui_display_event('display-added', {id: 8, x: 800, y: 0, width: 400, height: 300, scaleFactor: 2, primary: false});
+  assert.equal(added.length, 1);
+  assert.equal(added[0].id, 8);
+  assert.equal(added[0].bounds.x, 800);
+  assert.equal(added[0].scaleFactor, 2);
+  await flush();
+  // The host still reports only display 7, so the background refresh restores that list.
+  assert.equal(e.screen.getAllDisplays().length, 1);
+  assert.equal(e.screen.getAllDisplays()[0].id, 7);
+});
+
+test('contentTracing writes a Chrome trace JSON file', async () => {
+  const {load, files} = runtime();
+  const e = load('electron');
+  await e.contentTracing.startRecording({categories: ['v8']});
+  const target = await e.contentTracing.stopRecording('/data/trace.json');
+  assert.equal(target, '/data/trace.json');
+  const trace = JSON.parse(files.get('trace.json'));
+  assert.equal(trace.traceEvents.length, 2);
+  assert.equal(trace.metadata.categories[0], 'v8');
+  assert.equal(trace.traceEvents[1].cat, 'tsgpui');
+});
+
+test('crashReporter writes metadata and dumps under userData/crashes', async () => {
+  const {load, files} = runtime();
+  const e = load('electron');
+  e.crashReporter.start({productName: 'Demo', extra: {build: '1'}});
+  await flush();
+  assert.ok(files.has('crashes/crash-reporter.json'));
+  assert.match(files.get('crashes/crash-reporter.json'), /Demo/);
+  const report = e.crashReporter.captureCrash('boom', {stack: 'x'});
+  assert.ok(report.id);
+  await flush();
+  assert.ok(files.has(`crashes/crash-${report.id}.json`));
+  assert.match(files.get(`crashes/crash-${report.id}.json`), /boom/);
+  assert.equal(e.crashReporter.getLastCrashReport().id, report.id);
+  assert.deepEqual(Array.from(e.crashReporter.getUploadedReports()), []);
+});
+
+test('netLog writes JSON start and stop records', async () => {
+  const {load, files} = runtime();
+  const e = load('electron');
+  await e.netLog.startLogging('/data/net.json');
+  assert.equal(e.netLog.currentlyLogging, true);
+  assert.equal(JSON.parse(files.get('net.json')).state, 'started');
+  await e.netLog.stopLogging();
+  assert.equal(e.netLog.currentlyLogging, false);
+  assert.equal(JSON.parse(files.get('net.json')).state, 'stopped');
+});
+
+test('utilityProcess wraps child_process and relays stdout and exit', async () => {
+  const {load, calls} = runtime();
+  const e = load('electron');
+  const child = e.utilityProcess.fork('worker.js', ['--flag']);
+  assert.ok(child.pid > 0);
+  const events = [];
+  child.on('exit', (code) => events.push(['exit', code]));
+  child.stdout.on('data', (data) => events.push(['stdout', data]));
+  await flush();
+  assert.ok(calls.some(([op, args]) => op === 'process.spawn' && args.command === 'node'));
+  assert.ok(events.some(([kind, value]) => kind === 'stdout' && value === 'ok'));
+  assert.ok(events.some(([kind, value]) => kind === 'exit' && value === 0));
+});
+
+test('webFrameMain send and postMessage reach the page', () => {
+  const {load, context} = runtime();
+  const e = load('electron');
+  const messages = [];
+  context.__tsgpui_emit = (channel, payload) => messages.push([channel, payload]);
+  const frame = new e.webFrameMain(1, 1);
+  frame.send('notice', 41);
+  frame.postMessage('port', {n: 2});
+  assert.deepEqual(messages, [['notice', 41], ['port', {n: 2}]]);
+  frame.destroy();
+  assert.throws(() => frame.send('late'), /destroyed/);
 });

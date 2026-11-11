@@ -33,7 +33,7 @@ This is a beta. Interfaces may change before 0.4.0, and the platform hosts for m
 ### Known limits
 
 - The native renderer has one window and no page. `window.create`, `window.load` and `ipc.invoke` from the backend are unavailable. `webContents.send` messages are dropped with a warning, and close listeners cannot cancel a close.
-- Tray, global shortcuts, `nativeImage` decoding, cursor position and display events are partial or unsupported. See the [coverage ledger](packages/cli/src/electron-compat/coverage.mjs).
+- Tray, global shortcuts, cursor position and display events are partial or unsupported. See the [coverage ledger](packages/cli/src/electron-compat/coverage.mjs).
 - GPUI does not report a scale factor per display, so the native renderer reports the app window's scale factor for every display.
 - The browser preview does not run the Electron shims.
 - Clipboard, dialogs and power blockers work on Windows only.

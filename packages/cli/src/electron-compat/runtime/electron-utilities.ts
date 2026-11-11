@@ -1,9 +1,14 @@
 import { EventEmitter } from './events';
+import { compatWarnings } from './host';
+import { spawn as spawnChild } from './child_process';
 
-// Partial shim for Electron's utilityProcess namespace. Real utility processes are not
-// available in TSGPUI, so fork() returns a small child-process-like stub that emits
-// the usual lifecycle events without spawning anything.
-class UtilityProcessStub extends EventEmitter {
+// utilityProcess in Electron runs a Node module in a separate utility process. TSGPUI has no Node
+// module runtime, but it can start a normal child process (the same host operation
+// `child_process` uses) and relay its streams and lifecycle. The executable must be listed in
+// `permissions.processes`; it defaults to `node`, so grant `node` (or pass `options.execPath`).
+let nextUtilityPid = 1000;
+
+export class UtilityProcess extends EventEmitter {
   pid: number;
   stdout: EventEmitter;
   stderr: EventEmitter;
@@ -12,38 +17,73 @@ class UtilityProcessStub extends EventEmitter {
   exitCode: number | null = null;
   signalCode: string | null = null;
   connected = true;
-  constructor() {
+  private child: any = null;
+
+  constructor(modulePath: string, args: string[] = [], options: any = {}) {
     super();
-    this.pid = 0;
     this.stdout = new EventEmitter();
     this.stderr = new EventEmitter();
+    this.pid = nextUtilityPid++;
+    if (typeof modulePath !== 'string' || !modulePath) {
+      Promise.resolve().then(() => this.emit('error', new TypeError('utilityProcess.fork requires a module path')));
+      return;
+    }
+    const opts = options && typeof options === 'object' ? options : {};
+    const execPath = typeof opts.execPath === 'string' && opts.execPath ? opts.execPath : 'node';
+    const execArgv = Array.isArray(opts.execArgv) ? opts.execArgv.map(String) : [];
+    try {
+      // child_process.spawn does not support options; cwd/env/stdio are host-controlled.
+      this.child = spawnChild(execPath, [...execArgv, modulePath, ...args.map(String)]);
+      if (Number.isFinite(Number(this.child.pid)) && Number(this.child.pid) > 0) this.pid = Number(this.child.pid);
+      this.child.stdout?.on?.('data', (data: any) => this.stdout.emit('data', data));
+      this.child.stderr?.on?.('data', (data: any) => this.stderr.emit('data', data));
+      this.child.on?.('error', (error: any) => {
+        this.connected = false;
+        this.emit('error', error);
+      });
+      this.child.on?.('exit', (code: number | null, signal: string | null) => {
+        if (this.exitCode !== null) return;
+        this.exitCode = code;
+        this.signalCode = signal;
+        this.connected = false;
+        this.emit('exit', code, signal);
+      });
+      this.child.on?.('close', (code: number | null, signal: string | null) => {
+        if (this.exitCode !== null && code === null) return;
+        this.emit('close', code, signal);
+      });
+      Promise.resolve().then(() => { if (!this.killed) this.emit('spawn'); });
+    } catch (error: any) {
+      Promise.resolve().then(() => this.emit('error', error));
+    }
   }
+
   kill(_signal?: any): boolean {
     if (this.killed) return false;
     this.killed = true;
-    this.exitCode = 0;
     this.connected = false;
-    setTimeout(() => {
-      this.emit('exit', 0, null);
-      this.emit('close', 0, null);
-    }, 0);
+    if (this.child?.kill) {
+      try { this.child.kill(_signal); } catch {}
+    } else {
+      setTimeout(() => {
+        this.exitCode = 0;
+        this.emit('exit', 0, null);
+        this.emit('close', 0, null);
+      }, 0);
+    }
     return true;
   }
   terminate(): boolean { return this.kill(); }
-  postMessage(_message: any, _handle?: any): boolean { return false; }
+  postMessage(_message: any, _handle?: any): boolean {
+    compatWarnings.push('utilityProcess.postMessage has no message port in TSGPUI; the message was dropped');
+    return false;
+  }
   disconnect() { this.connected = false; }
 }
 
-let nextStubPid = 1000;
 export const utilityProcess = {
-  fork(_modulePath?: string, _args?: string[], _options?: any): UtilityProcessStub {
-    const stub = new UtilityProcessStub();
-    stub.pid = nextStubPid++;
-    // Announce spawn asynchronously, mirroring a real child process.
-    setTimeout(() => {
-      stub.emit('spawn');
-    }, 0);
-    return stub;
+  fork(modulePath?: string, args?: string[], options?: any): UtilityProcess {
+    return new UtilityProcess(String(modulePath ?? ''), Array.isArray(args) ? args : [], options);
   },
 };
 

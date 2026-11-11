@@ -60,6 +60,22 @@ function fakeNative(files = new Map()) {
     },
     net: { request: answer('net.request', { status: 200, headers: {}, body: 'pong' }) },
     power: { setBlockers: answer('power.setBlockers', null) },
+    tray: {
+      create: answer('tray.create', { id: 1 }),
+      setIcon: answer('tray.setIcon', null),
+      setToolTip: answer('tray.setToolTip', null),
+      setTitle: answer('tray.setTitle', null),
+      setContextMenu: answer('tray.setContextMenu', null),
+      popUpContextMenu: answer('tray.popUpContextMenu', null),
+      destroy: answer('tray.destroy', null),
+      bounds: answer('tray.bounds', { x: 0, y: 0, width: 0, height: 0 }),
+    },
+    globalShortcut: {
+      register: answer('globalShortcut.register', true),
+      unregister: answer('globalShortcut.unregister', null),
+      unregisterAll: answer('globalShortcut.unregisterAll', null),
+      isRegistered: answer('globalShortcut.isRegistered', true),
+    },
   };
   return { api, calls };
 }
@@ -194,4 +210,25 @@ test('the WebView bridge keeps its object protocol when it is present', async ()
   vm.runInContext(`(function(require,module,exports){${js}\n})`, context)(() => ({}), mod, mod.exports);
   assert.deepEqual(await mod.exports.host('app.info', {}), { ok: true });
   assert.deepEqual(seen, [['app.info', {}]]);
+});
+
+test('native tray and global shortcut calls reach api.tray and api.globalShortcut', async () => {
+  const { api, calls } = fakeNative();
+  const { load } = nativeRuntime(api);
+  const e = load('electron');
+  const tray = new e.Tray('icons/tray.png');
+  tray.setToolTip('Ready');
+  tray.setTitle('99%');
+  tray.setContextMenu([{ id: 'show', label: 'Show', click: () => {} }]);
+  e.globalShortcut.register('CommandOrControl+Shift+P', () => {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const created = calls.find(([name]) => name === 'tray.create');
+  assert.ok(created, 'api.tray.create was not called');
+  assert.equal(JSON.stringify(created[1][0].image), JSON.stringify({ path: 'icons/tray.png' }));
+  assert.equal(calls.find(([name]) => name === 'tray.setToolTip')[1][0].toolTip, 'Ready');
+  assert.equal(calls.find(([name]) => name === 'tray.setTitle')[1][0].title, '99%');
+  const menu = calls.find(([name]) => name === 'tray.setContextMenu')[1][0].menu;
+  assert.equal(JSON.stringify(menu.map(item => item.itemId)), JSON.stringify([1]));
+  assert.equal(calls.find(([name]) => name === 'globalShortcut.register')[1][0], 'CommandOrControl+Shift+P');
 });

@@ -1,4 +1,5 @@
-import fs from './fs';
+import fs, { resolveLocation } from './fs';
+import { host } from './host';
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function encode(bytes: Uint8Array) {
   let out = '';
@@ -64,67 +65,149 @@ function webpDimensions(bytes: Uint8Array) {
 function dimensions(bytes: Uint8Array) {
   return pngDimensions(bytes) || jpegDimensions(bytes) || gifDimensions(bytes) || webpDimensions(bytes);
 }
+function mimeOf(bytes: Uint8Array) {
+  if (pngDimensions(bytes)) return 'image/png';
+  if (jpegDimensions(bytes)) return 'image/jpeg';
+  if (gifDimensions(bytes)) return 'image/gif';
+  if (webpDimensions(bytes)) return 'image/webp';
+  return '';
+}
+// The native host keeps decoded pixels behind a handle. Creation and transforms return
+// { handle, width, height, scaleFactor }; encoding ops return { base64 } (or { dataUrl }). The host
+// is asynchronous, so `createFromPath` (already async in this shim) waits for the host to finish
+// preparing the image, and `whenReady()` lets callers wait after the synchronous creators.
+function isHostResult(value: any): boolean {
+  return !!value && typeof value.handle === 'number';
+}
 class NativeImage {
-  private bytes: Uint8Array;
+  bytes: Uint8Array;
   private sizeOverride: {width: number; height: number} | null;
   private scaleFactor: number;
+  private handle = 0;
+  rawBitmap = false;
+  private prepared: {png?: Uint8Array; jpeg?: Uint8Array; size?: {width: number; height: number}} = {};
+  private work: Promise<any> = Promise.resolve();
   constructor(bytes: Uint8Array, sizeOverride?: {width: number; height: number} | null, scaleFactor = 1) {
     this.bytes = new Uint8Array(bytes);
     this.sizeOverride = sizeOverride ?? null;
     this.scaleFactor = scaleFactor;
     const detected = dimensions(this.bytes);
-    if (!detected && !this.sizeOverride && this.bytes.length) this.bytes = new Uint8Array(0);
+    if (!detected && !this.sizeOverride && this.bytes.length) { this.bytes = new Uint8Array(0); this.rawBitmap = false; }
   }
   private detectedSize() { return dimensions(this.bytes); }
-  getSize(_scaleFactor?: number) {
-    const size = this.sizeOverride || this.detectedSize();
+  private size() {
+    const size = this.prepared.size || this.sizeOverride || this.detectedSize();
     return size ? {width: size.width, height: size.height} : {width: 0, height: 0};
   }
-  isEmpty() { return !this.getSize().width || !this.getSize().height; }
+  /** Resolves when the host has decoded this image and cached its encoded forms. */
+  async whenReady(): Promise<void> {
+    // Tasks can be appended while waiting (a host transform attaches its prepare step after it
+    // resolves), so keep awaiting until the chain stops changing.
+    let seen: Promise<any>;
+    do { seen = this.work; await seen; } while (seen !== this.work);
+  }
+  track(task: Promise<any>) {
+    this.work = this.work.then(() => task).then(() => undefined, () => undefined);
+    return this.work;
+  }
+  private async prepare() {
+    const handle = this.handle;
+    if (!handle) return;
+    const read = async (op: string, args: any = {}) => { try { return await host(op, {...args, handle}); } catch { return null; } };
+    const [png, jpeg, size] = await Promise.all([read('nativeImage.toPNG'), read('nativeImage.toJPEG'), read('nativeImage.getSize')]);
+    if (png && typeof png.base64 === 'string' && png.base64) this.prepared.png = decode(png.base64);
+    if (jpeg && typeof jpeg.base64 === 'string' && jpeg.base64) this.prepared.jpeg = decode(jpeg.base64);
+    if (size && size.width > 0 && size.height > 0) this.prepared.size = {width: size.width, height: size.height};
+  }
+  attachHost(result: any) {
+    if (!isHostResult(result)) return;
+    this.handle = result.handle;
+    if (Number.isFinite(result.width) && Number.isFinite(result.height) && result.width > 0 && result.height > 0) {
+      this.sizeOverride = {width: result.width, height: result.height};
+    }
+    if (Number.isFinite(result.scaleFactor) && result.scaleFactor > 0) this.scaleFactor = result.scaleFactor;
+    if (this.handle) this.track(this.prepare());
+  }
+  private derive(op: string, args: any, size: {width: number; height: number}): NativeImage {
+    const child = new NativeImage(this.bytes, size, this.scaleFactor);
+    if (this.handle) child.track(host(op, {...args, handle: this.handle, scaleFactor: this.scaleFactor}).then((result: any) => child.attachHost(result)));
+    return child;
+  }
+  getSize(_scaleFactor?: number) {
+    const size = this.size();
+    return size ? {width: size.width, height: size.height} : {width: 0, height: 0};
+  }
+  isEmpty() { return !this.size().width || !this.size().height; }
   getAspectRatio() {
-    const size = this.getSize();
+    const size = this.size();
     return size.height ? size.width / size.height : 0;
   }
-  toPNG(_options?: any) { return new Uint8Array(this.bytes); }
+  toPNG(_options?: any) {
+    if (this.prepared.png) return new Uint8Array(this.prepared.png);
+    // Before the host has prepared the image, a PNG source is already the requested encoding.
+    return mimeOf(this.bytes) === 'image/png' ? new Uint8Array(this.bytes) : new Uint8Array(0);
+  }
+  toJPEG(_options?: any) {
+    if (this.prepared.jpeg) return new Uint8Array(this.prepared.jpeg);
+    return mimeOf(this.bytes) === 'image/jpeg' ? new Uint8Array(this.bytes) : new Uint8Array(0);
+  }
   toDataURL(_options?: any) {
-    const mime = this.bytes.length && this.bytes[0] === 137 ? 'image/png' : 'image/png';
-    return `data:${mime};base64,${encode(this.bytes)}`;
+    if (this.prepared.png) return `data:image/png;base64,${encode(this.prepared.png)}`;
+    const mime = mimeOf(this.bytes);
+    return mime ? `data:${mime};base64,${encode(this.bytes)}` : 'data:image/png;base64,';
   }
   getScaleFactors() { return this.isEmpty() ? [] : [this.scaleFactor]; }
-  toJPEG(_options?: any) { return new Uint8Array(this.bytes); }
   toBitmap(_options?: any) {
-    const size = this.getSize();
+    // Raw bitmap data is preserved for images made with createFromBitmap. Encoded sources are
+    // converted by the host through nativeImage.toBitmap, available on api.native.
+    const size = this.size();
+    if (this.rawBitmap && this.bytes.length === size.width * size.height * 4) return new Uint8Array(this.bytes);
     return new Uint8Array(size.width * size.height * 4);
   }
   crop(rect: any) {
-    const size = this.getSize();
-    const x = Math.max(0, Number(rect?.x) || 0);
-    const y = Math.max(0, Number(rect?.y) || 0);
-    const width = Math.max(0, Number(rect?.width) || size.width);
-    const height = Math.max(0, Number(rect?.height) || size.height);
-    return new NativeImage(this.bytes, {width: Math.min(width, Math.max(0, size.width - x)), height: Math.min(height, Math.max(0, size.height - y))}, this.scaleFactor);
+    const size = this.size();
+    const x = Math.max(0, Math.round(Number(rect?.x) || 0));
+    const y = Math.max(0, Math.round(Number(rect?.y) || 0));
+    const width = Math.max(0, Math.round(Number(rect?.width) || size.width));
+    const height = Math.max(0, Math.round(Number(rect?.height) || size.height));
+    const cropped = {width: Math.min(width, Math.max(0, size.width - x)), height: Math.min(height, Math.max(0, size.height - y))};
+    return this.derive('nativeImage.crop', {x, y, width, height}, cropped);
   }
   resize(options: any) {
-    const size = this.getSize();
+    const size = this.size();
     let width = size.width;
     let height = size.height;
     if (options && typeof options === 'object') {
-      if (Number.isFinite(options.width)) width = Math.max(0, Math.round(options.width));
-      if (Number.isFinite(options.height)) height = Math.max(0, Math.round(options.height));
-      if (options.scaleFactor && Number.isFinite(options.scaleFactor)) {
-        // keep size; scale factor informational
-      }
+      const hasWidth = Number.isFinite(options.width);
+      const hasHeight = Number.isFinite(options.height);
+      if (hasWidth) width = Math.max(0, Math.round(options.width));
+      if (hasHeight) height = Math.max(0, Math.round(options.height));
+      // Electron keeps the aspect ratio when only one dimension is given.
+      if (hasWidth && !hasHeight && size.width) height = Math.max(0, Math.round(width * size.height / size.width));
+      if (hasHeight && !hasWidth && size.height) width = Math.max(0, Math.round(height * size.width / size.height));
     }
-    return new NativeImage(this.bytes, {width, height}, this.scaleFactor);
+    return this.derive('nativeImage.resize', {width, height, quality: options?.quality}, {width, height});
   }
+}
+function fromBytes(bytes: Uint8Array, size: {width: number; height: number} | null, scale: number, raw = false): NativeImage {
+  const image = new NativeImage(bytes, size, scale);
+  image.rawBitmap = raw;
+  if (image.bytes.length || size) {
+    const args: any = {base64: encode(image.bytes), scaleFactor: scale};
+    if (size) { args.width = size.width; args.height = size.height; }
+    image.track(host('nativeImage.createFromBuffer', args).then((result: any) => image.attachHost(result)));
+  }
+  return image;
 }
 export const nativeImage = {
   createEmpty() { return new NativeImage(new Uint8Array(0)); },
   createFromBuffer(buffer: Uint8Array, options?: any) {
     if (!(buffer instanceof Uint8Array)) throw new TypeError('nativeImage.createFromBuffer requires a Uint8Array');
     const scale = options && Number.isFinite(options.scaleFactor) ? options.scaleFactor : 1;
-    if (options && options.width && options.height) return new NativeImage(buffer, {width: options.width, height: options.height}, scale);
-    return new NativeImage(buffer, null, scale);
+    if (options && Number.isFinite(options.width) && Number.isFinite(options.height)) {
+      return fromBytes(buffer, {width: options.width, height: options.height}, scale, true);
+    }
+    return fromBytes(buffer, null, scale);
   },
   createFromDataURL(url: string) {
     if (typeof url !== 'string') throw new TypeError('nativeImage.createFromDataURL requires a string');
@@ -133,14 +216,29 @@ export const nativeImage = {
     const meta = url.slice(0, comma);
     const data = url.slice(comma + 1);
     if (!/base64/i.test(meta)) throw new Error('nativeImage currently supports base64 data URLs only');
-    return new NativeImage(decode(data));
+    return fromBytes(decode(data), null, 1);
   },
   async createFromPath(filePath: any, scaleFactor?: any) {
-    const scale = Number.isFinite(scaleFactor) ? scaleFactor : 1;
+    const scale = Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+    let location: any = null;
+    try { location = await resolveLocation(String(filePath)); } catch {}
+    if (location) {
+      try {
+        const result = await host('nativeImage.createFromPath', {root: location.root, path: location.path, scaleFactor: scale});
+        if (isHostResult(result)) {
+          const image = new NativeImage(new Uint8Array(0), null, scale);
+          image.attachHost(result);
+          await image.whenReady();
+          return image;
+        }
+      } catch {}
+    }
     try {
       const data = await (fs as any).promises.readFile(filePath);
       const bytes = data instanceof Uint8Array ? data : new Uint8Array(data || []);
-      return new NativeImage(bytes, null, scale);
+      const image = fromBytes(bytes, null, scale);
+      await image.whenReady();
+      return image;
     } catch {
       return new NativeImage(new Uint8Array(0), null, scale);
     }
@@ -148,6 +246,6 @@ export const nativeImage = {
   createFromBitmap(buffer: Uint8Array, options: any) {
     if (!(buffer instanceof Uint8Array)) throw new TypeError('nativeImage.createFromBitmap requires a Uint8Array');
     if (!options || !Number.isFinite(options.width) || !Number.isFinite(options.height)) throw new TypeError('nativeImage.createFromBitmap requires width and height');
-    return new NativeImage(buffer, {width: options.width, height: options.height}, options.scaleFactor || 1);
+    return fromBytes(buffer, {width: options.width, height: options.height}, options.scaleFactor || 1, true);
   },
 };

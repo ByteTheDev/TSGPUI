@@ -12,13 +12,14 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use serde_json::{json, Value};
 
+use image::{DynamicImage, ImageFormat};
 use crate::package::Permissions;
 
 thread_local! {
@@ -37,6 +38,174 @@ pub fn set_current_cancel_token(token: Option<Arc<AtomicBool>>) {
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ENTRIES: usize = 10_000;
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(10);
+
+static IMAGE_STORE: std::sync::Mutex<Vec<Option<StoredImage>>> = std::sync::Mutex::new(Vec::new());
+static IMAGE_CLOCK: AtomicU64 = AtomicU64::new(0);
+static IMAGE_HANDLE: AtomicU64 = AtomicU64::new(0);
+
+/// A decoded image kept for the lifetime of one or more host calls. Images are addressed by a
+/// 1-based handle so the page can hold an image across calls without shipping its pixels again.
+/// Handles are never reused, so an evicted handle reads as an empty image.
+struct StoredImage {
+    handle: u64,
+    image: DynamicImage,
+    last_used: u64,
+}
+
+const MAX_STORED_IMAGES: usize = 128;
+/// Largest image file or encoded buffer accepted by one call.
+const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
+/// Largest decoded width or height. The image crate also enforces this while decoding.
+const MAX_IMAGE_DIMENSION: u32 = 16_384;
+const MAX_IMAGE_ALLOC: u64 = 256 * 1024 * 1024;
+
+fn store_image(img: DynamicImage) -> usize {
+    let mut store = IMAGE_STORE.lock().unwrap_or_else(|e| e.into_inner());
+    let stamp = IMAGE_CLOCK.fetch_add(1, Ordering::Relaxed);
+    let handle = IMAGE_HANDLE.fetch_add(1, Ordering::Relaxed) + 1;
+    let slot = StoredImage { handle, image: img, last_used: stamp };
+    if let Some(index) = store.iter().position(Option::is_none) {
+        store[index] = Some(slot);
+        return handle as usize;
+    }
+    if store.len() >= MAX_STORED_IMAGES {
+        if let Some(index) = store.iter().enumerate()
+            .filter_map(|(index, slot)| slot.as_ref().map(|slot| (index, slot.last_used)))
+            .min_by_key(|(_, last_used)| *last_used)
+            .map(|(index, _)| index)
+        {
+            store[index] = Some(slot);
+            return handle as usize;
+        }
+    }
+    store.push(Some(slot));
+    handle as usize
+}
+
+fn load_image(handle: usize) -> Option<DynamicImage> {
+    let mut store = IMAGE_STORE.lock().unwrap_or_else(|e| e.into_inner());
+    let slot = store.iter_mut().filter_map(Option::as_mut).find(|slot| slot.handle == handle as u64)?;
+    slot.last_used = IMAGE_CLOCK.fetch_add(1, Ordering::Relaxed);
+    Some(slot.image.clone())
+}
+
+/// Decodes an encoded image, or a BGRA bitmap when `width` and `height` are given. The bitmap
+/// layout matches Electron's `toBitmap`/`createFromBitmap` on Windows and Chromium: blue, green,
+/// red and alpha bytes per pixel.
+fn decode_image(bytes: &[u8], width: Option<u32>, height: Option<u32>) -> Result<DynamicImage, String> {
+    if let (Some(width), Some(height)) = (width, height) {
+        if width == 0 || height == 0 {
+            return Err("Bitmap width and height must be positive".into());
+        }
+        let expected = (width as u64).checked_mul(height as u64).and_then(|pixels| pixels.checked_mul(4))
+            .ok_or("Bitmap dimensions are too large")?;
+        if bytes.len() as u64 != expected {
+            return Err(format!("Bitmap data is {} bytes but {width}x{height} needs {expected}", bytes.len()));
+        }
+        let mut rgba = bytes.to_vec();
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        let image = image::RgbaImage::from_raw(width, height, rgba).ok_or("Bitmap data could not be read")?;
+        return Ok(DynamicImage::ImageRgba8(image));
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_IMAGE_ALLOC);
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|error| format!("Image format could not be detected: {error}"))?;
+    reader.limits(limits);
+    reader.decode().map_err(|error| format!("Image could not be decoded: {error}"))
+}
+
+fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    image.write_to(&mut std::io::Cursor::new(&mut bytes), ImageFormat::Png)
+        .map_err(|error| format!("PNG encoding failed: {error}"))?;
+    Ok(bytes)
+}
+
+fn encode_jpeg(image: &DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let rgb = image.to_rgb8();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality.clamp(1, 100));
+    encoder.encode_image(&rgb).map_err(|error| format!("JPEG encoding failed: {error}"))?;
+    Ok(bytes)
+}
+
+fn encode_bitmap(image: &DynamicImage) -> Vec<u8> {
+    let mut bytes = image.to_rgba8().into_raw();
+    for pixel in bytes.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    bytes
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHA[(n >> 18) & 63] as char);
+        out.push(ALPHA[(n >> 12) & 63] as char);
+        if chunk.len() > 1 { out.push(ALPHA[(n >> 6) & 63] as char); } else { out.push('='); }
+        if chunk.len() > 2 { out.push(ALPHA[n & 63] as char); } else { out.push('='); }
+    }
+    out
+}
+
+fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0;
+    for c in text.chars() {
+        if c == '=' { break; }
+        let idx = ALPHA.iter().position(|&b| b == c as u8).ok_or("Invalid base64")? as u32;
+        acc = (acc << 6) | idx;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
+
+fn image_scale(options: &Value) -> f64 {
+    options.get("scaleFactor").and_then(Value::as_f64).filter(|scale| *scale > 0.0).unwrap_or(1.0)
+}
+
+/// Scales one dimension of an image while preserving the aspect ratio, rounding to the nearest
+/// pixel. Electron's `NativeImage.resize` does the same when one side is omitted.
+fn scale_dimension(value: u32, from: u32, to: u32) -> u32 {
+    if from == 0 {
+        return value;
+    }
+    (((value as u64) * (to as u64) + (from as u64) / 2) / (from as u64)).max(1) as u32
+}
+
+fn image_handle(options: &Value) -> usize {
+    options.get("handle").and_then(Value::as_u64).unwrap_or(0) as usize
+}
+
+fn image_result(handle: usize, width: u32, height: u32, scale: f64) -> Value {
+    json!({ "handle": handle, "width": width, "height": height, "scaleFactor": scale })
+}
+
+fn empty_image_result(scale: f64) -> Value {
+    image_result(0, 0, 0, scale)
+}
+
+fn store_image_result(image: DynamicImage, scale: f64) -> Value {
+    let (width, height) = (image.width(), image.height());
+    image_result(store_image(image), width, height, scale)
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Capabilities {
@@ -75,6 +244,9 @@ impl Capabilities {
     /// Runs one operation. `operation` is `"<group>.<method>"`, and `args` is the JSON argument list.
     /// `env` is added to processes started by `process.spawn`.
     pub fn call(&self, operation: &str, args: &[Value], env: &[(String, String)]) -> Result<Value, String> {
+        if operation.starts_with("nativeImage.") {
+            return self.native_image(operation, args);
+        }
         match operation {
             "filesystem.readText" => {
                 let path = confine(&self.read_roots, text_arg(args, 0)?, true, false)?;
@@ -164,6 +336,125 @@ impl Capabilities {
             }
             other => Err(format!("Native operation '{other}' is not available in this build")),
         }
+    }
+
+    /// `nativeImage.*` operations. Arguments are one object, as the WebView bridge sends them:
+    /// `{ handle, path, base64, width, height, x, y, scaleFactor, quality }`. Bitmaps are BGRA,
+    /// matching Electron and Chromium. The bridge resolves `{ root, path }` to an absolute path and
+    /// restricts this copy's read roots before calling.
+    fn native_image(&self, operation: &str, args: &[Value]) -> Result<Value, String> {
+        let options = args.first().cloned().unwrap_or_else(|| json!({}));
+        let scale = image_scale(&options);
+        match operation {
+            "nativeImage.createFromPath" => {
+                let path = self.image_path(&options)?;
+                let metadata = fs::metadata(&path).map_err(io_error)?;
+                if !metadata.is_file() {
+                    return Err("Path is not a file".into());
+                }
+                if metadata.len() > MAX_IMAGE_BYTES as u64 {
+                    return Err(format!("Image exceeds the {} MiB limit", MAX_IMAGE_BYTES / (1024 * 1024)));
+                }
+                let bytes = fs::read(&path).map_err(io_error)?;
+                let image = decode_image(&bytes, None, None)?;
+                Ok(store_image_result(image, scale))
+            }
+            "nativeImage.createFromBuffer" => {
+                let encoded = options.get("base64").and_then(Value::as_str).ok_or("base64 must be a string")?;
+                let bytes = base64_decode(encoded)?;
+                if bytes.is_empty() {
+                    return Ok(empty_image_result(scale));
+                }
+                if bytes.len() > MAX_IMAGE_BYTES {
+                    return Err(format!("Image exceeds the {} MiB limit", MAX_IMAGE_BYTES / (1024 * 1024)));
+                }
+                let width = options.get("width").and_then(Value::as_u64).map(|value| value as u32);
+                let height = options.get("height").and_then(Value::as_u64).map(|value| value as u32);
+                let image = decode_image(&bytes, width, height)?;
+                Ok(store_image_result(image, scale))
+            }
+            "nativeImage.getSize" => match load_image(image_handle(&options)) {
+                Some(image) => Ok(json!({ "width": image.width(), "height": image.height(), "scaleFactor": scale })),
+                None => Ok(json!({ "width": 0, "height": 0, "scaleFactor": scale })),
+            },
+            "nativeImage.getAspectRatio" => {
+                let ratio = load_image(image_handle(&options))
+                    .filter(|image| image.height() > 0)
+                    .map(|image| image.width() as f64 / image.height() as f64)
+                    .unwrap_or(0.0);
+                Ok(json!(ratio))
+            }
+            "nativeImage.resize" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(empty_image_result(scale)); };
+                let requested_width = options.get("width").and_then(Value::as_u64).map(|value| value as u32);
+                let requested_height = options.get("height").and_then(Value::as_u64).map(|value| value as u32);
+                let (width, height) = match (requested_width, requested_height) {
+                    (Some(width), Some(height)) => (width, height),
+                    (Some(width), None) => (width, scale_dimension(image.height(), image.width(), width)),
+                    (None, Some(height)) => (scale_dimension(image.width(), image.height(), height), height),
+                    (None, None) => (image.width(), image.height()),
+                };
+                if width == 0 || height == 0 {
+                    return Ok(empty_image_result(scale));
+                }
+                if width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION {
+                    return Err(format!("Resized image must be at most {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION}"));
+                }
+                let filter = match options.get("quality").and_then(Value::as_str).unwrap_or("best") {
+                    "good" => image::imageops::FilterType::Triangle,
+                    "better" => image::imageops::FilterType::CatmullRom,
+                    _ => image::imageops::FilterType::Lanczos3,
+                };
+                Ok(store_image_result(image.resize_exact(width, height, filter), scale))
+            }
+            "nativeImage.crop" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(empty_image_result(scale)); };
+                let x = options.get("x").and_then(Value::as_i64).unwrap_or(0).max(0) as u32;
+                let y = options.get("y").and_then(Value::as_i64).unwrap_or(0).max(0) as u32;
+                let width = options.get("width").and_then(Value::as_i64).map(|value| value.max(0) as u32).unwrap_or(image.width());
+                let height = options.get("height").and_then(Value::as_i64).map(|value| value.max(0) as u32).unwrap_or(image.height());
+                let x = x.min(image.width());
+                let y = y.min(image.height());
+                let width = width.min(image.width() - x);
+                let height = height.min(image.height() - y);
+                if width == 0 || height == 0 {
+                    return Ok(empty_image_result(scale));
+                }
+                Ok(store_image_result(image.crop_imm(x, y, width, height), scale))
+            }
+            "nativeImage.toPNG" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(json!({ "base64": "" })); };
+                Ok(json!({ "base64": base64_encode(&encode_png(&image)?) }))
+            }
+            "nativeImage.toJPEG" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(json!({ "base64": "" })); };
+                let quality = options.get("quality").and_then(Value::as_u64).unwrap_or(80).clamp(1, 100) as u8;
+                Ok(json!({ "base64": base64_encode(&encode_jpeg(&image, quality)?) }))
+            }
+            "nativeImage.toDataURL" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(json!({ "dataUrl": "data:image/png;base64," })); };
+                Ok(json!({ "dataUrl": format!("data:image/png;base64,{}", base64_encode(&encode_png(&image)?)) }))
+            }
+            "nativeImage.toBitmap" => {
+                let Some(image) = load_image(image_handle(&options)) else { return Ok(json!({ "base64": "", "width": 0, "height": 0 })); };
+                Ok(json!({ "base64": base64_encode(&encode_bitmap(&image)), "width": image.width(), "height": image.height() }))
+            }
+            other => Err(format!("Native operation '{other}' is not available in this build")),
+        }
+    }
+
+    /// A bare `path` is relative to a read root or absolute, and it must still resolve inside one.
+    fn image_path(&self, options: &Value) -> Result<PathBuf, String> {
+        let path = options.get("path").and_then(Value::as_str).ok_or("path must be a string")?;
+        if Path::new(path).is_absolute() {
+            let resolved = Path::new(path).canonicalize().map_err(|error| format!("'{path}' could not be opened: {error}"))?;
+            let allowed = self.read_roots.iter().any(|root| root.canonicalize().is_ok_and(|root| resolved.starts_with(root)));
+            if !allowed {
+                return Err(format!("PERMISSION_DENIED: '{path}' is not inside a directory granted in permissions.filesystem"));
+            }
+            return Ok(resolved);
+        }
+        confine(&self.read_roots, path, true, false)
     }
 }
 

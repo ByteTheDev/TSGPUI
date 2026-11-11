@@ -23,7 +23,7 @@ Tracking work to graduate TSGPUI from experimental. Each track is independently 
 - Video element support (or document unsupported and recommend WebView).
 
 ## Track 6 — Electron compatibility closure
-- Close remaining partial APIs: tray, global shortcuts, nativeImage decoding, cursor position, display events.
+- Close remaining partial APIs: tray, global shortcuts, cursor position, display events.
 - Either implement or move to "permanently unsupported" with reasons in the ledger.
 
 ## Track 7 — Signing & distribution

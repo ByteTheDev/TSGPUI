@@ -41,6 +41,23 @@ export interface NativeBridge {
     /** Needs `write` for both paths. */
     rename(from: string, to: string): Promise<void>;
   };
+  /** Decoded pixels stay in the host. Handles are 1-based; `0` means an empty image.
+   * See docs/NATIVE_IMAGE.md for limits and formats. */
+  nativeImage: {
+    /** Needs `permissions.filesystem.read`. `root` may be a permission root, `userData` or a dialog grant. */
+    createFromPath(options: { path: string; root?: string; scaleFactor?: number }): Promise<NativeImageInfo>;
+    /** With `width` and `height`, `base64` is a BGRA bitmap of exactly `width * height * 4` bytes. */
+    createFromBuffer(options: { base64: string; width?: number; height?: number; scaleFactor?: number }): Promise<NativeImageInfo>;
+    getSize(options: { handle: number }): Promise<{ width: number; height: number; scaleFactor: number }>;
+    getAspectRatio(options: { handle: number }): Promise<number>;
+    resize(options: { handle: number; width?: number; height?: number; quality?: 'good' | 'better' | 'best' }): Promise<NativeImageInfo>;
+    crop(options: { handle: number; x?: number; y?: number; width?: number; height?: number }): Promise<NativeImageInfo>;
+    toPNG(options: { handle: number }): Promise<{ base64: string }>;
+    toJPEG(options: { handle: number; quality?: number }): Promise<{ base64: string }>;
+    toDataURL(options: { handle: number }): Promise<{ dataUrl: string }>;
+    /** BGRA bytes. */
+    toBitmap(options: { handle: number }): Promise<{ base64: string; width: number; height: number }>;
+  };
   process: {
     /** `command` must be listed in `permissions.processes`. Runs without a shell, in the app's folder,
      * with a 10 second limit. Output is capped at 1 MiB per stream. */
@@ -58,6 +75,14 @@ export interface NativeBridge {
     /** Listeners run as one task, so a listener that writes state rolls back if it throws. */
     on<T>(channel: string, listener: (payload: T) => void | Promise<void>): () => void;
   };
+}
+/** A decoded image in the host's image store. */
+export interface NativeImageInfo {
+  /** 1-based store handle; `0` for an empty image. */
+  handle: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
 }
 /** Data supplied by native buttons and controls. Fields depend on the event. */
 export interface BackendEvent {

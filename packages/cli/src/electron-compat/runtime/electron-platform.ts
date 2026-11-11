@@ -1,4 +1,5 @@
 import { EventEmitter } from './events';
+import { host } from './host';
 
 // Partial shim for Electron's ShareMenu. Native sharing is unavailable, so popup is a no-op.
 export class ShareMenu {
@@ -12,8 +13,38 @@ export class ShareMenu {
   closePopup(): void { /* no-op */ }
 }
 
-// Partial shim for Electron's systemPreferences. Reports a light appearance by default and
-// derives dark mode from the renderer's prefers-color-scheme media query when available.
+// Electron reports system colors as `#rrggbb`. These are the documented names; a host that
+// answers `systemPreferences.info` with a `colors` map overrides them.
+const LIGHT_COLORS: Record<string, string> = {
+  '3d-dark-shadow': '#696969', '3d-face': '#f0f0f0', '3d-highlight': '#ffffff', '3d-light': '#e3e3e3',
+  '3d-shadow': '#a0a0a0', 'active-border': '#707070', 'active-caption': '#99b4d1',
+  'active-caption-gradient': '#99b4d1', 'app-workspace': '#ababab', 'button-face': '#f0f0f0',
+  'button-text': '#000000', 'caption-text': '#000000', 'desktop': '#000000', 'highlight': '#0078d7',
+  'highlight-text': '#ffffff', 'hotlight': '#0066cc', 'inactive-border': '#acacac',
+  'inactive-caption': '#bfcddb', 'inactive-caption-gradient': '#bfcddb', 'inactive-caption-text': '#434e54',
+  'info-background': '#ffffe1', 'info-text': '#000000', 'menu': '#f0f0f0', 'menu-highlight': '#0078d7',
+  'menubar': '#f0f0f0', 'menu-text': '#000000', 'scrollbar': '#c8c8c8', 'window': '#ffffff',
+  'window-frame': '#646464', 'window-text': '#000000',
+};
+const DARK_COLORS: Record<string, string> = {
+  '3d-dark-shadow': '#202020', '3d-face': '#2d2d2d', '3d-highlight': '#454545', '3d-light': '#3a3a3a',
+  '3d-shadow': '#202020', 'active-border': '#555555', 'active-caption': '#202020',
+  'active-caption-gradient': '#202020', 'app-workspace': '#1e1e1e', 'button-face': '#2d2d2d',
+  'button-text': '#ffffff', 'caption-text': '#ffffff', 'desktop': '#000000', 'highlight': '#0078d7',
+  'highlight-text': '#ffffff', 'hotlight': '#4da3ff', 'inactive-border': '#444444',
+  'inactive-caption': '#2b2b2b', 'inactive-caption-gradient': '#2b2b2b', 'inactive-caption-text': '#b8b8b8',
+  'info-background': '#2b2b2b', 'info-text': '#ffffff', 'menu': '#202020', 'menu-highlight': '#0078d7',
+  'menubar': '#202020', 'menu-text': '#ffffff', 'scrollbar': '#3a3a3a', 'window': '#1e1e1e',
+  'window-frame': '#444444', 'window-text': '#ffffff',
+};
+
+function paletteColor(name: string, dark: boolean): string {
+  return (dark ? DARK_COLORS : LIGHT_COLORS)[String(name)] || '';
+}
+
+// systemPreferences reads the OS appearance, accent color, accessibility flags and system color
+// palette from the host (`systemPreferences.info`). A renderer without a host falls back to media
+// queries and a built-in light/dark palette.
 class SystemPreferences extends EventEmitter {
   private dark: any;
   private reducedMotion: any;
@@ -21,8 +52,21 @@ class SystemPreferences extends EventEmitter {
   private userDefaults = new Map<string, any>();
   defaults: Record<string, any> = {};
   accentColor: string = '';
+  private hostDark: boolean | null = null;
+  private hostAccent = '';
+  private hostReduceMotion: boolean | null = null;
+  private hostInverted: boolean | null = null;
+  private hostHighContrast = false;
+  private hostReduceTransparency = false;
+  private hostColors: Record<string, string> = {};
   private _accessibilityDisplayShouldReduceMotion: boolean = false;
-  isAeroGlassEnabled(): boolean { return false; }
+  private _accessibilityDisplayShouldReduceTransparency: boolean = false;
+  private lastDark = false;
+  private lastAccent = '';
+  private lastReduceMotion = false;
+  private lastInverted = false;
+  private lastHighContrast = false;
+  private lastReduceTransparency = false;
   private notificationSubs = new Map<number, { event: string; callback: Function; scope: string }>();
   private nextNotificationId = 0;
 
@@ -38,10 +82,57 @@ class SystemPreferences extends EventEmitter {
     this.inverted = win?.matchMedia?.('(inverted-colors: inverted)');
     if (this.inverted?.addEventListener) this.inverted.addEventListener('change', () => this.emit('color-changed'));
     else if (this.inverted?.addListener) this.inverted.addListener(() => this.emit('color-changed'));
+    this.lastDark = !!this.dark?.matches;
+    this.lastReduceMotion = !!this.reducedMotion?.matches;
+    this.lastInverted = !!this.inverted?.matches;
+    void this.refresh();
   }
 
-  isDarkMode(): boolean { return !!this.dark?.matches; }
+  /** TSGPUI addition: re-read the host's system preference values. */
+  async refresh(): Promise<void> {
+    try {
+      const values = await host('systemPreferences.info');
+      if (values && typeof values === 'object') this.applyHostValues(values);
+    } catch {
+      // No host, or the host predates this operation: media queries and the palette still work.
+    }
+  }
+
+  private applyHostValues(values: any): void {
+    if (typeof values.darkMode === 'boolean') this.hostDark = values.darkMode;
+    if (typeof values.accentColor === 'string' && values.accentColor) { this.hostAccent = values.accentColor; this.accentColor = values.accentColor; }
+    if (typeof values.reduceMotion === 'boolean') this.hostReduceMotion = values.reduceMotion;
+    if (typeof values.invertedColors === 'boolean') this.hostInverted = values.invertedColors;
+    if (typeof values.highContrast === 'boolean') this.hostHighContrast = values.highContrast;
+    if (typeof values.reduceTransparency === 'boolean') this.hostReduceTransparency = values.reduceTransparency;
+    if (values.colors && typeof values.colors === 'object') {
+      const next: Record<string, string> = {};
+      for (const key of Object.keys(values.colors)) {
+        if (typeof values.colors[key] === 'string' && values.colors[key]) next[key] = values.colors[key];
+      }
+      this.hostColors = next;
+    }
+    const dark = this.isDarkMode();
+    const accent = this.getAccentColor();
+    const reduceMotion = this.accessibilityDisplayShouldReduceMotion;
+    const inverted = this.isInvertedColorScheme();
+    let changed = false;
+    if (dark !== this.lastDark) { this.lastDark = dark; changed = true; }
+    if (accent !== this.lastAccent) { this.lastAccent = accent; changed = true; this.emit('accent-color-changed', {}, accent); }
+    if (reduceMotion !== this.lastReduceMotion) { this.lastReduceMotion = reduceMotion; this.emit('accessibility-display-options-changed'); }
+    if (inverted !== this.lastInverted) { this.lastInverted = inverted; changed = true; }
+    if (this.hostHighContrast !== this.lastHighContrast) { this.lastHighContrast = this.hostHighContrast; changed = true; }
+    if (this.hostReduceTransparency !== this.lastReduceTransparency) { this.lastReduceTransparency = this.hostReduceTransparency; changed = true; }
+    if (changed) this.emit('color-changed');
+  }
+
+  isAeroGlassEnabled(): boolean { return false; }
+  isDarkMode(): boolean {
+    if (this.hostDark !== null) return this.hostDark;
+    return !!this.dark?.matches;
+  }
   getAccentColor(): string {
+    if (this.hostAccent) return this.hostAccent;
     // Best-effort: read the CSS accent-color of the root element when a document is present.
     try {
       const doc: any = (globalThis as any)?.document;
@@ -52,28 +143,51 @@ class SystemPreferences extends EventEmitter {
   }
   get effectiveAppearance(): string { return this.isDarkMode() ? 'dark' : 'light'; }
   set effectiveAppearance(_value: string) { /* read-only best-effort; ignored */ }
-  getColor(_color: string): string { return ''; }
-  getSystemColor(_color: string): string { return ''; }
-  isInvertedColorScheme(): boolean { return !!this.inverted?.matches; }
+  getColor(color: string): string {
+    const key = String(color);
+    if (this.hostColors[key]) return this.hostColors[key];
+    return paletteColor(key, this.isDarkMode());
+  }
+  getSystemColor(color: string): string { return this.getColor(color); }
+  isInvertedColorScheme(): boolean {
+    if (this.hostInverted !== null) return this.hostInverted;
+    return !!this.inverted?.matches;
+  }
+  isHighContrast(): boolean {
+    if (this.hostHighContrast) return true;
+    try { return !!(globalThis as any)?.matchMedia?.('(forced-colors: active)')?.matches; } catch { return false; }
+  }
   get accessibilityDisplayShouldReduceMotion(): boolean {
     if (this._accessibilityDisplayShouldReduceMotion) return true;
+    if (this.hostReduceMotion !== null) return this.hostReduceMotion;
     return !!this.reducedMotion?.matches;
   }
   set accessibilityDisplayShouldReduceMotion(value: boolean) { this._accessibilityDisplayShouldReduceMotion = !!value; }
-  getAnimationSettings(): any { return { shouldRenderRichAnimation: !this.accessibilityDisplayShouldReduceMotion, scrollAnimationsEnabledBySystem: true, prefersReducedMotion: this.accessibilityDisplayShouldReduceMotion }; }
+  get accessibilityDisplayShouldReduceTransparency(): boolean {
+    if (this._accessibilityDisplayShouldReduceTransparency) return true;
+    return this.hostReduceTransparency;
+  }
+  set accessibilityDisplayShouldReduceTransparency(value: boolean) { this._accessibilityDisplayShouldReduceTransparency = !!value; }
+  getAnimationSettings(): any {
+    const reduced = this.accessibilityDisplayShouldReduceMotion;
+    return { shouldRenderRichAnimation: !reduced, scrollAnimationsEnabledBySystem: !reduced, prefersReducedMotion: reduced };
+  }
   getMediaAccessStatus(_mediaType: string): string { return 'not-determined'; }
   askForMediaAccess(_mediaType: string): Promise<boolean> { return Promise.resolve(false); }
   canPromptTouchID(): boolean { return false; }
   promptTouchID(_reason: string): Promise<void> { return Promise.resolve(); }
   isTrustedAccessibilityClient(_prompt?: boolean): boolean { return false; }
   isSwipeTrackingFromScrollEventsEnabled(): boolean { return false; }
-  accessibilityDisplayShouldReduceTransparency: boolean = false;
 
   handleSystemEvent(name: string, ...args: any[]): void {
-    if (name === 'accessibility-display-options-changed') {
+    const event = String(name);
+    if (event === 'color-changed' || event === 'accent-color-changed' || event === 'accessibility-display-options-changed') {
+      void this.refresh();
+    }
+    if (event === 'accessibility-display-options-changed') {
       this.emit('accessibility-display-options-changed' as any);
     }
-    this.emit(name, ...args);
+    this.emit(event, ...args);
   }
 
   getUserDefault(key: string, _type: string): any {

@@ -38,11 +38,39 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "=0.18.2", optional = true }
+# The Linux tray is a StatusNotifierItem (ksni) and global shortcuts use X11 key grabs. Both are
+# optional at runtime: a session without a D-Bus watcher or X server reports an event instead of
+# stopping the app.
+ksni = { version = "=0.3.7", default-features = false, features = ["blocking", "async-io"] }
+x11rb = { version = "=0.13.2", default-features = false }
 
 # Native dialogs and clipboard for the WebView host on Windows (used only by webview_bridge.rs).
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "=0.15.4"
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Power"] }
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security_Cryptography",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# The macOS tray is an NSStatusItem and global shortcuts use a CGEventTap, both reached through
+# objc2 and the platform frameworks.
+[target.'cfg(target_os = "macos")'.dependencies]
+dispatch = "=0.2.0"
+objc2 = "=0.6.5"
+objc2-app-kit = "=0.3.2"
+objc2-foundation = "=0.3.2"
 
 # Native dialogs on macOS and Linux (rfd is cross-platform).
 [target.'cfg(not(target_os = "windows"))'.dependencies]

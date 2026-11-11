@@ -94,7 +94,12 @@ async function hostCookies(action: 'get' | 'set' | 'clear' | 'remove' | 'flush',
   try {
     const result = await host('session.cookies', { action, ...payload });
     if (result == null) return null;
-    if (action === 'get' && result && typeof result === 'object' && !Array.isArray(result) && result.cookies === undefined) return null;
+    if (result && typeof result === 'object' && !Array.isArray(result)) {
+      if (action === 'get' && result.cookies === undefined) return null;
+      // Empty objects are how a host that does not implement an operation often answers a test
+      // bridge; treat them as unsupported so the local store still works.
+      if (!Object.keys(result).length) return null;
+    }
     return result;
   } catch {
     return null;
@@ -109,6 +114,120 @@ function noopApi(): any {
       return (..._args: any[]) => undefined;
     },
   });
+}
+
+// Cookie files live directly under the host-provided userData root. The name includes a short
+// hash so partitions such as "persist:a/b" and "persist:a_b" cannot collide after sanitizing.
+function hashText(text: string): string {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) hash = ((hash << 5) + hash + text.charCodeAt(i)) >>> 0;
+  return hash.toString(16);
+}
+
+function cookieFileName(key: string): string {
+  const safe = key.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'default';
+  return `tsgpui-session-cookies-${safe}-${hashText(key)}.json`;
+}
+
+function sessionStoreKey(partition: string, storagePath: string | null): string {
+  return storagePath ? `path:${storagePath}` : (partition || 'default');
+}
+
+function normalizeCookieRecord(value: any): Cookie | null {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.name !== 'string' || !value.name) return null;
+  if (value.url != null && typeof value.url !== 'string') return null;
+  if (value.domain != null && typeof value.domain !== 'string') return null;
+  return {
+    name: value.name,
+    value: value.value != null ? String(value.value) : '',
+    url: value.url,
+    domain: value.domain,
+    path: typeof value.path === 'string' && value.path ? value.path : '/',
+    secure: value.secure === true,
+    httpOnly: value.httpOnly === true,
+    expirationDate: typeof value.expirationDate === 'number' ? value.expirationDate : undefined,
+    session: value.session === true,
+    hostOnly: value.hostOnly === true,
+  };
+}
+
+const WEB_REQUEST_EVENTS = [
+  'onBeforeRequest', 'onBeforeSendHeaders', 'onSendHeaders', 'onHeadersReceived',
+  'onResponseStarted', 'onBeforeRedirect', 'onCompleted', 'onErrorOccurred',
+] as const;
+
+function webFilterMatches(filter: any, url: string): boolean {
+  if (!filter || !Array.isArray(filter.urls) || !filter.urls.length) return true;
+  return filter.urls.some((pattern: any) => {
+    if (typeof pattern !== 'string') return false;
+    if (pattern === '<all_urls>' || pattern === '*') return true;
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    try { return new RegExp('^' + escaped + '$').test(url); } catch { return false; }
+  });
+}
+
+function createWebRequest(): any {
+  const registered = new Map<string, Array<{ filter: any; listener: Function }>>();
+  const warned = new Set<string>();
+  const api: any = {};
+  for (const event of WEB_REQUEST_EVENTS) {
+    api[event] = (filterOrListener: any, maybeListener?: any) => {
+      const listener = typeof filterOrListener === 'function' ? filterOrListener : maybeListener;
+      if (typeof listener !== 'function') throw new TypeError(`session.webRequest.${event} requires a listener function`);
+      const filter = typeof filterOrListener === 'function' ? {} : (filterOrListener || {});
+      if (typeof filter !== 'object' || Array.isArray(filter)) throw new TypeError(`session.webRequest.${event} filter must be an object`);
+      if (filter.urls != null && (!Array.isArray(filter.urls) || filter.urls.some((url: any) => typeof url !== 'string'))) {
+        throw new TypeError(`session.webRequest.${event} filter.urls must be an array of strings`);
+      }
+      registered.set(event, [...(registered.get(event) || []), { filter, listener }]);
+      if (!warned.has(event)) {
+        warned.add(event);
+        compatWarnings.push(`session.webRequest.${event} records listeners, but request interception is not supported by the WebView host`);
+      }
+    };
+  }
+  Object.defineProperty(api, '_listeners', { value: registered, enumerable: false });
+  Object.defineProperty(api, '_emit', {
+    enumerable: false,
+    value: (event: string, details: any) => {
+      const results: any[] = [];
+      for (const { filter, listener } of registered.get(event) || []) {
+        if (!webFilterMatches(filter, String(details?.url || ''))) continue;
+        try {
+          listener(details, (result: any) => results.push(result));
+        } catch { /* listeners are user code; a throw does not stop other listeners */ }
+      }
+      return results;
+    },
+  });
+  return api;
+}
+
+const STORAGE_NAMES = new Set([
+  'appcache', 'cookies', 'filesystem', 'indexdb', 'localstorage',
+  'shadercache', 'websql', 'serviceworkers', 'cachestorage',
+]);
+const COOKIE_STORAGES = new Set(['cookies']);
+const PAGE_STORAGES = new Set(['localstorage']);
+
+function normalizeClearOptions(api: string, options: any): { origin?: string; storages: string[] } {
+  if (options == null) return { storages: [...STORAGE_NAMES] };
+  if (typeof options !== 'object' || Array.isArray(options)) throw new TypeError(`${api} options must be an object`);
+  if (options.origin != null && typeof options.origin !== 'string') throw new TypeError(`${api} options.origin must be a string`);
+  let storages: string[];
+  if (options.storages == null) storages = [...STORAGE_NAMES];
+  else {
+    if (!Array.isArray(options.storages)) throw new TypeError(`${api} options.storages must be an array`);
+    storages = [];
+    for (const storage of options.storages) {
+      if (typeof storage !== 'string' || !STORAGE_NAMES.has(storage)) {
+        throw new TypeError(`${api} has an unknown storage type '${storage}'`);
+      }
+      if (!storages.includes(storage)) storages.push(storage);
+    }
+  }
+  return { origin: options.origin, storages };
 }
 
 export class Session extends EventEmitter {
@@ -141,6 +260,13 @@ export class Session extends EventEmitter {
   private extensionsValue = new Map<string, any>();
   private spellCheckerWords = new Set<string>();
 
+  // Cookie persistence. Persistent partitions mirror non-session cookies to one JSON file under
+  // userData; the host's session.cookies operation remains authoritative when it exists.
+  private loadPromise: Promise<void> | null = null;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private persistenceWarned = false;
+  private downloads = new Map<number, DownloadItem>();
+
   private cookiesApi: any;
   private webRequestValue: any;
   private protocolValue: any;
@@ -164,7 +290,7 @@ export class Session extends EventEmitter {
       flushStore: () => this.flushCookiesStore(),
       clear: () => this.clearCookies(),
     };
-    this.webRequestValue = noopApi();
+    this.webRequestValue = createWebRequest();
     this.protocolValue = noopApi();
     this.serviceWorkersValue = noopApi();
     this.netLogValue = noopApi();
@@ -173,7 +299,12 @@ export class Session extends EventEmitter {
   get cookies() { return this.cookiesApi; }
 
   get storagePath(): string | null { return this.storagePathValue; }
-  set storagePath(value: string | null) { this.storagePathValue = value; }
+  set storagePath(value: string | null) {
+    if (value === this.storagePathValue) return;
+    this.storagePathValue = value;
+    this.loadPromise = null;
+    this.store.clear();
+  }
 
   get spellCheckerEnabled(): boolean { return this.spellCheckerEnabledValue; }
   set spellCheckerEnabled(value: boolean) { this.spellCheckerEnabledValue = value === true; }
@@ -188,19 +319,85 @@ export class Session extends EventEmitter {
   isPersistent(): boolean { return this.persist; }
   isClosed(): boolean { return this.closedValue; }
 
+  // Cookie persistence
+  private cookieStoreKey(): string {
+    return sessionStoreKey(this.partition, this.storagePathValue);
+  }
+
+  private ensureCookiesLoaded(): Promise<void> {
+    if (!this.persist) return Promise.resolve();
+    if (!this.loadPromise) this.loadPromise = this.loadCookiesFromDisk();
+    return this.loadPromise;
+  }
+
+  private async loadCookiesFromDisk(): Promise<void> {
+    try {
+      const result: any = await host('filesystem.readText', {
+        root: 'userData',
+        path: cookieFileName(this.cookieStoreKey()),
+      });
+      const text = typeof result === 'string' ? result : result?.text;
+      if (typeof text === 'string' && text.trim()) {
+        const records = JSON.parse(text);
+        if (Array.isArray(records)) {
+          for (const record of records) {
+            const cookie = normalizeCookieRecord(record);
+            if (cookie) this.store.set(cookieKey(cookie), cookie);
+          }
+        }
+      }
+    } catch {
+      // No file yet (or the host has no filesystem access): the store starts empty.
+    }
+    this.purgeExpiredCookies();
+  }
+
+  private persistCookies(): Promise<void> {
+    if (!this.persist) return Promise.resolve();
+    // Session cookies are not written, matching Electron's persistent-cookie semantics.
+    const snapshot = [...this.store.values()].filter(cookie => cookie.session !== true && typeof cookie.expirationDate === 'number');
+    const key = this.cookieStoreKey();
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        await host('filesystem.writeText', {
+          root: 'userData',
+          path: cookieFileName(key),
+          text: JSON.stringify(snapshot),
+        });
+      } catch {
+        if (!this.persistenceWarned) {
+          this.persistenceWarned = true;
+          compatWarnings.push('session cookie persistence is unavailable; persistent cookies stay in memory for this run');
+        }
+      }
+    });
+    return this.writeQueue;
+  }
+
+  private purgeExpiredCookies(): void {
+    const now = Date.now() / 1000;
+    for (const [key, cookie] of [...this.store]) {
+      if (typeof cookie.expirationDate === 'number' && cookie.expirationDate <= now) this.store.delete(key);
+    }
+  }
+
   // Cookies
   async getCookies(details: GetCookiesDetails = {}): Promise<Cookie[]> {
+    await this.ensureCookiesLoaded();
+    this.purgeExpiredCookies();
     const hostResult = await hostCookies('get', { details: { ...details, partition: this.partition || undefined } });
     if (Array.isArray(hostResult)) return [...hostResult];
     if (hostResult && Array.isArray(hostResult.cookies)) return [...hostResult.cookies];
-    return [...this.store.values()].filter(c => matches(c, details));
+    return [...this.store.values()].filter(c => matches(c, details)).map(c => ({ ...c }));
   }
 
   async setCookies(cookie: SetCookieDetails): Promise<void> {
     const normalized = normalizeCookie(cookie);
+    await this.ensureCookiesLoaded();
     const hostResult = await hostCookies('set', { cookie: normalized, partition: this.partition || undefined });
     if (hostResult !== null) return;
     this.store.set(cookieKey(normalized), normalized);
+    await this.persistCookies();
   }
 
   async set(cookie: SetCookieDetails): Promise<void> { return this.setCookies(cookie); }
@@ -208,21 +405,31 @@ export class Session extends EventEmitter {
   async removeCookie(detailsOrUrl: any, name?: string): Promise<void> {
     const details = typeof detailsOrUrl === 'string' ? { url: detailsOrUrl, name } : detailsOrUrl;
     if (!details?.url || !details?.name) throw new TypeError('session.cookies.remove requires url and name');
+    await this.ensureCookiesLoaded();
     const hostResult = await hostCookies('remove', { details: { ...details, partition: this.partition || undefined } });
     if (hostResult !== null) return;
-    this.store.delete(cookieKey({ ...details, domain: details.domain, path: details.path }));
+    for (const [key, cookie] of [...this.store]) {
+      if (cookie.name !== details.name) continue;
+      if (details.domain != null && cookie.domain !== details.domain && cookie.domain !== String(details.domain).replace(/^\./, '')) continue;
+      if (details.path != null && cookie.path !== details.path) continue;
+      if (details.url != null && !matches(cookie, { url: details.url, name: details.name })) continue;
+      this.store.delete(key);
+    }
+    await this.persistCookies();
   }
 
   async clearCookies(): Promise<void> {
+    await this.ensureCookiesLoaded();
     const hostResult = await hostCookies('clear', { partition: this.partition || undefined });
-    if (hostResult !== null) return;
     this.store.clear();
+    if (hostResult === null || this.persist) await this.persistCookies();
   }
 
   async flushCookiesStore(): Promise<void> {
     const hostResult = await hostCookies('flush', { partition: this.partition || undefined });
     if (hostResult === null) {
-      compatWarnings.push('session.cookies.flushStore is not supported and has no effect');
+      if (this.persist) await this.persistCookies();
+      else compatWarnings.push('session.cookies.flushStore has no durable store for a non-persistent partition');
       await this.flushStorageData().catch(() => {});
     }
   }
@@ -234,18 +441,53 @@ export class Session extends EventEmitter {
   }
 
   async clearStorageData(options: any = {}): Promise<void> {
-    const r = await hostOp('session.clearStorageData', { partition: this.partition || undefined, options });
-    if (r == null) {
-      compatWarnings.push('session.clearStorageData is not supported and has no effect');
-      this.store.clear();
+    const normalized = normalizeClearOptions('session.clearStorageData', options);
+    const r = await hostOp('session.clearStorageData', { partition: this.partition || undefined, options: normalized });
+    if (r == null || (typeof r === 'object' && !Array.isArray(r) && !Object.keys(r).length)) {
+      await this.clearStorageFallback('session.clearStorageData', normalized);
     }
   }
 
   async clearData(options: any = {}): Promise<void> {
-    const r = await hostOp('session.clearData', { partition: this.partition || undefined, options });
-    if (r == null) {
-      compatWarnings.push('session.clearData is not supported and has no effect');
-      this.store.clear();
+    const normalized = normalizeClearOptions('session.clearData', options);
+    const r = await hostOp('session.clearData', { partition: this.partition || undefined, options: normalized });
+    if (r == null || (typeof r === 'object' && !Array.isArray(r) && !Object.keys(r).length)) {
+      await this.clearStorageFallback('session.clearData', normalized);
+    }
+  }
+
+  private async clearStorageFallback(api: string, options: { origin?: string; storages: string[] }): Promise<void> {
+    let clearedCookies = false;
+    let clearedPage = false;
+    let unsupported = false;
+    const g: any = globalThis;
+    const location = g.location ?? g.window?.location;
+    const origin = typeof location?.origin === 'string' ? location.origin : '';
+    const originMatches = !options.origin || !origin || options.origin === origin;
+    for (const storage of options.storages) {
+      if (COOKIE_STORAGES.has(storage)) {
+        this.store.clear();
+        await this.persistCookies();
+        clearedCookies = true;
+      } else if (PAGE_STORAGES.has(storage)) {
+        if (originMatches) {
+          for (const name of ['localStorage', 'sessionStorage']) {
+            try {
+              const area = g[name] ?? g.window?.[name];
+              if (area && typeof area.clear === 'function') { area.clear(); clearedPage = true; }
+            } catch { /* storage may be unavailable or blocked */ }
+          }
+        } else {
+          unsupported = true;
+        }
+      } else {
+        unsupported = true;
+      }
+    }
+    if (!clearedCookies && !clearedPage) {
+      compatWarnings.push(`${api} is not supported and has no effect`);
+    } else if (unsupported) {
+      compatWarnings.push(`${api} cleared cookies/localStorage for the current origin only; other storage types need host support`);
     }
   }
 
@@ -311,12 +553,34 @@ export class Session extends EventEmitter {
 
   // User agent
   async setUserAgent(userAgent: string, acceptLanguages?: string): Promise<void> {
+    if (typeof userAgent !== 'string' || !userAgent) throw new TypeError('session.setUserAgent requires a non-empty user agent string');
+    if (acceptLanguages !== undefined && typeof acceptLanguages !== 'string') throw new TypeError('session.setUserAgent acceptLanguages must be a string');
     this.userAgentValue = userAgent;
     this.acceptLanguagesValue = acceptLanguages;
+    const g: any = globalThis;
+    g.__tsgpui_user_agent = userAgent;
     const r = await hostOp('session.setUserAgent', { partition: this.partition || undefined, userAgent, acceptLanguages });
-    if (r == null) compatWarnings.push('session.setUserAgent is not supported and has no effect');
+    if (r == null || (typeof r === 'object' && !Array.isArray(r) && !Object.keys(r).length)) {
+      let applied = false;
+      try {
+        const navigatorValue = g.navigator ?? g.window?.navigator;
+        if (navigatorValue) {
+          Object.defineProperty(navigatorValue, 'userAgent', { value: userAgent, configurable: true });
+          applied = true;
+        }
+      } catch { /* the page user agent may be read-only */ }
+      compatWarnings.push(applied
+        ? 'session.setUserAgent applies to the current page only; the WebView host does not share it with new windows'
+        : 'session.setUserAgent is stored but the page user agent cannot be changed by the WebView host');
+    }
   }
-  getUserAgent(): string { return this.userAgentValue; }
+  getUserAgent(): string {
+    if (this.userAgentValue) return this.userAgentValue;
+    try {
+      const g: any = globalThis;
+      return (g.navigator ?? g.window?.navigator)?.userAgent || '';
+    } catch { return ''; }
+  }
 
   // Preloads
   getPreloads(): string[] { return [...this.preloadsValue]; }
@@ -379,12 +643,37 @@ export class Session extends EventEmitter {
     compatWarnings.push('session.setCertificateVerifyProc is not supported and has no effect');
   }
   setPermissionRequestHandler(handler: any): void {
+    if (handler != null && typeof handler !== 'function') throw new TypeError('session.setPermissionRequestHandler requires a function or null');
     this.permissionRequestHandlerValue = handler ?? null;
-    compatWarnings.push('session.setPermissionRequestHandler is not supported and has no effect');
+    compatWarnings.push('session.setPermissionRequestHandler stores the handler; the WebView host does not emit permission prompts, so it is only reachable through session.requestPermission');
+  }
+  getPermissionRequestHandler(): any { return this.permissionRequestHandlerValue; }
+  async requestPermission(details: any): Promise<boolean> {
+    const handler = this.permissionRequestHandlerValue;
+    if (typeof handler !== 'function') return false;
+    return await new Promise<boolean>((resolve) => {
+      let done = false;
+      const callback = (granted: any) => { if (!done) { done = true; resolve(granted === true); } };
+      try {
+        const ret = handler(null, details?.permission, callback, details);
+        if (ret && typeof ret.then === 'function') ret.then((value: any) => { if (value !== undefined) callback(value); }, () => callback(false));
+        else if (ret !== undefined) callback(ret);
+      } catch { callback(false); }
+    });
   }
   setPermissionCheckHandler(handler: any): void {
+    if (handler != null && typeof handler !== 'function') throw new TypeError('session.setPermissionCheckHandler requires a function or null');
     this.permissionCheckHandlerValue = handler ?? null;
-    compatWarnings.push('session.setPermissionCheckHandler is not supported and has no effect');
+    compatWarnings.push('session.setPermissionCheckHandler stores the handler; the WebView host does not consult it, so it is only reachable through session.checkPermission');
+  }
+  getPermissionCheckHandler(): any { return this.permissionCheckHandlerValue; }
+  async checkPermission(permission: string, requestingOrigin: string, details?: any): Promise<boolean> {
+    const handler = this.permissionCheckHandlerValue;
+    if (typeof handler !== 'function') return false;
+    try {
+      const result = handler(null, permission, requestingOrigin, details);
+      return result && typeof result.then === 'function' ? !!(await result) : !!result;
+    } catch { return false; }
   }
   setDisplayMediaRequestHandler(handler: any): void {
     this.displayMediaRequestHandlerValue = handler ?? null;
@@ -430,14 +719,53 @@ export class Session extends EventEmitter {
   disableNetworkEmulation(): void {
     compatWarnings.push('session.disableNetworkEmulation is not supported and has no effect');
   }
-  downloadURL(url: string): void {
-    void hostOp('session.downloadURL', { partition: this.partition || undefined, url }).then(r => {
-      if (r == null) compatWarnings.push('session.downloadURL is not supported and has no effect');
+  downloadURL(url: string, options?: any): void {
+    if (typeof url !== 'string' || !url) throw new TypeError('session.downloadURL requires a URL string');
+    const item = new DownloadItem(this, url, options);
+    this.downloads.set(item.id, item);
+    let cancelled = false;
+    const event = { preventDefault() { cancelled = true; } };
+    const hasListener = this.listenerCount('will-download') > 0;
+    this.emit('will-download', event, item, null);
+    if (cancelled || item.getState() === 'cancelled') {
+      item._finish('cancelled');
+      return;
+    }
+    if (!hasListener) {
+      compatWarnings.push('session.downloadURL needs a will-download listener; the WebView host does not start downloads on its own');
+      item._finish('interrupted');
+      return;
+    }
+    void hostOp('session.downloadURL', {
+      partition: this.partition || undefined,
+      url,
+      options,
+      savePath: item.getSavePath(),
+    }).then(result => {
+      if (item.isDone()) return;
+      if (result == null || (typeof result === 'object' && !Array.isArray(result) && !Object.keys(result).length)) {
+        compatWarnings.push('session.downloadURL could not start a download in the WebView host; the item is marked interrupted');
+        item._finish('interrupted');
+        return;
+      }
+      if (typeof result.savePath === 'string') item.setSavePath(result.savePath);
+      if (typeof result.receivedBytes === 'number') item._received(result.receivedBytes);
+      if (typeof result.totalBytes === 'number') item._total(result.totalBytes);
+      item._finish(result.state === 'cancelled' ? 'cancelled' : 'completed');
     });
   }
   createInterruptedDownload(options: any): void {
-    compatWarnings.push('session.createInterruptedDownload is not supported and has no effect');
+    if (!options || typeof options !== 'object' || typeof options.url !== 'string' || !options.url) {
+      throw new TypeError('session.createInterruptedDownload requires an options object with a url');
+    }
+    const item = new DownloadItem(this, options.url, options);
+    if (typeof options.totalBytes === 'number') item._total(options.totalBytes);
+    if (typeof options.receivedBytes === 'number') item._received(options.receivedBytes);
+    if (typeof options.mimeType === 'string') item._mime(options.mimeType);
+    item._finish('interrupted');
+    this.downloads.set(item.id, item);
   }
+  getDownloadItems(): DownloadItem[] { return [...this.downloads.values()]; }
   preconnect(options: any): void {
     compatWarnings.push('session.preconnect is not supported and has no effect');
   }
@@ -489,6 +817,93 @@ export class Session extends EventEmitter {
   // Other tracked props
   get codeCachePath(): string | null { return this.codeCachePathValue; }
   get downloadPath(): string | null { return this.downloadPathValue; }
+}
+
+let nextDownloadId = 1;
+
+function downloadFileName(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const name = pathname.split('/').filter(Boolean).pop() || '';
+    return decodeURIComponent(name) || 'download';
+  } catch { return 'download'; }
+}
+
+function joinDownloadPath(directory: string | null, name: string): string {
+  if (!directory) return name;
+  const separator = directory.includes('\\') && !directory.includes('/') ? '\\' : '/';
+  return directory.replace(/[\\/]+$/, '') + separator + name;
+}
+
+/// A DownloadItem lifecycle stub. The host may report completion, but the shim never invents
+/// received bytes for a download the host did not perform.
+export class DownloadItem extends EventEmitter {
+  id: number;
+  private urlValue: string;
+  private filenameValue: string;
+  private savePathValue: string;
+  private stateValue = 'progressing';
+  private receivedBytesValue = 0;
+  private totalBytesValue = 0;
+  private mimeTypeValue = '';
+  private pausedValue = false;
+  private doneValue = false;
+
+  constructor(session: Session, url: string, options: any = {}) {
+    super();
+    this.id = nextDownloadId++;
+    this.urlValue = url;
+    this.filenameValue = typeof options.filename === 'string' && options.filename ? options.filename : downloadFileName(url);
+    this.savePathValue = typeof options.savePath === 'string' && options.savePath
+      ? options.savePath
+      : joinDownloadPath(session.downloadPath, this.filenameValue);
+    if (typeof options.totalBytes === 'number') this.totalBytesValue = options.totalBytes;
+    if (typeof options.mimeType === 'string') this.mimeTypeValue = options.mimeType;
+  }
+
+  getURL(): string { return this.urlValue; }
+  getFilename(): string { return this.filenameValue; }
+  getSavePath(): string { return this.savePathValue; }
+  setSavePath(path: string): void {
+    if (typeof path !== 'string' || !path) throw new TypeError('DownloadItem.setSavePath requires a non-empty path');
+    if (this.doneValue) return;
+    this.savePathValue = path;
+    this.emit('updated', {}, this.stateValue);
+  }
+  getState(): string { return this.stateValue; }
+  getReceivedBytes(): number { return this.receivedBytesValue; }
+  getTotalBytes(): number { return this.totalBytesValue; }
+  getMimeType(): string { return this.mimeTypeValue; }
+  isPaused(): boolean { return this.pausedValue; }
+  isDone(): boolean { return this.doneValue; }
+  canResume(): boolean { return this.stateValue === 'interrupted'; }
+  pause(): void {
+    if (this.doneValue || this.pausedValue) return;
+    this.pausedValue = true;
+    this.emit('updated', {}, this.stateValue);
+  }
+  resume(): void {
+    if (this.doneValue || !this.pausedValue) return;
+    this.pausedValue = false;
+    this.emit('updated', {}, this.stateValue);
+  }
+  cancel(): void {
+    if (this.doneValue) return;
+    this.pausedValue = false;
+    this._finish('cancelled');
+  }
+  _received(bytes: number): void { this.receivedBytesValue = Math.max(0, bytes); }
+  _total(bytes: number): void { this.totalBytesValue = Math.max(0, bytes); }
+  _mime(mimeType: string): void { this.mimeTypeValue = mimeType; }
+  _finish(state: string, receivedBytes?: number): void {
+    if (this.doneValue) return;
+    if (typeof receivedBytes === 'number') this._received(receivedBytes);
+    this.doneValue = true;
+    this.pausedValue = false;
+    this.stateValue = state;
+    this.emit('updated', {}, state);
+    this.emit('done', {}, state);
+  }
 }
 
 const partitions = new Map<string, Session>();

@@ -181,6 +181,13 @@ function previewRuntime() {
     // a clear message instead of being missing.
     app: Object.freeze({ info: hostOnly('app.info'), quit: hostOnly('app.quit') }),
     clipboard: Object.freeze({ readText: hostOnly('clipboard.readText'), writeText: hostOnly('clipboard.writeText') }),
+    nativeImage: Object.freeze({
+      createFromPath: hostOnly('nativeImage.createFromPath'), createFromBuffer: hostOnly('nativeImage.createFromBuffer'),
+      getSize: hostOnly('nativeImage.getSize'), getAspectRatio: hostOnly('nativeImage.getAspectRatio'),
+      resize: hostOnly('nativeImage.resize'), crop: hostOnly('nativeImage.crop'),
+      toPNG: hostOnly('nativeImage.toPNG'), toJPEG: hostOnly('nativeImage.toJPEG'),
+      toDataURL: hostOnly('nativeImage.toDataURL'), toBitmap: hostOnly('nativeImage.toBitmap'),
+    }),
     dialog: Object.freeze({ openFile: hostOnly('dialog.openFile'), saveFile: hostOnly('dialog.saveFile'), message: hostOnly('dialog.message') }),
     shell: Object.freeze({ openExternal: hostOnly('shell.openExternal') }),
     net: Object.freeze({ request: hostOnly('net.request') }),

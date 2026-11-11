@@ -1,5 +1,19 @@
 export const compatWarnings: string[] = [];
 
+// Native events (tray clicks, global shortcut presses, failed registrations) arrive through one
+// global that both hosts call: `__tsgpui_host_event(channel, payload)`. Shards subscribe here so a
+// later host feature can add its own channel without another runtime hook.
+const hostEventHandlers: ((channel: string, payload: any) => void)[] = [];
+export function onHostEvent(handler: (channel: string, payload: any) => void): void {
+  hostEventHandlers.push(handler);
+}
+const hostGlobal: any = globalThis;
+hostGlobal.__tsgpui_host_event = (channel: string, payload: any) => {
+  for (const handler of [...hostEventHandlers]) {
+    try { handler(String(channel), payload); } catch (error) { try { console.error('Host event failed:', error); } catch {} }
+  }
+};
+
 // Operations are named as the WebView bridge names them, and their arguments are objects. The native
 // renderer exposes `api.native` instead (see NATIVE_SETUP in native/src/runtime.rs), which takes
 // positional arguments and returns plain values. Each route below translates one operation to that
@@ -42,6 +56,22 @@ const nativeRoutes: Record<string, Route> = {
   'safeStorage.decrypt': (api, args) => api.safeStorage.decrypt(args.value),
   'net.request': (api, args) => api.net.request(args),
   'power.setBlockers': (api, args) => api.power.setBlockers(args.types),
+  'power.state': api => api.power.state(),
+  'systemPreferences.info': api => api.systemPreferences.info(),
+  // Tray objects and global hotkeys live in the native host. The tray options carry the image as
+  // base64 so the host decodes it once; menu item ids are resolved by the shim on click.
+  'tray.create': (api, args) => api.tray.create(args),
+  'tray.setIcon': (api, args) => api.tray.setIcon(args),
+  'tray.setToolTip': (api, args) => api.tray.setToolTip(args),
+  'tray.setTitle': (api, args) => api.tray.setTitle(args),
+  'tray.setContextMenu': (api, args) => api.tray.setContextMenu(args),
+  'tray.popUpContextMenu': (api, args) => api.tray.popUpContextMenu(args),
+  'tray.destroy': (api, args) => api.tray.destroy(args),
+  'tray.bounds': (api, args) => api.tray.bounds(args),
+  'globalShortcut.register': (api, args) => api.globalShortcut.register(args.accelerator),
+  'globalShortcut.unregister': (api, args) => api.globalShortcut.unregister(args.accelerator),
+  'globalShortcut.unregisterAll': (api, args) => api.globalShortcut.unregisterAll(),
+  'globalShortcut.isRegistered': (api, args) => api.globalShortcut.isRegistered(args.accelerator),
   'screen.displays': api => api.screen.displays().then((displays: any[]) => ({displays})),
   'notifications.show': (api, args) => api.notifications.show(args),
   'filesystem.readText': (api, args) => api.filesystem.readText(location(args)).then((text: string) => ({text})),
@@ -53,6 +83,18 @@ const nativeRoutes: Record<string, Route> = {
   'filesystem.mkdir': (api, args) => api.filesystem.mkdir(location(args)),
   'filesystem.remove': (api, args) => api.filesystem.remove(location(args)),
   'filesystem.rename': (api, args) => api.filesystem.rename({root: args.root, path: args.from}, {root: args.root, path: args.to}),
+  // NativeImage handles live in the native host; these routes forward the option object unchanged
+  // and return its `{ handle, width, height }` and `{ base64 }`/`{ dataUrl }` results.
+  'nativeImage.createFromPath': (api, args) => api.nativeImage.createFromPath(args),
+  'nativeImage.createFromBuffer': (api, args) => api.nativeImage.createFromBuffer(args),
+  'nativeImage.getSize': (api, args) => api.nativeImage.getSize(args),
+  'nativeImage.getAspectRatio': (api, args) => api.nativeImage.getAspectRatio(args),
+  'nativeImage.resize': (api, args) => api.nativeImage.resize(args),
+  'nativeImage.crop': (api, args) => api.nativeImage.crop(args),
+  'nativeImage.toPNG': (api, args) => api.nativeImage.toPNG(args),
+  'nativeImage.toJPEG': (api, args) => api.nativeImage.toJPEG(args),
+  'nativeImage.toDataURL': (api, args) => api.nativeImage.toDataURL(args),
+  'nativeImage.toBitmap': (api, args) => api.nativeImage.toBitmap(args),
   'process.spawn': (api, args) => api.process.spawn(args.command, args.args ?? []).then((result: any) => ({status: result.code, stdout: result.stdout, stderr: result.stderr})),
   'ipc.send': (api, args) => api.ipc.send(args.channel, args.payload),
   'window.minimize': api => api.window.minimize(),

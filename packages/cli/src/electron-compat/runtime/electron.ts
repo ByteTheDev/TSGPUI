@@ -249,10 +249,26 @@ export class BrowserWindow extends EventEmitter {
     const win = this;
     const webPreferences = (options && typeof options.webPreferences === 'object' && options.webPreferences) ? options.webPreferences : {};
     let findInPageCounter = 0;
+    let lastFindRequest: any = null;
     const audioMutedState = { value: false };
     const zoomState = { factor: 1, level: 0 };
     const frameRateState = { value: 60 };
     const insertedCss = new Map<string, string>();
+    const navState = {
+      loading: false,
+      url: '',
+      title: String(options.title ?? ''),
+      lastKind: '' as '' | 'file' | 'url',
+      lastValue: '',
+      token: 0,
+    };
+    const pageDocument = () => g.document ?? g.window?.document;
+    const applyPageZoom = (factor: number) => {
+      try {
+        const documentValue = pageDocument();
+        if (documentValue?.documentElement?.style) documentValue.documentElement.style.zoom = String(factor);
+      } catch { /* the native renderer has no page document */ }
+    };
     const wc: any = {
       id: win.id,
       isDestroyed: () => win.destroyed,
@@ -275,31 +291,67 @@ export class BrowserWindow extends EventEmitter {
       listenerCount: events.listenerCount.bind(events),
       loadURL: (url: string) => win.id === 1 ? Promise.reject(new Error('webContents.loadURL is not supported for the first window')) : win.loadURL(url),
       loadFile: (file: string) => win.id === 1 ? Promise.reject(new Error('webContents.loadFile is not supported for the first window')) : win.loadFile(file),
-      // navigation stubs
+      // navigation
       goBack() { warn('webContents.goBack'); return undefined; },
       goForward() { warn('webContents.goForward'); return undefined; },
       canGoBack() { return false; },
       canGoForward() { return false; },
-      reload() { warn('webContents.reload'); return undefined; },
-      reloadIgnoringCache() { warn('webContents.reloadIgnoringCache'); return undefined; },
-      stop() { return undefined; },
+      reload() {
+        if (win.id === 1) {
+          const locationValue = g.location ?? g.window?.location;
+          if (locationValue && typeof locationValue.reload === 'function') {
+            const target = locationValue.href || navState.url || '';
+            const token = wc._beginLoad?.(target, 'url', target);
+            try { locationValue.reload(); } catch (error) { wc._failLoad?.(token, error); }
+            return undefined;
+          }
+          warn('webContents.reload');
+          return undefined;
+        }
+        if (navState.lastKind === 'file') { void win.loadFile(navState.lastValue).catch(() => {}); return undefined; }
+        if (navState.lastKind === 'url') { void win.loadURL(navState.lastValue).catch(() => {}); return undefined; }
+        warn('webContents.reload');
+        return undefined;
+      },
+      reloadIgnoringCache() { return wc.reload(); },
+      stop() {
+        if (navState.loading) {
+          navState.token += 1;
+          navState.loading = false;
+          wc.emit('did-stop-loading');
+        }
+        try {
+          const stopPage = g.stop ?? g.window?.stop;
+          if (typeof stopPage === 'function') stopPage.call(g.window ?? g);
+        } catch { /* the page may already be gone */ }
+        return undefined;
+      },
       canGoToOffset(_offset: number) { return false; },
       goToIndex(_index: number) { warn('webContents.goToIndex'); return undefined; },
       goToOffset(_offset: number) { warn('webContents.goToOffset'); return undefined; },
       clearHistory() { return undefined; },
-      // devtools stubs
-      openDevTools(_options?: any) { warn('webContents.openDevTools'); return undefined; },
-      closeDevTools() { warn('webContents.closeDevTools'); return undefined; },
+      // devtools are unavailable; opening them must stay a silent no-op
+      openDevTools(_options?: any) { return undefined; },
+      closeDevTools() { return undefined; },
       isDevToolsOpened() { return false; },
       isDevToolsFocused() { return false; },
-      toggleDevTools() { warn('webContents.toggleDevTools'); return undefined; },
+      toggleDevTools() { return undefined; },
       getDevToolsTitle() { return ''; },
       setDevToolsTitle(_title: string) { return undefined; },
       // page access
-      getTitle() { try { return (g.document?.title) || ''; } catch { return ''; } },
-      getURL() { try { return (g.location?.href) || ''; } catch { return ''; } },
-      isLoading() { return false; },
-      isLoadingMainFrame() { return false; },
+      getTitle() {
+        try {
+          const documentTitle = pageDocument()?.title;
+          if (win.id === 1 && typeof documentTitle === 'string' && documentTitle) return documentTitle;
+          return navState.title || win.title || (typeof documentTitle === 'string' ? documentTitle : '') || '';
+        } catch { return navState.title || ''; }
+      },
+      getURL() {
+        if (navState.url) return navState.url;
+        try { return (g.location ?? g.window?.location)?.href || ''; } catch { return ''; }
+      },
+      isLoading() { return navState.loading; },
+      isLoadingMainFrame() { return navState.loading; },
       // js
       executeJavaScript(code: string, userGesture?: boolean) { try { return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
       executeJavaScriptInIsolatedWorld(worldId: number, scripts: any, userGesture?: boolean) { try { const code = Array.isArray(scripts) ? scripts.map((s:any) => s.code || s).join('\\n') : String(scripts); return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
@@ -309,16 +361,42 @@ export class BrowserWindow extends EventEmitter {
       // zoom
       get zoomLevel() { return zoomState.level; },
       set zoomLevel(level: number) { wc.setZoomLevel(level); },
-      setZoomLevel(level: number) { zoomState.level = Number(level) || 0; },
+      setZoomLevel(level: number) {
+        const next = Number(level);
+        if (!Number.isFinite(next)) throw new TypeError('webContents.setZoomLevel requires a finite level');
+        zoomState.level = next;
+        zoomState.factor = Math.pow(1.2, next);
+        applyPageZoom(zoomState.factor);
+      },
       getZoomLevel() { return zoomState.level; },
       get zoomFactor() { return zoomState.factor; },
       set zoomFactor(factor: number) { wc.setZoomFactor(factor); },
-      setZoomFactor(factor: number) { if (typeof factor === 'number' && factor > 0) { zoomState.factor = factor; } else { warn('webContents.setZoomFactor'); } },
+      setZoomFactor(factor: number) {
+        const next = Number(factor);
+        if (!Number.isFinite(next) || next <= 0) throw new TypeError('webContents.setZoomFactor requires a positive factor');
+        zoomState.factor = next;
+        zoomState.level = Math.log(next) / Math.log(1.2);
+        applyPageZoom(next);
+      },
       getZoomFactor() { return zoomState.factor; },
       setVisualZoomLevelLimits(minimumLevel: number, maximumLevel: number) { return Promise.resolve(); },
       // find in page
-      findInPage(text: string, options?: any) { findInPageCounter += 1; return findInPageCounter; },
-      stopFindInPage(action?: string) { return undefined; },
+      findInPage(text: string, options?: any) {
+        if (typeof text !== 'string') throw new TypeError('webContents.findInPage requires a text string');
+        findInPageCounter += 1;
+        const requestId = findInPageCounter;
+        lastFindRequest = { requestId, text, options };
+        const result = { requestId, activeMatchOrdinal: 0, matches: 0, selectionArea: {}, finalUpdate: true };
+        try { setTimeout(() => { if (lastFindRequest?.requestId === requestId) wc.emit('found-in-page', {}, result); }, 0); } catch { /* no timers in this context */ }
+        return requestId;
+      },
+      stopFindInPage(action?: string) {
+        if (action != null && !['clearSelection', 'keepSelection', 'activateSelection'].includes(action)) {
+          throw new TypeError(`webContents.stopFindInPage has an unknown action '${action}'`);
+        }
+        lastFindRequest = null;
+        return undefined;
+      },
       // print
       print(options?: any, callback?: Function) { if (typeof callback === 'function') { try { setTimeout(() => callback(null), 0); } catch {} } return undefined; },
       printToPDF(options?: any) { return Promise.resolve(typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array()); },
@@ -377,6 +455,36 @@ export class BrowserWindow extends EventEmitter {
       isFocused() { return false; },
       sendInputEvent(event: any) { return; },
     };
+    const emitLoadEvent = (name: string, ...args: any[]) => {
+      try { wc.emit(name, ...args); } catch (error) { try { console.error(error); } catch {} }
+    };
+    wc._beginLoad = (url: string, kind: 'file' | 'url', value: string) => {
+      navState.token += 1;
+      navState.loading = true;
+      navState.url = url;
+      navState.lastKind = kind;
+      navState.lastValue = value;
+      emitLoadEvent('did-start-loading');
+      return navState.token;
+    };
+    wc._finishLoad = (token: number) => {
+      if (token !== navState.token) return;
+      navState.loading = false;
+      try {
+        const documentTitle = pageDocument()?.title;
+        if (win.id === 1 && typeof documentTitle === 'string' && documentTitle) navState.title = documentTitle;
+      } catch { /* ignore */ }
+      emitLoadEvent('did-finish-load');
+      emitLoadEvent('did-stop-loading');
+    };
+    wc._failLoad = (token: number, error: any) => {
+      if (token !== navState.token) return;
+      navState.loading = false;
+      const message = error?.message != null ? String(error.message) : String(error ?? 'load failed');
+      emitLoadEvent('did-fail-load', {}, -2, message, navState.url, true);
+      emitLoadEvent('did-stop-loading');
+    };
+    wc._navState = navState;
     this.webContents = wc;
   }
   /** Subscribing to 'close' asks the host to report user close requests, so listeners can cancel them. */
@@ -430,8 +538,36 @@ export class BrowserWindow extends EventEmitter {
   private emitReadyToShow() { this.readyToShowEmitted = true; this.emit('ready-to-show'); }
   getParentWindow() { return this.parent; }
   private command(op: string, args: any = {}) { return this.created.then(() => host(op, {...args, windowId:this.id})); }
-  loadFile(file: string) { this.options.loadedFile = file; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } }); } const normalized = file.replaceAll('\\','/'); const segments = normalized.split('/').filter(part => part && part !== '.'); if (!segments.length || segments.includes('..') || /^[a-z]:/i.test(normalized) || normalized.startsWith('//')) return Promise.reject(new Error('Additional windows require a project-relative packaged HTML path')); return this.command('window.load', {path:'/src/renderer/' + segments.map(encodeURIComponent).join('/')}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); }
-  loadURL(url: string) { this.options.loadedURL = url; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } }); } if (url.startsWith('tsgpui://localhost/')) return this.command('window.load', {path:url.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); const rewritten = rewriteCustomUrl(url); if (rewritten) return this.command('window.load', {path: rewritten.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); return Promise.reject(new Error('Only packaged local URLs are supported for additional windows')); }
+  loadFile(file: string) {
+    this.options.loadedFile = file;
+    const normalized = file.replaceAll('\\','/');
+    const target = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
+    const token = (this.webContents as any)?._beginLoad?.(target, 'file', file);
+    if (this.id === 1) return Promise.resolve().then(() => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } });
+    const segments = normalized.split('/').filter(part => part && part !== '.');
+    if (!segments.length || segments.includes('..') || /^[a-z]:/i.test(normalized) || normalized.startsWith('//')) {
+      const error = new Error('Additional windows require a project-relative packaged HTML path');
+      (this.webContents as any)?._failLoad?.(token, error);
+      return Promise.reject(error);
+    }
+    return this.command('window.load', {path:'/src/renderer/' + segments.map(encodeURIComponent).join('/')}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
+  }
+  loadURL(url: string) {
+    this.options.loadedURL = url;
+    if (this.id === 1) {
+      const error = new Error('webContents.loadURL is not supported for the first window');
+      const token = (this.webContents as any)?._beginLoad?.(url, 'url', url);
+      (this.webContents as any)?._failLoad?.(token, error);
+      return Promise.reject(error);
+    }
+    const token = (this.webContents as any)?._beginLoad?.(url, 'url', url);
+    if (url.startsWith('tsgpui://localhost/')) return this.command('window.load', {path:url.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
+    const rewritten = rewriteCustomUrl(url);
+    if (rewritten) return this.command('window.load', {path: rewritten.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
+    const error = new Error('Only packaged local URLs are supported for additional windows');
+    (this.webContents as any)?._failLoad?.(token, error);
+    return Promise.reject(error);
+  }
   didClose() {
     if (this.destroyed) return;
     this.destroyed = true; windows.delete(this.id); this.emit('closed');
@@ -473,7 +609,7 @@ export class BrowserWindow extends EventEmitter {
   }
   // stateful chrome-ish properties
   getTitle() { return this.title; }
-  setTitle(title: string) { if (this.destroyed) return; this.title = String(title ?? ''); void this.command('window.setTitle', {title: this.title}).catch(console.error); }
+  setTitle(title: string) { if (this.destroyed) return; this.title = String(title ?? ''); if (this.webContents?._navState) this.webContents._navState.title = this.title; void this.command('window.setTitle', {title: this.title}).catch(console.error); }
   isAlwaysOnTop() { return this.alwaysOnTop; }
   setAlwaysOnTop(flag: boolean, level?: any, relativeLevel?: any) { if (this.destroyed) return; this.alwaysOnTop = !!flag; this.hostState('window.setAlwaysOnTop', {alwaysOnTop: this.alwaysOnTop, level, relativeLevel}); }
   setSkipTaskbar(skip: boolean) { if (this.destroyed) return; this.skipTaskbar = !!skip; this.hostState('window.setSkipTaskbar', {skipTaskbar: this.skipTaskbar}); }

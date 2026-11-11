@@ -63,6 +63,11 @@ pub struct Pump {
 enum Task {
     Action { name: String, event: Value },
     Deliver { channel: String, payload: Value },
+    /// A native event for the compatibility shim: tray clicks and global shortcut presses.
+    HostEvent { channel: String, payload: Value },
+    /// A host-originated event that calls one global shim handler directly, such as a power or
+    /// display transition.
+    GlobalEvent { source: String },
     SetState { key: String, value: Value },
 }
 
@@ -347,9 +352,31 @@ impl JsBackend {
         self.begin(task).map(|_| ())
     }
 
+    /// Queues a host-originated event that calls `globalThis.<global>?.(args...)`. The call runs as
+    /// a task, so state changes made by the shim's listeners commit or roll back like any other
+    /// task. `global` must be a fixed shim name, never user data.
+    pub fn emit_global(&mut self, global: &str, args: &[Value]) -> Result<(), String> {
+        let arguments = args.iter().map(Value::to_string).collect::<Vec<_>>().join(",");
+        let source = event_source(&format!("globalThis.{global}?.({arguments})"));
+        let task = Task::GlobalEvent { source };
+        if self.is_busy() {
+            self.queue.push_back(task);
+            return Ok(());
+        }
+        self.begin(task).map(|_| ())
+    }
+
     /// Delivers finished host results and starts queued work. Call this regularly while the app runs.
     pub fn pump(&mut self) -> Pump {
         let mut pump = Pump::default();
+        // Native events (tray clicks, global shortcuts) arrive on their own OS threads. They are
+        // queued as tasks so the shim sees them on the backend thread.
+        for event in crate::tray::poll_events() {
+            let Some(channel) = event.get("channel").and_then(Value::as_str) else { continue };
+            let payload = event.get("payload").cloned().unwrap_or(Value::Null);
+            self.queue.push_back(Task::HostEvent { channel: channel.to_string(), payload });
+            pump.changed = true;
+        }
         let mut settled = false;
         while let Ok(event) = self.events.try_recv() {
             pump.changed = true;
@@ -409,6 +436,13 @@ impl JsBackend {
             Task::Deliver { channel, payload } => {
                 let source = format!("globalThis.__tsgpui_envelope = undefined;\n{}", deliver_source(&channel, &payload));
                 (format!("Backend listener for '{channel}'"), source)
+            }
+            Task::HostEvent { channel, payload } => {
+                let source = format!("globalThis.__tsgpui_envelope = undefined;\n{}", host_event_source(&channel, &payload));
+                (format!("Host event '{channel}'"), source)
+            }
+            Task::GlobalEvent { source } => {
+                (String::from("Host event"), format!("globalThis.__tsgpui_envelope = undefined;\n{source}"))
             }
         };
         *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = Some(Vec::new());
@@ -690,6 +724,18 @@ const NATIVE_SETUP: &str = r#"(function() {
             remove: call('filesystem.remove'),
             rename: call('filesystem.rename')
         }),
+        nativeImage: Object.freeze({
+            createFromPath: (options) => call('nativeImage.createFromPath')(options ?? {}),
+            createFromBuffer: (options) => call('nativeImage.createFromBuffer')(options ?? {}),
+            getSize: (options) => call('nativeImage.getSize')(options ?? {}),
+            getAspectRatio: (options) => call('nativeImage.getAspectRatio')(options ?? {}),
+            resize: (options) => call('nativeImage.resize')(options ?? {}),
+            crop: (options) => call('nativeImage.crop')(options ?? {}),
+            toPNG: (options) => call('nativeImage.toPNG')(options ?? {}),
+            toJPEG: (options) => call('nativeImage.toJPEG')(options ?? {}),
+            toDataURL: (options) => call('nativeImage.toDataURL')(options ?? {}),
+            toBitmap: (options) => call('nativeImage.toBitmap')(options ?? {})
+        }),
         process: Object.freeze({
             spawn: (command, args) => call('process.spawn')(command, args ?? [])
         }),
@@ -725,10 +771,32 @@ const NATIVE_SETUP: &str = r#"(function() {
             request: (options) => call('net.request')(options)
         }),
         power: Object.freeze({
-            setBlockers: (types) => call('power.setBlockers')(types ?? [])
+            setBlockers: (types) => call('power.setBlockers')(types ?? []),
+            state: call('power.state')
+        }),
+        systemPreferences: Object.freeze({
+            info: call('systemPreferences.info')
         }),
         screen: Object.freeze({
             displays: call('screen.displays')
+        }),
+        // Tray icons and global shortcuts. The host owns the OS objects; the shim keeps the
+        // Electron-facing state and receives events through `__tsgpui_host_event`.
+        tray: Object.freeze({
+            create: (options) => call('tray.create')(options ?? {}),
+            setIcon: (options) => call('tray.setIcon')(options ?? {}),
+            setToolTip: (options) => call('tray.setToolTip')(options ?? {}),
+            setTitle: (options) => call('tray.setTitle')(options ?? {}),
+            setContextMenu: (options) => call('tray.setContextMenu')(options ?? {}),
+            popUpContextMenu: (options) => call('tray.popUpContextMenu')(options ?? {}),
+            destroy: (options) => call('tray.destroy')(options ?? {}),
+            bounds: (options) => call('tray.bounds')(options ?? {})
+        }),
+        globalShortcut: Object.freeze({
+            register: (accelerator) => call('globalShortcut.register')(accelerator),
+            unregister: (accelerator) => call('globalShortcut.unregister')(accelerator),
+            unregisterAll: () => call('globalShortcut.unregisterAll')(),
+            isRegistered: (accelerator) => call('globalShortcut.isRegistered')(accelerator)
         })
     });
     hidden('__tsgpui_native', native);
@@ -813,6 +881,43 @@ fn action_source(name: &str, event: &Value) -> String {
 
 fn deliver_source(channel: &str, payload: &Value) -> String {
     DELIVER_SOURCE.replace("__CHANNEL__", &literal(channel)).replace("__PAYLOAD__", &payload.to_string())
+}
+
+// Hands a native event (a tray click, a global shortcut press) to the compatibility shim. The shim
+// installs `__tsgpui_host_event`; state changes a callback makes are committed as a normal task.
+const HOST_EVENT_SOURCE: &str = r#"globalThis.__tsgpui_envelope = (function() {
+    const app=globalThis.__tsgpui_app;
+    const before=JSON.stringify(app.state);
+    try {
+        const handler=globalThis.__tsgpui_host_event;
+        if (typeof handler === 'function') handler(__CHANNEL__, __PAYLOAD__);
+        return JSON.stringify({ok:true,state:JSON.stringify(app.state)});
+    } catch (err) {
+        app.state=JSON.parse(before);
+        return JSON.stringify({ok:false,error:String((err && err.message) || err)});
+    }
+})();"#;
+
+fn host_event_source(channel: &str, payload: &Value) -> String {
+    HOST_EVENT_SOURCE.replace("__CHANNEL__", &literal(channel)).replace("__PAYLOAD__", &payload.to_string())
+}
+
+// Runs one shim event handler (`__tsgpui_power_event`, `__tsgpui_display_event`, ...) as a task,
+// committing any state its listeners change. `__CALL__` is a fixed global call.
+const EVENT_SOURCE: &str = r#"(function() {
+    const app=globalThis.__tsgpui_app;
+    const message=(err) => String((err && err.message) || err);
+    const before=JSON.stringify(app.state);
+    const restore=(err) => { app.state=JSON.parse(before); return JSON.stringify({ok:false,error:message(err)}); };
+    try {
+        return Promise.resolve((__CALL__)).then(() => JSON.stringify({ok:true,state:JSON.stringify(app.state)}), restore);
+    } catch (err) {
+        return Promise.resolve(restore(err));
+    }
+})().then((envelope) => { globalThis.__tsgpui_envelope=envelope; });"#;
+
+fn event_source(call: &str) -> String {
+    EVENT_SOURCE.replace("__CALL__", call)
 }
 
 // Exposes `__tsgpui_host(operation, argsJson)` to the setup script. It returns the request id at once,

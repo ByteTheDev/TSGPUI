@@ -10,6 +10,9 @@ mod accessibility;
 mod text_input;
 mod menus;
 mod view;
+mod image_store;
+mod tray;
+mod hotkeys;
 
 fn main(){
     let bundle_file=match package::bundle_path(){
