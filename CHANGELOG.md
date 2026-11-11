@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+First stable release of the 0.4.0 series, graduating the beta.4 work (full Electron compatibility coverage, native UI/menus, host builds). See the beta.2 notes below for the feature set.
+
 ## 0.4.0-beta.2
 
 This is a beta. Interfaces may change before 0.4.0, and the platform hosts for macOS and Linux have been built by CI but not yet run by hand.
