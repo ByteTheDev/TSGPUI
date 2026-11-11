@@ -277,7 +277,8 @@ export const protocol = {
     intercepted.add(normalized);
   },
   interceptHttpProtocol(scheme: string, handler: Function) {
-    register(scheme, handler, 'protocol.interceptHttpProtocol');
+    const normalized = register(scheme, handler, 'protocol.interceptHttpProtocol');
+    intercepted.add(normalized);
   },
   registerSchemesAsPrivileged(schemes: any[], _privileges?: any) {
     if (!Array.isArray(schemes)) throw new TypeError('protocol.registerSchemesAsPrivileged requires an array of schemes');
@@ -294,8 +295,11 @@ export const protocol = {
 };
 
 function rewrittenOrPath(urlValue: any): string {
-  if (typeof urlValue !== 'string') throw new TypeError('protocol.registerFileProtocol handler expects a URL string');
-  return rewriteCustomUrl(urlValue) ?? urlValue;
+  const urlText = (typeof urlValue === 'string')
+    ? urlValue
+    : (urlValue && typeof urlValue.url === 'string' ? urlValue.url : String(urlValue ?? ''));
+  if (!urlText) throw new TypeError('protocol.registerFileProtocol handler expects a URL string');
+  return rewriteCustomUrl(urlText) ?? urlText;
 }
 
 export default protocol;

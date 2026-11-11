@@ -7,8 +7,8 @@ import { EventEmitter } from './events';
 // hierarchies) is NOT supported by the TSGPUI host. These shims keep inspectable
 // state (bounds, visibility, title, destroyed flags) and emit the events Electron
 // exposes, so apps can import and reference the APIs without crashing at load
-// time, but addChildView/removeChildView and contentView access throw a clear
-// error. Basic construction never throws.
+// time. addChildView/removeChildView throw a clear error because native view
+// chrome is unavailable. Basic construction never throws.
 
 function unsupported(api: string): never {
   throw new Error(`${api} is not supported by TSGPUI`);
@@ -58,13 +58,16 @@ function makeWebContents(id: number, isDestroyed: () => boolean): any {
 }
 
 function toBounds(options: any): { x: number; y: number; width: number; height: number } {
-  const src = options?.bounds && typeof options.bounds === 'object' ? options.bounds : options || {};
-  return {
-    x: numberOr(src.x, 0),
-    y: numberOr(src.y, 0),
-    width: Math.max(0, numberOr(src.width, src.width === undefined ? 800 : 0)),
-    height: Math.max(0, numberOr(src.height, src.height === undefined ? 600 : 0)),
-  };
+  const src = options?.bounds && typeof options.bounds === 'object' ? options.bounds : (options || {});
+  const x = numberOr(src.x, 0);
+  const y = numberOr(src.y, 0);
+  let width = src.width === undefined ? (options?.width === undefined ? 800 : numberOr(options?.width, 800)) : numberOr(src.width, 0);
+  let height = src.height === undefined ? (options?.height === undefined ? 600 : numberOr(options?.height, 600)) : numberOr(src.height, 0);
+  if (width === 0 && options?.width === undefined && src.width === undefined) width = 800;
+  if (height === 0 && options?.height === undefined && src.height === undefined) height = 600;
+  width = Math.max(0, width);
+  height = Math.max(0, height);
+  return { x, y, width, height };
 }
 
 // Keep a shared base for bounds/visibility/title/destroyed state.
@@ -82,15 +85,7 @@ export class View extends EventEmitter {
     super();
     this.id = nextId++;
     this.options = options || {};
-    const b = toBounds(this.options);
-    // Support BrowserWindow-style defaults when width/height were not provided.
-    if (this.options && this.options.bounds === undefined && this.options.width === undefined && this.options.height === undefined) {
-      this._bounds = { x: b.x, y: b.y, width: 800, height: 600 };
-    } else {
-      this._bounds = b.width === 0 && b.height === 0 && this.options?.width === undefined
-        ? { x: b.x, y: b.y, width: 800, height: 600 }
-        : b;
-    }
+    this._bounds = toBounds(this.options);
     if (typeof this.options.visible === 'boolean') this._visible = this.options.visible;
     if (typeof this.options.show === 'boolean') this._visible = this.options.show;
     if (this.options.title != null) this._title = String(this.options.title);
@@ -126,7 +121,7 @@ export class View extends EventEmitter {
   }
 
   getTitle(): string { return this._title; }
-  setTitle(title: any): void { this._title = title == null ? '' : String(title); }
+  setTitle(title: any): void { this._title = title == null ? '' : String(title); this.emit('title-changed', this._title); }
 
   getBackgroundColor(): any { return this._backgroundColor; }
   setBackgroundColor(color: any): void { this._backgroundColor = color == null ? null : color; }
@@ -165,6 +160,8 @@ export class BrowserView extends View {
   constructor(options: any = {}) {
     super(options);
     this.autoResize = options?.autoResize || { width: false, height: false };
+    if (typeof this.autoResize.width !== 'boolean') this.autoResize.width = !!this.autoResize.width;
+    if (typeof this.autoResize.height !== 'boolean') this.autoResize.height = !!this.autoResize.height;
     this.webContents = makeWebContents(this.id, () => this.isDestroyed());
   }
 
@@ -175,7 +172,6 @@ export class BrowserView extends View {
   destroy(): void {
     if (this.isDestroyed()) return;
     super.destroy();
-    this.emit('destroyed');
   }
 }
 
@@ -200,8 +196,8 @@ export class BaseWindow extends View {
 
   // Window-level convenience, mirroring BrowserWindow where cheap.
   isFocused(): boolean { return false; }
-  focus(): void { this.emit('focus'); }
-  blur(): void { this.emit('blur'); }
+  focus(): void { if (this.isDestroyed()) return; this.emit('focus'); }
+  blur(): void { if (this.isDestroyed()) return; this.emit('blur'); }
 
   isMinimized(): boolean { return false; }
   isMaximized(): boolean { return false; }
@@ -212,10 +208,10 @@ export class BaseWindow extends View {
     compatWarnings.push('BaseWindow.setFullScreen is not supported and has no effect');
   }
 
-  minimize(): void { this.emit('minimize'); }
-  maximize(): void { this.emit('maximize'); }
-  unmaximize(): void { this.emit('unmaximize'); }
-  restore(): void { this.emit('restore'); }
+  minimize(): void { if (this.isDestroyed()) return; this.emit('minimize'); }
+  maximize(): void { if (this.isDestroyed()) return; this.emit('maximize'); }
+  unmaximize(): void { if (this.isDestroyed()) return; this.emit('unmaximize'); }
+  restore(): void { if (this.isDestroyed()) return; this.emit('restore'); }
 
   center(): void { /* no-op without native chrome */ }
   flashFrame(_flag: boolean): void { /* no-op */ }
@@ -227,8 +223,6 @@ export class BaseWindow extends View {
     this.emit('close', event);
     if (prevented) return;
     this.destroy();
-    baseWindows.delete(this);
-    this.emit('closed');
   }
 
   destroy(): void {

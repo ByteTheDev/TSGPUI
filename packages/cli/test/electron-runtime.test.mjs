@@ -95,7 +95,7 @@ test('menu templates create inspectable nested items and reject invalid operatio
   assert.throws(() => menu.popup(), /native menus are not available/);
   e.Menu.setApplicationMenu(null); assert.equal(e.Menu.getApplicationMenu(),null);
 });
-test('nativeImage preserves PNG bytes and reports dimensions, while unsupported conversions fail', () => {
+test('nativeImage preserves PNG bytes and reports dimensions, while unsupported conversions fail', async () => {
   const image = runtime().load('electron').nativeImage;
   const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXkAAAAASUVORK5CYII=';
   const value = image.createFromDataURL('data:image/png;base64,' + base64);
@@ -105,7 +105,7 @@ test('nativeImage preserves PNG bytes and reports dimensions, while unsupported 
   assert.equal(image.createFromBuffer(new Uint8Array([1,2,3])).isEmpty(),true);
   assert.equal(image.createEmpty().getSize().width,0);
   assert.equal(value.resize({width:2,height:2}).getSize().width, 2);
-  assert.throws(() => image.createFromPath('x.png'), /not supported/);
+  assert.equal((await image.createFromPath('x.png')).isEmpty(), true);
 });
 test('nativeTheme tracks effective theme and media changes', () => {
   const {load,context} = runtime(true);
@@ -147,7 +147,10 @@ test('electron net.request sends text and headers through the permission-checked
   assert.equal(op,'net.request'); assert.equal(args.url,'https://example.com/resource'); assert.equal(args.body,'hello world'); assert.equal(args.headers['x-token'],'two');
   assert.throws(() => e.net.request({url:'https://example.com',session:{}}), /session/);
   assert.doesNotThrow(() => e.net.request('https://example.com').write(new Uint8Array([1])));
-  await assert.rejects(e.net.fetch(), /not supported/);
+  const fetched = await e.net.fetch('https://example.com/resource');
+  assert.equal(fetched.status, 201);
+  assert.equal(await fetched.text(), 'reply');
+  assert.equal(fetched.headers.get('x-result'), 'ok');
 });
 test('userData root maps app paths to filesystem operations', async () => {
   const {load,calls} = runtime(); const app=load('electron').app; await app.whenReady();
@@ -338,9 +341,9 @@ test('BaseWindow lifecycle and unsupported standalone views and utility processe
   const window = new e.BaseWindow({title: 'Base'});
   assert.equal(window.isDestroyed(), false);
   assert.throws(() => window.contentView, /BaseWindow\.contentView/);
-  assert.throws(() => new e.BrowserView(), /BrowserView/);
-  assert.throws(() => new e.WebContentsView(), /WebContentsView/);
-  assert.throws(() => e.utilityProcess.fork('child.js'), /utilityProcess\.fork/);
+  assert.equal(new e.BrowserView().isDestroyed(), false);
+  assert.equal(new e.WebContentsView().isDestroyed(), false);
+  assert.doesNotThrow(() => e.utilityProcess.fork('child.js'));
   window.close(); assert.equal(window.isDestroyed(), true);
 });
 

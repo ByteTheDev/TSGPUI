@@ -12,37 +12,82 @@ export class ShareMenu {
   closePopup(): void { /* no-op */ }
 }
 
-// Partial shim for Electron's systemPreferences. Reports a light, default appearance.
+// Partial shim for Electron's systemPreferences. Reports a light appearance by default and
+// derives dark mode from the renderer's prefers-color-scheme media query when available.
 class SystemPreferences extends EventEmitter {
-  private defaults: Record<string, any> = {};
-  isDarkMode(): boolean { return false; }
-  getAccentColor(): string { return this.accentColor; }
+  private dark: any;
+  private userDefaults = new Map<string, any>();
+  defaults: Record<string, any> = {};
   accentColor: string = '';
-  getEffectiveAppearance(): string { return 'light'; }
-  effectiveAppearance: string = 'light';
   isAeroGlassEnabled(): boolean { return false; }
+  private notificationSubs = new Map<number, { event: string; callback: Function; scope: string }>();
+  private nextNotificationId = 0;
+
+  constructor() {
+    super();
+    const win: any = (globalThis as any)?.window;
+    this.dark = win?.matchMedia?.('(prefers-color-scheme: dark)');
+    if (this.dark?.addEventListener) this.dark.addEventListener('change', () => this.emit('color-changed'));
+    else if (this.dark?.addListener) this.dark.addListener(() => this.emit('color-changed'));
+  }
+
+  isDarkMode(): boolean { return !!this.dark?.matches; }
+  getAccentColor(): string { return this.accentColor; }
+  get effectiveAppearance(): string { return this.isDarkMode() ? 'dark' : 'light'; }
+  set effectiveAppearance(_value: string) { /* read-only best-effort; ignored */ }
   getColor(_color: string): string { return ''; }
   getSystemColor(_color: string): string { return ''; }
-  getAnimationSettings(): any { return {shouldRenderRichAnimation: true, scrollAnimationsEnabledBySystem: true, prefersReducedMotion: false}; }
+  getAnimationSettings(): any { return { shouldRenderRichAnimation: true, scrollAnimationsEnabledBySystem: true, prefersReducedMotion: false }; }
   getMediaAccessStatus(_mediaType: string): string { return 'not-determined'; }
   askForMediaAccess(_mediaType: string): Promise<boolean> { return Promise.resolve(false); }
   canPromptTouchID(): boolean { return false; }
   promptTouchID(_reason: string): Promise<void> { return Promise.resolve(); }
   isTrustedAccessibilityClient(_prompt?: boolean): boolean { return false; }
   isSwipeTrackingFromScrollEventsEnabled(): boolean { return false; }
-  getUserDefault(_key: string, _type: string): any { return null; }
-  setUserDefault(_key: string, _type: string, _value: any): void { /* no-op */ }
-  removeUserDefault(_key: string): void { /* no-op */ }
+  accessibilityDisplayShouldReduceTransparency: boolean = false;
+
+  getUserDefault(key: string, _type: string): any {
+    if (this.userDefaults.has(key)) return this.userDefaults.get(key);
+    if (Object.prototype.hasOwnProperty.call(this.defaults, key)) return this.defaults[key];
+    return null;
+  }
+  setUserDefault(key: string, _type: string, value: any): void { this.userDefaults.set(key, value); }
+  removeUserDefault(key: string): void { this.userDefaults.delete(key); }
   registerDefaults(defaults: Record<string, any>): void { Object.assign(this.defaults, defaults || {}); }
-  postNotification(_event: string, _userInfo?: any, _deliverImmediately?: boolean): void { /* no-op */ }
-  postLocalNotification(_event: string, _userInfo?: any): void { /* no-op */ }
-  postWorkspaceNotification(_event: string, _userInfo?: any): void { /* no-op */ }
-  subscribeNotification(_event: string, _callback: Function): number { return 0; }
-  subscribeLocalNotification(_event: string, _callback: Function): number { return 0; }
-  subscribeWorkspaceNotification(_event: string, _callback: Function): number { return 0; }
-  unsubscribeNotification(_id: number): void { /* no-op */ }
-  unsubscribeLocalNotification(_id: number): void { /* no-op */ }
-  unsubscribeWorkspaceNotification(_id: number): void { /* no-op */ }
+
+  postNotification(event: string, _userInfo?: any, _deliverImmediately?: boolean): void {
+    for (const sub of this.notificationSubs.values()) {
+      if (sub.scope === 'notification' && sub.event === event) try { sub.callback(_userInfo); } catch { /* ignore */ }
+    }
+  }
+  postLocalNotification(event: string, _userInfo?: any): void {
+    for (const sub of this.notificationSubs.values()) {
+      if (sub.scope === 'local' && sub.event === event) try { sub.callback(_userInfo); } catch { /* ignore */ }
+    }
+  }
+  postWorkspaceNotification(event: string, _userInfo?: any): void {
+    for (const sub of this.notificationSubs.values()) {
+      if (sub.scope === 'workspace' && sub.event === event) try { sub.callback(_userInfo); } catch { /* ignore */ }
+    }
+  }
+  subscribeNotification(event: string, callback: Function): number {
+    const id = ++this.nextNotificationId;
+    this.notificationSubs.set(id, { event, callback, scope: 'notification' });
+    return id;
+  }
+  subscribeLocalNotification(event: string, callback: Function): number {
+    const id = ++this.nextNotificationId;
+    this.notificationSubs.set(id, { event, callback, scope: 'local' });
+    return id;
+  }
+  subscribeWorkspaceNotification(event: string, callback: Function): number {
+    const id = ++this.nextNotificationId;
+    this.notificationSubs.set(id, { event, callback, scope: 'workspace' });
+    return id;
+  }
+  unsubscribeNotification(id: number): void { this.notificationSubs.delete(id); }
+  unsubscribeLocalNotification(id: number): void { this.notificationSubs.delete(id); }
+  unsubscribeWorkspaceNotification(id: number): void { this.notificationSubs.delete(id); }
 }
 export const systemPreferences = new SystemPreferences();
 
@@ -59,13 +104,15 @@ export class TouchBarSlider { constructor(options?: any) { Object.assign(this, o
 export class TouchBarSpacer { constructor(options?: any) { Object.assign(this, options || {}); } }
 
 export class TouchBar {
+  items: any;
   escapeItem: any;
   constructor(options?: any) {
-    const instance: any = {};
     const opts = options || {};
-    instance.escapeItem = opts.escapeItem ?? null;
-    for (const key of Object.keys(opts)) instance[key] = opts[key];
-    return instance;
+    this.items = opts.items ?? [];
+    this.escapeItem = opts.escapeItem ?? null;
+    for (const key of Object.keys(opts)) {
+      if (key !== 'items' && key !== 'escapeItem') (this as any)[key] = opts[key];
+    }
   }
   static TouchBarButton = TouchBarButton;
   static TouchBarColorPicker = TouchBarColorPicker;

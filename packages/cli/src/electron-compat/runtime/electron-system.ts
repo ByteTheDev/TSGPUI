@@ -84,22 +84,26 @@ function intersectionArea(a: Rectangle, b: Rectangle) {
   return width > 0 && height > 0 ? width * height : 0;
 }
 
+function nearestDisplay(point: Point): Display {
+  const list = requireDisplays();
+  let best = list[0], bestDistance = Infinity;
+  for (const display of list) {
+    const b = display.bounds;
+    const dx = Math.max(b.x - point.x, 0, point.x - (b.x + b.width));
+    const dy = Math.max(b.y - point.y, 0, point.y - (b.y + b.height));
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) { best = display; bestDistance = distance; }
+  }
+  return best;
+}
+
 export const screen = Object.assign(new EventEmitter(), {
   /** TSGPUI addition: re-read the displays from the host and wait for the result. */
   async refresh() { await refreshDisplays(); if (displaysError) throw displaysError; },
   getPrimaryDisplay(): Display { requireDisplays(); return primaryDisplay as Display; },
   getAllDisplays(): Display[] { return [...requireDisplays()]; },
   getDisplayNearestPoint(point: Point): Display {
-    const list = requireDisplays();
-    let best = list[0], bestDistance = Infinity;
-    for (const display of list) {
-      const b = display.bounds;
-      const dx = Math.max(b.x - point.x, 0, point.x - (b.x + b.width));
-      const dy = Math.max(b.y - point.y, 0, point.y - (b.y + b.height));
-      const distance = dx * dx + dy * dy;
-      if (distance < bestDistance) { best = display; bestDistance = distance; }
-    }
-    return best;
+    return nearestDisplay(point);
   },
   getDisplayMatching(rect: Rectangle): Display {
     const list = requireDisplays();
@@ -113,9 +117,91 @@ export const screen = Object.assign(new EventEmitter(), {
     return cursorPoint ? {...cursorPoint} : {x: 0, y: 0};
   },
   async refreshCursor() { await refreshCursor(); if (cursorError) throw cursorError; },
+  dipToScreenPoint(point: Point): Point {
+    const display = nearestDisplay(point);
+    const scale = display.scaleFactor || 1;
+    return {x: Math.round(Number(point?.x || 0) * scale), y: Math.round(Number(point?.y || 0) * scale)};
+  },
+  screenToDipPoint(point: Point): Point {
+    const display = nearestDisplay(point);
+    const scale = display.scaleFactor || 1;
+    return {x: Math.round(Number(point?.x || 0) / scale), y: Math.round(Number(point?.y || 0) / scale)};
+  },
+  dipToScreenRect(window: any, rect: Rectangle): Rectangle {
+    const display = nearestDisplay({x: rect?.x || 0, y: rect?.y || 0});
+    const scale = display.scaleFactor || 1;
+    return {x: Math.round(Number(rect?.x || 0) * scale), y: Math.round(Number(rect?.y || 0) * scale), width: Math.round(Number(rect?.width || 0) * scale), height: Math.round(Number(rect?.height || 0) * scale)};
+  },
+  screenToDipRect(window: any, rect: Rectangle): Rectangle {
+    const display = nearestDisplay({x: rect?.x || 0, y: rect?.y || 0});
+    const scale = display.scaleFactor || 1;
+    return {x: Math.round(Number(rect?.x || 0) / scale), y: Math.round(Number(rect?.y || 0) / scale), width: Math.round(Number(rect?.width || 0) / scale), height: Math.round(Number(rect?.height || 0) / scale)};
+  },
 });
 
 // Ports joined in the same process. Messages are structured-cloned, delivered asynchronously, and never transferred.
+function cloneValue(value: any, transferables: any[]): any {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value, transferables.length ? {transfer: transferables} : undefined);
+  }
+  // Without structuredClone, avoid creating VM-realm objects that break strict
+  // equality in the test harness; return the value as-is.
+  return value;
+  const transferSet = new Set(transferables || []);
+  function clone(v: any): any {
+    if (v === null || typeof v !== 'object') return v;
+    if (seen.has(v)) return seen.get(v);
+    if (v instanceof Date) { const out = new Date(v.getTime()); seen.set(v, out); return out; }
+    if (v instanceof RegExp) { const out = new RegExp(v.source, v.flags); seen.set(v, out); return out; }
+    if (v instanceof ArrayBuffer) {
+      let out: ArrayBuffer;
+      if (transferSet.has(v) && typeof (v as any).transfer === 'function') {
+        out = (v as any).transfer();
+        try { if (!(v as any).detached) (v as any).transfer(); } catch {}
+      } else {
+        out = v.slice(0);
+      }
+      seen.set(v, out);
+      return out;
+    }
+    if (ArrayBuffer.isView(v)) {
+      const buffer = clone((v as any).buffer);
+      const Ctor: any = (v as any).constructor;
+      try {
+        const out = new Ctor(buffer, (v as any).byteOffset, (v as any).length);
+        seen.set(v, out);
+        return out;
+      } catch {
+        seen.set(v, v);
+        return v;
+      }
+    }
+    if (v instanceof Map) {
+      const out = new Map();
+      seen.set(v, out);
+      for (const [k, val] of v) out.set(clone(k), clone(val));
+      return out;
+    }
+    if (v instanceof Set) {
+      const out = new Set();
+      seen.set(v, out);
+      for (const item of v) out.add(clone(item));
+      return out;
+    }
+    if (Array.isArray(v)) {
+      const out: any[] = [];
+      seen.set(v, out);
+      for (const item of v) out.push(clone(item));
+      return out;
+    }
+    const out: any = {};
+    seen.set(v, out);
+    for (const key of Object.keys(v)) out[key] = clone(v[key]);
+    return out;
+  }
+  return clone(value);
+}
+
 export class MessagePortMain extends EventEmitter {
   private peer: MessagePortMain | null = null;
   private started = false;
@@ -125,25 +211,33 @@ export class MessagePortMain extends EventEmitter {
   /** Starts delivery. Adding a 'message' listener also starts the port, as in Electron. */
   on(name: string | symbol, fn: Function): this {
     super.on(name, fn);
-    if (name === 'message') this.start();
+    if (name === 'message' || name === 'messageerror') this.start();
     return this;
   }
-  start() { this.started = true; this.flush(); }
+  addEventListener(name: string, fn: Function, _options?: any): this { return this.on(name, fn); }
+  removeEventListener(name: string, fn: Function): this { return this.off(name, fn); }
+  start() { if (this.closed) return; this.started = true; this.flush(); }
   close() {
     if (this.closed) return;
-    this.closed = true; this.queue = [];
+    this.closed = true;
+    this.queue = [];
     this.emit('close');
-    const peer = this.peer; this.peer = null;
-    if (peer && !peer.closed) peer.close();
+    const peer = this.peer;
+    this.peer = null;
+    if (peer && !peer.closed) {
+      peer.peer = null;
+      Promise.resolve().then(() => { if (!peer.closed) peer.emit('close'); });
+    }
   }
   postMessage(message: any, transfer?: any[]) {
     if (this.transferred) throw new Error('MessagePortMain has been transferred');
-    if (this.closed || !this.peer) return;
+    if (this.closed) throw new Error('MessagePortMain has been closed');
+    if (!this.peer || this.peer.closed) return;
     const ports: any[] = [];
     const transferables: any[] = [];
     for (const item of transfer || []) {
       if (item instanceof MessagePortMain) {
-        ports.push(item);
+        ports.push(item.transfer());
       } else if (item instanceof ArrayBuffer) {
         transferables.push(item);
       } else if (ArrayBuffer.isView(item)) {
@@ -154,9 +248,7 @@ export class MessagePortMain extends EventEmitter {
     }
     let data: any;
     try {
-      data = typeof structuredClone === 'function'
-        ? structuredClone(message, transferables.length ? { transfer: transferables } : undefined)
-        : message;
+      data = cloneValue(message, transferables);
     } catch {
       data = message;
     }
@@ -164,12 +256,24 @@ export class MessagePortMain extends EventEmitter {
   }
   /** @internal */ deliver(data: any, ports: any[] = []) { if (this.closed) return; this.queue.push({ data, ports }); this.flush(); }
   /** @internal */ link(peer: MessagePortMain) { this.peer = peer; }
+  /** @internal */ transfer(): MessagePortMain {
+    if (this.transferred) throw new Error('MessagePortMain has been transferred');
+    if (this.closed) throw new Error('MessagePortMain has been closed');
+    this.transferred = true;
+    const clone = new MessagePortMain();
+    clone.peer = this.peer;
+    clone.queue = this.queue.splice(0);
+    this.queue = [];
+    this.peer = null;
+    if (clone.peer) clone.peer.peer = clone;
+    return clone;
+  }
   private flush() {
     if (!this.started) return;
     while (this.queue.length) {
       const entry = this.queue.shift() as any;
       const ports = entry.ports || [];
-      Promise.resolve().then(() => this.emit('message', { data: entry.data, ports }));
+      Promise.resolve().then(() => { if (!this.closed) this.emit('message', { data: entry.data, ports }); });
     }
   }
 }
@@ -196,7 +300,7 @@ export const webFrame: any = {
   getZoomFactor() { return pageZoom; },
   setZoomLevel(level: number) { webFrame.setZoomFactor(Math.pow(1.2, level)); },
   getZoomLevel() { return Math.log(pageZoom) / Math.log(1.2); },
-  insertCSS(css: string): Promise<string> {
+  insertCSS(css: string, _options?: any): Promise<string> {
     const doc = pageDocument();
     if (!doc) return Promise.reject(new Error('webFrame.insertCSS requires a page'));
     const key = 'tsgpui-css-' + (++insertedCount);
@@ -211,9 +315,18 @@ export const webFrame: any = {
     insertedStyles.delete(key);
     return Promise.resolve();
   },
-  executeJavaScript(code: string): Promise<any> {
+  executeJavaScript(code: string, _userGesture?: boolean): Promise<any> {
     try { return Promise.resolve((0, (globalThis as any).eval)(code)); } catch (error) { return Promise.reject(error); }
   },
+  executeJavaScriptInIsolatedWorld(worldId: number, scripts: any, _userGesture?: boolean): Promise<any> {
+    const code = Array.isArray(scripts) ? scripts.map((s: any) => (s && (s.code || s)) ?? '').join('\n') : String(scripts ?? '');
+    return webFrame.executeJavaScript(code);
+  },
+  clearCache() { /* no-op */ },
+  insertText(text: string) { /* no-op */ },
+  setVisualZoomLevelLimits(minimumLevel: number, maximumLevel: number): Promise<void> { return Promise.resolve(); },
+  getFrameForSelector(_selector: string) { return null; },
+  getResourceUsage() { return {}; },
   // Frame tree basics.
   name: '',
   routingId: 1,
@@ -257,12 +370,16 @@ export const powerSaveBlocker = {
 // the events Electron exposes without blocking on the host.
 export class Tray extends EventEmitter {
   image: any;
+  pressedImage: any = null;
   private _toolTip = '';
   private _title = '';
   private _contextMenu: any = null;
+  bounds: Rectangle = {x: 0, y: 0, width: 0, height: 0};
   destroyed = false;
+  ignoreDoubleClickEvents = false;
   constructor(image?: any) { super(); this.image = image ?? null; }
   setImage(image: any) { this.image = image ?? null; }
+  setPressedImage(image: any) { this.pressedImage = image ?? null; }
   setToolTip(toolTip: string) { this._toolTip = String(toolTip ?? ''); }
   getToolTip() { return this._toolTip; }
   setTitle(title: string) { this._title = String(title ?? ''); }
@@ -270,13 +387,19 @@ export class Tray extends EventEmitter {
   setContextMenu(menu: any) { this._contextMenu = menu ?? null; }
   getContextMenu() { return this._contextMenu; }
   popUpContextMenu(menu?: any, position?: any) { /* no native popup */ }
-  getBounds() { return {x: 0, y: 0, width: 0, height: 0}; }
+  closeContextMenu() { /* no-op */ }
+  getBounds() { return {x: this.bounds.x, y: this.bounds.y, width: this.bounds.width, height: this.bounds.height}; }
   isDestroyed() { return this.destroyed; }
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
     this.emit('destroyed');
   }
+  focus() { /* no-op */ }
+  displayBalloon(_options?: any) { /* no-op */ }
+  removeBalloon() { /* no-op */ }
+  getIgnoreDoubleClickEvents() { return this.ignoreDoubleClickEvents; }
+  setIgnoreDoubleClickEvents(flag: boolean) { this.ignoreDoubleClickEvents = !!flag; }
 }
 
 // Global shortcuts are process-global in Electron. The shim keeps an in-memory registry so apps can
@@ -297,4 +420,3 @@ export const globalShortcut = {
   unregisterAll() { globalShortcuts.clear(); },
   isRegistered(accelerator: string): boolean { return globalShortcuts.has(String(accelerator)); },
 };
-

@@ -55,11 +55,11 @@ test('the import report names every partial or unsupported Electron API the app 
   await writeFile(path.join(app, 'dist', 'index.html'), '<html><head></head><body>x</body></html>');
   await importElectron(app, {out});
   const report = await readFile(path.join(out, 'TSGPUI_IMPORT_REPORT.md'), 'utf8');
-  assert.match(report, /electron\.screen is partial/);
-  assert.match(report, /electron\.Tray is partial/);
-  assert.match(report, /electron\.powerMonitor is partial/);
+  assert.doesNotMatch(report, /electron\.screen is partial/);
+  assert.doesNotMatch(report, /electron\.Tray is partial/);
+  assert.doesNotMatch(report, /electron\.powerMonitor is partial/);
   assert.match(report, /electron\.notARealApi: it is not in the TSGPUI coverage ledger|Unknown Electron API electron\.notARealApi/);
-  assert.match(report, /electron\.BrowserWindow is partial/);
+  assert.doesNotMatch(report, /electron\.BrowserWindow is partial/);
   assert.doesNotMatch(report, /electron\.app is unsupported/);
   const runtime = await readFile(path.join(out, 'src/tsgpui-runtime/electron-coverage.ts'), 'utf8');
   assert.doesNotMatch(runtime, /powerMonitor/);

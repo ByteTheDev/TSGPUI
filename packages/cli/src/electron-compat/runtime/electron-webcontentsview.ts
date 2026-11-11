@@ -1,5 +1,6 @@
 import { host, compatWarnings } from './host';
 import { EventEmitter } from './events';
+import { View } from './electron-views';
 
 // Partial shims for Electron APIs that TSGPUI cannot fully back with native chrome.
 //
@@ -13,13 +14,17 @@ function unsupported(api: string): never {
   throw new Error(`${api} is not supported by TSGPUI`);
 }
 
+function numberOr(value: any, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 let nextViewId = 1;
 
-function makeWebContents(id: number): any {
+function makeWebContents(id: number, isDestroyed: () => boolean): any {
   const emitter = new EventEmitter();
   const wc: any = Object.assign(emitter, {
     id,
-    isDestroyed: () => false,
+    isDestroyed,
     getURL: () => '',
     getTitle: () => '',
     isLoading: () => false,
@@ -47,39 +52,18 @@ function makeWebContents(id: number): any {
     once: emitter.once.bind(emitter),
     off: emitter.off.bind(emitter),
     removeListener: emitter.removeListener.bind(emitter),
+    addListener: emitter.on.bind(emitter),
   });
   return wc;
 }
 
-export class WebContentsView extends EventEmitter {
-  id: number;
+export class WebContentsView extends View {
   webContents: any;
-  private _bounds = { x: 0, y: 0, width: 0, height: 0 };
-  private _backgroundColor: string | null = null;
-  options: any;
 
   constructor(options?: any) {
-    super();
-    this.id = nextViewId++;
-    this.options = options || {};
-    this.webContents = makeWebContents(this.id);
+    super(options);
+    this.webContents = makeWebContents(this.id, () => this.isDestroyed());
   }
-
-  // View layout is not backed by native chrome; bounds are tracked locally.
-  getBounds() { return { ...this._bounds }; }
-  setBounds(bounds: any) {
-    if (!bounds || typeof bounds !== 'object') throw new TypeError('WebContentsView.setBounds requires a bounds object');
-    const next = {
-      x: typeof bounds.x === 'number' ? bounds.x : this._bounds.x,
-      y: typeof bounds.y === 'number' ? bounds.y : this._bounds.y,
-      width: typeof bounds.width === 'number' ? Math.max(0, bounds.width) : this._bounds.width,
-      height: typeof bounds.height === 'number' ? Math.max(0, bounds.height) : this._bounds.height,
-    };
-    this._bounds = next;
-    this.emit('bounds-changed', next);
-  }
-  setBackgroundColor(color: any) { this._backgroundColor = color == null ? null : String(color); }
-  getBackgroundColor() { return this._backgroundColor; }
 
   // View hierarchy is not supported (multiple views per window are not supported).
   addChildView(_view: any, _index?: number): never { return unsupported('WebContentsView.addChildView'); }
@@ -88,12 +72,15 @@ export class WebContentsView extends EventEmitter {
   removeChildViews(): never { return unsupported('WebContentsView.removeChildViews'); }
   getChildrenViews(): any[] { return []; }
 
-  isDestroyed() { return false; }
-  destroy() { this.emit('destroyed'); }
+  isDestroyed(): boolean { return super.isDestroyed(); }
+  destroy(): void {
+    if (this.isDestroyed()) return;
+    super.destroy();
+  }
 }
 
 // webFrameMain: frame internals are unavailable. Construction and lookup are exposed
-// as no-ops; executeJavaScript falls back to the page when possible.
+// as no-ops; executeJavaScript falls back to eval when possible.
 const frames = new Map<string, WebFrameMain>();
 
 export class WebFrameMain extends EventEmitter {
@@ -109,7 +96,13 @@ export class WebFrameMain extends EventEmitter {
   }
 
   static fromId(processId: number, routingId: number): WebFrameMain | null {
-    return frames.get(`${Number(processId) || 0}:${Number(routingId) || 1}`) ?? null;
+    const key = `${Number(processId) || 0}:${Number(routingId) || 1}`;
+    const frame = frames.get(key);
+    if (!frame || frame.isDestroyed()) {
+      if (frame) frames.delete(key);
+      return null;
+    }
+    return frame;
   }
 
   get url(): string {
@@ -127,14 +120,21 @@ export class WebFrameMain extends EventEmitter {
   get visibilityState(): string { return 'visible'; }
   get osProcessId(): number { return this.processId; }
   get frameTreeNodeId(): number { return this.routingId; }
+  get ipc(): any {
+    const self = this;
+    return {
+      send(channel: string, ...args: any[]) { self.send(channel, ...args); },
+      postMessage(channel: string, message: any, transfer?: any[]) { self.postMessage(channel, message, transfer); },
+    };
+  }
 
   isDestroyed() { return this._destroyed; }
-  destroy() { this._destroyed = true; frames.delete(`${this.processId}:${this.routingId}`); this.emit('destroyed'); }
+  destroy() { if (this._destroyed) return; this._destroyed = true; frames.delete(`${this.processId}:${this.routingId}`); this.emit('destroyed'); }
 
-  executeJavaScript(code: string): Promise<any> {
+  executeJavaScript(code: string, _userGesture?: boolean): Promise<any> {
     try { return Promise.resolve((0, (globalThis as any).eval)(code)); } catch (error) { return Promise.reject(error); }
   }
-  executeJavaScriptInIsolatedWorld(_worldId: number, _scripts: any[]): Promise<any> {
+  executeJavaScriptInIsolatedWorld(_worldId: number, _scripts: any[], _userGesture?: boolean): Promise<any> {
     return Promise.reject(new Error('WebFrameMain.executeJavaScriptInIsolatedWorld is not supported by TSGPUI'));
   }
   collectJavaScriptCallStack(): never { return unsupported('WebFrameMain.collectJavaScriptCallStack'); }

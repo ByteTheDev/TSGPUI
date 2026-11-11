@@ -98,14 +98,72 @@ function unsupported(api: string): never { throw new Error(`${api} is not suppor
 class App extends EventEmitter {
   isPackaged = true;
   private ready = false;
-  constructor() { super(); infoReady.then(() => { this.ready = true; this.emit('ready'); }); }
+  private pathOverrides = new Map<string, string>();
+  private badgeCountValue = 0;
+  private loginItemSettingsValue: any = { openAtLogin: false, openAsHidden: false, wasOpenedAtLogin: false, wasOpenedAsHidden: false, restoreState: false };
+  private singleInstanceLockValue = false;
+  private dockVisible = false;
+  private dockBadge = '';
+  private dockMenu: any = null;
+  private dockIcon: any = null;
+  private dockBounceId = 0;
+  private nameOverride: string | null = null;
+  dock: any;
+  commandLine: any;
+  constructor() {
+    super();
+    this.dock = {
+      show: () => { this.dockVisible = true; try { void host('app.dock.show').catch(() => {}); } catch {} },
+      hide: () => { this.dockVisible = false; try { void host('app.dock.hide').catch(() => {}); } catch {} },
+      isVisible: () => this.dockVisible,
+      bounce: (_type?: any) => { this.dockBounceId += 1; return this.dockBounceId; },
+      cancelBounce: (_id?: any) => {},
+      setBadge: (text?: any) => { this.dockBadge = String(text ?? ''); try { this.badgeCountValue = Number(text) || 0; } catch {} },
+      getBadge: () => this.dockBadge,
+      setMenu: (menu?: any) => { this.dockMenu = menu ?? null; },
+      getMenu: () => this.dockMenu,
+      setIcon: (image?: any) => { this.dockIcon = image ?? null; },
+    };
+    this.commandLine = { hasSwitch: (_name: string) => false, getSwitchValue: (_name: string) => '' };
+    infoReady.then(() => { this.ready = true; this.emit('ready'); });
+  }
   whenReady() { return infoReady.then(() => undefined); }
   isReady() { return this.ready; }
-  quit() { this.emit('before-quit', {}); void host('app.quit').catch(console.error); }
+  quit() { this.emit('before-quit', {}); this.emit('will-quit', {}); void host('app.quit').catch(console.error); this.emit('quit', {}, 0); }
+  exit(exitCode: number = 0) { this.emit('before-quit', {}); this.emit('will-quit', {}); void host('app.quit').catch(console.error); this.emit('quit', {}, exitCode); }
+  relaunch(_options?: any) { warn('app.relaunch'); }
   getVersion() { return info.version || ''; }
-  getName() { return info.name || ''; }
-  getPath(name: string) { const paths = info.paths || {}; if (!Object.prototype.hasOwnProperty.call(paths, name) || typeof paths[name] !== 'string' || !paths[name]) return unsupported(`app.getPath(${name}): path not provided by host`); return paths[name]; }
-  getAppPath() { return info.paths?.appFolder || ''; }
+  getName() { return this.nameOverride ?? (info.name || ''); }
+  setName(name: string) { this.nameOverride = String(name ?? ''); }
+  getAppPath() { return this.pathOverrides.get('appPath') ?? info.paths?.appFolder ?? ''; }
+  hide() { /* no-op */ }
+  show() { /* no-op */ }
+  focus(_options?: any) { /* no-op */ }
+  isHidden() { return false; }
+  getPath(name: string) {
+    if (this.pathOverrides.has(name)) return this.pathOverrides.get(name);
+    const paths = info.paths || {};
+    if (!Object.prototype.hasOwnProperty.call(paths, name) || typeof paths[name] !== 'string' || !paths[name]) return unsupported(`app.getPath(${name}): path not provided by host`);
+    return paths[name];
+  }
+  setPath(name: string, pathValue: string) { this.pathOverrides.set(name, pathValue); if (name === 'appPath') this.pathOverrides.set('appPath', pathValue); }
+  // badge
+  get badgeCount() { return this.badgeCountValue; }
+  set badgeCount(value: number) { this.badgeCountValue = Number(value) || 0; }
+  setBadgeCount(count: number) { this.badgeCountValue = Number(count) || 0; return this.badgeCountValue !== 0; }
+  getBadgeCount() { return this.badgeCountValue; }
+  // login items
+  getLoginItemSettings(_options?: any) { return { ...this.loginItemSettingsValue }; }
+  setLoginItemSettings(settings: any) { this.loginItemSettingsValue = { ...this.loginItemSettingsValue, ...(settings || {}) }; }
+  // single instance
+  requestSingleInstanceLock(_additionalData?: any) { if (this.singleInstanceLockValue) return false; this.singleInstanceLockValue = true; return true; }
+  releaseSingleInstanceLock() { this.singleInstanceLockValue = false; }
+  hasSingleInstanceLock() { return this.singleInstanceLockValue; }
+  // locale
+  getLocale() { return info.locale || 'en-US'; }
+  getLocaleCountryCode() { return info.localeCountryCode || 'US'; }
+  // dock helpers at app level
+  setDockIcon? (_image: any) { warn('app.setDockIcon'); }
 }
 export const app = new App();
 const windows = new Map<number, BrowserWindow>();
@@ -119,10 +177,39 @@ function numberOr(value: any, fallback: number): number { return typeof value ==
 export class BrowserWindow extends EventEmitter {
   id: number; options: any; destroyed = false; webContents: any; parent: BrowserWindow | null = null; private created: Promise<any>; private closeWatched = false; private visible: boolean; private fullScreen: boolean; private fullScreenable: boolean;
   private bounds: {x: number; y: number; width: number; height: number};
+  private normalBounds: {x: number; y: number; width: number; height: number};
   private minimized: boolean;
   private maximized: boolean;
   private focused: boolean;
   private readyToShowEmitted: boolean;
+  private alwaysOnTop: boolean;
+  private skipTaskbar: boolean;
+  private resizable: boolean;
+  private movable: boolean;
+  private minimizable: boolean;
+  private maximizable: boolean;
+  private closable: boolean;
+  private kiosk: boolean;
+  private simpleFullScreen: boolean;
+  private aspectRatio: number;
+  private menu: any = null;
+  private browserView: any = null;
+  private browserViews: any[] = [];
+  private opacity: number;
+  private backgroundColor: any = null;
+  private ignoreMouseEvents: boolean;
+  private progressBar: number;
+  private overlayIcon: any = null;
+  private thumbarButtons: any[] = [];
+  private thumbnailClip: any = null;
+  private thumbnailToolTip: string;
+  private representedFilename: string;
+  private documentEdited: boolean;
+  private flashing: boolean;
+  private title: string;
+  private shadow = true;
+  private focusable = true;
+  private enabled = true;
   constructor(options: any = {}) {
     super();
     const parent = options.parent ?? null;
@@ -131,7 +218,27 @@ export class BrowserWindow extends EventEmitter {
     this.id = nextWindowId++; this.options = options; this.parent = parent; windows.set(this.id, this);
     this.visible = options.show !== false; this.fullScreen = options.fullScreen === true; this.fullScreenable = options.fullScreenable !== false;
     this.bounds = {x: numberOr(options.x, 0), y: numberOr(options.y, 0), width: Math.max(200, Math.min(4096, numberOr(options.width, 800))), height: Math.max(200, Math.min(4096, numberOr(options.height, 600)))};
+    this.normalBounds = {...this.bounds};
     this.minimized = false; this.maximized = false; this.focused = false; this.readyToShowEmitted = false;
+    this.alwaysOnTop = options.alwaysOnTop === true;
+    this.skipTaskbar = options.skipTaskbar === true;
+    this.resizable = options.resizable !== false;
+    this.movable = options.movable !== false;
+    this.minimizable = options.minimizable !== false;
+    this.maximizable = options.maximizable !== false;
+    this.closable = options.closable !== false;
+    this.kiosk = options.kiosk === true;
+    this.simpleFullScreen = options.simpleFullScreen === true;
+    this.aspectRatio = numberOr(options.aspectRatio, 0);
+    this.opacity = numberOr(options.opacity, 1);
+    this.backgroundColor = options.backgroundColor ?? null;
+    this.ignoreMouseEvents = false;
+    this.progressBar = -1;
+    this.thumbnailToolTip = '';
+    this.representedFilename = '';
+    this.documentEdited = false;
+    this.flashing = false;
+    this.title = options.title ?? '';
     if (parent && this.id === 1) compatWarnings.push('BrowserWindow parent is ignored for the first window');
     if (options.modal && !parent) compatWarnings.push('BrowserWindow modal without a parent has no effect');
     const link = parent && this.id !== 1 ? {parentWindowId: parent.id, modal: options.modal === true} : {};
@@ -139,23 +246,138 @@ export class BrowserWindow extends EventEmitter {
     this.created.then(() => { if (!this.destroyed) this.emitReadyToShow(); }).catch(() => {});
     this.created.catch(error => { console.error('Unable to create window:', error); this.didClose(); });
     const events = new EventEmitter();
-    this.webContents = {id: this.id, isDestroyed: () => this.destroyed, send: (channel: string, payload: any) => { if (this.id === 1 && g.__tsgpui_emit && g.__tsgpui_window_id !== 0) g.__tsgpui_emit(channel, payload); else void this.command('window.send', {channel,payload}).catch(console.error); }, on: events.on.bind(events), once: events.once.bind(events), removeListener: events.removeListener.bind(events),
-      loadURL: (url: string) => this.id === 1 ? Promise.reject(new Error('webContents.loadURL is not supported for the first window')) : this.loadURL(url),
-      loadFile: (file: string) => this.id === 1 ? Promise.reject(new Error('webContents.loadFile is not supported for the first window')) : this.loadFile(file),
-      goBack() { warn('webContents.goBack'); },
-      goForward() { warn('webContents.goForward'); },
+    const win = this;
+    const webPreferences = (options && typeof options.webPreferences === 'object' && options.webPreferences) ? options.webPreferences : {};
+    let findInPageCounter = 0;
+    const audioMutedState = { value: false };
+    const zoomState = { factor: 1, level: 0 };
+    const frameRateState = { value: 60 };
+    const insertedCss = new Map<string, string>();
+    const wc: any = {
+      id: win.id,
+      isDestroyed: () => win.destroyed,
+      send: (channel: string, ...args: any[]) => {
+        const payload = args.length <= 1 ? args[0] : args;
+        if (win.id === 1 && g.__tsgpui_emit && g.__tsgpui_window_id !== 0) g.__tsgpui_emit(channel, payload);
+        else void win.command('window.send', {channel, payload}).catch(console.error);
+      },
+      sendToFrame: (frameId: any, channel: string, ...args: any[]) => {
+        const payload = args.length <= 1 ? args[0] : args;
+        wc.send(channel, payload);
+      },
+      on: events.on.bind(events),
+      once: events.once.bind(events),
+      removeListener: events.removeListener.bind(events),
+      addListener: events.on.bind(events),
+      off: events.removeListener.bind(events),
+      emit: events.emit.bind(events),
+      removeAllListeners: events.removeAllListeners.bind(events),
+      listenerCount: events.listenerCount.bind(events),
+      loadURL: (url: string) => win.id === 1 ? Promise.reject(new Error('webContents.loadURL is not supported for the first window')) : win.loadURL(url),
+      loadFile: (file: string) => win.id === 1 ? Promise.reject(new Error('webContents.loadFile is not supported for the first window')) : win.loadFile(file),
+      // navigation stubs
+      goBack() { warn('webContents.goBack'); return undefined; },
+      goForward() { warn('webContents.goForward'); return undefined; },
       canGoBack() { return false; },
       canGoForward() { return false; },
-      reload() { warn('webContents.reload'); },
-      reloadIgnoringCache() { warn('webContents.reloadIgnoringCache'); },
-      openDevTools() { warn('webContents.openDevTools'); },
-      closeDevTools() { warn('webContents.closeDevTools'); },
+      reload() { warn('webContents.reload'); return undefined; },
+      reloadIgnoringCache() { warn('webContents.reloadIgnoringCache'); return undefined; },
+      stop() { return undefined; },
+      canGoToOffset(_offset: number) { return false; },
+      goToIndex(_index: number) { warn('webContents.goToIndex'); return undefined; },
+      goToOffset(_offset: number) { warn('webContents.goToOffset'); return undefined; },
+      clearHistory() { return undefined; },
+      // devtools stubs
+      openDevTools(_options?: any) { warn('webContents.openDevTools'); return undefined; },
+      closeDevTools() { warn('webContents.closeDevTools'); return undefined; },
       isDevToolsOpened() { return false; },
+      isDevToolsFocused() { return false; },
+      toggleDevTools() { warn('webContents.toggleDevTools'); return undefined; },
+      getDevToolsTitle() { return ''; },
+      setDevToolsTitle(_title: string) { return undefined; },
+      // page access
       getTitle() { try { return (g.document?.title) || ''; } catch { return ''; } },
       getURL() { try { return (g.location?.href) || ''; } catch { return ''; } },
       isLoading() { return false; },
-      executeJavaScript(code: string) { try { return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
+      isLoadingMainFrame() { return false; },
+      // js
+      executeJavaScript(code: string, userGesture?: boolean) { try { return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
+      executeJavaScriptInIsolatedWorld(worldId: number, scripts: any, userGesture?: boolean) { try { const code = Array.isArray(scripts) ? scripts.map((s:any) => s.code || s).join('\\n') : String(scripts); return Promise.resolve((0, g.eval)(code)); } catch (e) { return Promise.reject(e); } },
+      // prefs/session
+      getWebPreferences() { return { ...webPreferences }; },
+      get session() { try { return session.defaultSession; } catch { return null; } },
+      // zoom
+      get zoomLevel() { return zoomState.level; },
+      set zoomLevel(level: number) { wc.setZoomLevel(level); },
+      setZoomLevel(level: number) { zoomState.level = Number(level) || 0; },
+      getZoomLevel() { return zoomState.level; },
+      get zoomFactor() { return zoomState.factor; },
+      set zoomFactor(factor: number) { wc.setZoomFactor(factor); },
+      setZoomFactor(factor: number) { if (typeof factor === 'number' && factor > 0) { zoomState.factor = factor; } else { warn('webContents.setZoomFactor'); } },
+      getZoomFactor() { return zoomState.factor; },
+      setVisualZoomLevelLimits(minimumLevel: number, maximumLevel: number) { return Promise.resolve(); },
+      // find in page
+      findInPage(text: string, options?: any) { findInPageCounter += 1; return findInPageCounter; },
+      stopFindInPage(action?: string) { return undefined; },
+      // print
+      print(options?: any, callback?: Function) { if (typeof callback === 'function') { try { setTimeout(() => callback(null), 0); } catch {} } return undefined; },
+      printToPDF(options?: any) { return Promise.resolve(typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array()); },
+      // save/capture
+      savePage(fullPath: string, saveType?: string) { return Promise.resolve(); },
+      capturePage(rect?: any) { return Promise.resolve({ isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }), toPNG: () => new Uint8Array(), toJPEG: () => new Uint8Array(), toBitmap: () => new Uint8Array(), toDataURL: () => '' }); },
+      // window open handler
+      setWindowOpenHandler(handler: Function) { wc._windowOpenHandler = handler; },
+      _windowOpenHandler: null as any,
+      getWindowOpenHandler() { return wc._windowOpenHandler; },
+      // preloads
+      setPreloads(preloads: string[]) { wc._preloads = Array.isArray(preloads) ? [...preloads] : []; },
+      getPreloads() { return [...wc._preloads]; },
+      _preloads: [] as string[],
+      // process ids
+      getOSProcessId() { return 0; },
+      getProcessId() { return 0; },
+      get processId() { return 0; },
+      getType() { return 'page'; },
+      getOwnerBrowserWindow() { return win; },
+      get owner() { return win; },
+      getFrameRate() { return frameRateState.value; },
+      setFrameRate(frameRate: number) { frameRateState.value = numberOr(frameRate, frameRateState.value); },
+      get frameRate() { return frameRateState.value; },
+      set frameRate(value: number) { wc.setFrameRate(value); },
+      // audio
+      get audioMuted() { return audioMutedState.value; },
+      set audioMuted(muted: boolean) { wc.setAudioMuted(muted); },
+      setAudioMuted(muted: boolean) { audioMutedState.value = !!muted; },
+      isAudioMuted() { return audioMutedState.value; },
+      // css
+      insertCSS(css: string, options?: any) { const key = 'css_' + (insertedCss.size + 1); insertedCss.set(key, css); return Promise.resolve(key); },
+      removeInsertedCSS(key: string) { insertedCss.delete(key); return Promise.resolve(); },
+      // frames
+      get mainFrame() {
+        return {
+          url: wc.getURL(),
+          name: '',
+          parentFrame: null,
+          framesInSubtree: [this],
+          routingId: 1,
+          processId: 0,
+          executeJavaScript: (code: string, userGesture?: boolean) => wc.executeJavaScript(code, userGesture),
+          executeJavaScriptInIsolatedWorld: (worldId: number, scripts: any, userGesture?: boolean) => wc.executeJavaScriptInIsolatedWorld(worldId, scripts, userGesture),
+          isDestroyed: () => win.destroyed,
+          on: events.on.bind(events),
+          once: events.once.bind(events),
+          removeListener: events.removeListener.bind(events),
+        };
+      },
+      get frames() { return [wc.mainFrame]; },
+      // misc
+      close() { /* no-op */ },
+      focus() { /* no-op */ },
+      blur() { /* no-op */ },
+      isFocused() { return false; },
+      sendInputEvent(event: any) { return; },
     };
+    this.webContents = wc;
   }
   /** Subscribing to 'close' asks the host to report user close requests, so listeners can cancel them. */
   on(name: string | symbol, fn: Function): this {
@@ -186,6 +408,7 @@ export class BrowserWindow extends EventEmitter {
         if (typeof payload.width === 'number') this.bounds.width = Math.max(200, Math.min(4096, num(payload.width, this.bounds.width)));
         if (typeof payload.height === 'number') this.bounds.height = Math.max(200, Math.min(4096, num(payload.height, this.bounds.height)));
       }
+      if (this.isNormal()) this.normalBounds = {...this.bounds};
       if (name === 'move') { this.emit('will-move'); this.emit('move'); }
       else { this.emit('moved'); }
       return;
@@ -197,6 +420,7 @@ export class BrowserWindow extends EventEmitter {
         if (typeof payload.width === 'number') this.bounds.width = Math.max(200, Math.min(4096, num(payload.width, this.bounds.width)));
         if (typeof payload.height === 'number') this.bounds.height = Math.max(200, Math.min(4096, num(payload.height, this.bounds.height)));
       }
+      if (this.isNormal()) this.normalBounds = {...this.bounds};
       if (name === 'resize') { this.emit('will-resize'); this.emit('resize'); }
       else { this.emit('resized'); }
       return;
@@ -206,9 +430,8 @@ export class BrowserWindow extends EventEmitter {
   private emitReadyToShow() { this.readyToShowEmitted = true; this.emit('ready-to-show'); }
   getParentWindow() { return this.parent; }
   private command(op: string, args: any = {}) { return this.created.then(() => host(op, {...args, windowId:this.id})); }
-  loadFile(file: string) { this.options.loadedFile = file; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) this.emitReadyToShow(); }); } const normalized = file.replaceAll('\\','/'); const segments = normalized.split('/').filter(part => part && part !== '.'); if (!segments.length || segments.includes('..') || /^[a-z]:/i.test(normalized) || normalized.startsWith('//')) return Promise.reject(new Error('Additional windows require a project-relative packaged HTML path')); return this.command('window.load', {path:'/src/renderer/' + segments.map(encodeURIComponent).join('/')}).then(value => { if (!this.destroyed) this.emitReadyToShow(); return value; }); }
-  loadURL(url: string) { this.options.loadedURL = url; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) this.emitReadyToShow(); }); } if (url.startsWith('tsgpui://localhost/')) return this.command('window.load', {path:url.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) this.emitReadyToShow(); return value; }); const rewritten = rewriteCustomUrl(url); if (rewritten) return this.command('window.load', {path: rewritten.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) this.emitReadyToShow(); return value; }); return Promise.reject(new Error('Only packaged local URLs are supported for additional windows')); }
-  setTitle(title: string) { void this.command('window.setTitle', {title}).catch(console.error); }
+  loadFile(file: string) { this.options.loadedFile = file; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } }); } const normalized = file.replaceAll('\\','/'); const segments = normalized.split('/').filter(part => part && part !== '.'); if (!segments.length || segments.includes('..') || /^[a-z]:/i.test(normalized) || normalized.startsWith('//')) return Promise.reject(new Error('Additional windows require a project-relative packaged HTML path')); return this.command('window.load', {path:'/src/renderer/' + segments.map(encodeURIComponent).join('/')}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); }
+  loadURL(url: string) { this.options.loadedURL = url; if (this.id === 1) { return Promise.resolve().then(() => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } }); } if (url.startsWith('tsgpui://localhost/')) return this.command('window.load', {path:url.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); const rewritten = rewriteCustomUrl(url); if (rewritten) return this.command('window.load', {path: rewritten.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); try { this.webContents.emit('did-finish-load'); } catch {} } return value; }); return Promise.reject(new Error('Only packaged local URLs are supported for additional windows')); }
   didClose() {
     if (this.destroyed) return;
     this.destroyed = true; windows.delete(this.id); this.emit('closed');
@@ -230,7 +453,6 @@ export class BrowserWindow extends EventEmitter {
   isVisible(): boolean { return this.visible; }
   setFullScreen(flag: boolean) { if (this.destroyed) return; if (this.id === 1) throw new Error('BrowserWindow fullscreen not supported on this renderer'); if (!g.__tsgpui_host && !g.window?.tsgpui?.invoke) throw new Error('BrowserWindow fullscreen not supported on this renderer'); const next = !!flag; if (next && !this.fullScreenable) return; if (next === this.fullScreen) return; this.fullScreen = next; this.emit(next ? 'enter-full-screen' : 'leave-full-screen'); void this.command('window.setFullScreen', {fullScreen: next}).catch(console.error); }
   isFullScreen(): boolean { return this.fullScreen; }
-  setFullScreenable(fullScreenable: boolean) { this.fullScreenable = !!fullScreenable; }
   isMaximized(): boolean { return this.maximized; }
   isMinimized(): boolean { return this.minimized; }
   isFocused(): boolean { return this.focused; }
@@ -239,26 +461,107 @@ export class BrowserWindow extends EventEmitter {
   getBounds(): {x: number; y: number; width: number; height: number} { return {x: this.bounds.x, y: this.bounds.y, width: this.bounds.width, height: this.bounds.height}; }
   getSize(): {width: number; height: number} { return {width: this.bounds.width, height: this.bounds.height}; }
   getPosition(): [number, number] { return [this.bounds.x, this.bounds.y]; }
-  setBounds(bounds: any, _animate?: boolean) { if (this.destroyed) return; if (!bounds || typeof bounds !== 'object') throw new TypeError('BrowserWindow.setBounds requires a bounds object'); const next = {x: numberOr((bounds as any).x, this.bounds.x), y: numberOr((bounds as any).y, this.bounds.y), width: Math.max(200, Math.min(4096, numberOr((bounds as any).width, this.bounds.width))), height: Math.max(200, Math.min(4096, numberOr((bounds as any).height, this.bounds.height)))}; const prev = this.bounds; const moved = next.x !== prev.x || next.y !== prev.y; const resized = next.width !== prev.width || next.height !== prev.height; if (!moved && !resized) return; if (moved) this.emit('will-move'); if (resized) this.emit('will-resize'); this.bounds = next; if (moved) this.emit('move'); if (resized) this.emit('resize'); if (this.id !== 1) void this.command('window.setBounds', {...next}).catch(console.error); }
-  setPosition(x: number, y: number, _animate?: boolean) { if (this.destroyed) return; const nextX = numberOr(x, this.bounds.x); const nextY = numberOr(y, this.bounds.y); if (nextX === this.bounds.x && nextY === this.bounds.y) return; this.emit('will-move'); this.bounds = {x: nextX, y: nextY, width: this.bounds.width, height: this.bounds.height}; this.emit('move'); if (this.id !== 1) void this.command('window.setPosition', {x: nextX, y: nextY}).catch(console.error); }
-  setSize(width: number, height: number, _animate?: boolean) { if (this.destroyed) return; const nextWidth = Math.max(200, Math.min(4096, numberOr(width, this.bounds.width))); const nextHeight = Math.max(200, Math.min(4096, numberOr(height, this.bounds.height))); if (nextWidth === this.bounds.width && nextHeight === this.bounds.height) return; this.emit('will-resize'); this.bounds = {x: this.bounds.x, y: this.bounds.y, width: nextWidth, height: nextHeight}; this.emit('resize'); if (this.id !== 1) void this.command('window.setSize', {width: nextWidth, height: nextHeight}).catch(console.error); }
+  setBounds(bounds: any, _animate?: boolean) { if (this.destroyed) return; if (!bounds || typeof bounds !== 'object') throw new TypeError('BrowserWindow.setBounds requires a bounds object'); const next = {x: numberOr((bounds as any).x, this.bounds.x), y: numberOr((bounds as any).y, this.bounds.y), width: Math.max(200, Math.min(4096, numberOr((bounds as any).width, this.bounds.width))), height: Math.max(200, Math.min(4096, numberOr((bounds as any).height, this.bounds.height)))}; const prev = this.bounds; const moved = next.x !== prev.x || next.y !== prev.y; const resized = next.width !== prev.width || next.height !== prev.height; if (!moved && !resized) return; if (moved) this.emit('will-move'); if (resized) this.emit('will-resize'); this.bounds = next; if (moved) this.emit('move'); if (resized) this.emit('resize'); if (this.isNormal()) this.normalBounds = {...this.bounds}; if (this.id !== 1) void this.command('window.setBounds', {...next}).catch(console.error); }
+  setPosition(x: number, y: number, _animate?: boolean) { if (this.destroyed) return; const nextX = numberOr(x, this.bounds.x); const nextY = numberOr(y, this.bounds.y); if (nextX === this.bounds.x && nextY === this.bounds.y) return; this.emit('will-move'); this.bounds = {x: nextX, y: nextY, width: this.bounds.width, height: this.bounds.height}; this.emit('move'); if (this.isNormal()) this.normalBounds = {...this.bounds}; if (this.id !== 1) void this.command('window.setPosition', {x: nextX, y: nextY}).catch(console.error); }
+  setSize(width: number, height: number, _animate?: boolean) { if (this.destroyed) return; const nextWidth = Math.max(200, Math.min(4096, numberOr(width, this.bounds.width))); const nextHeight = Math.max(200, Math.min(4096, numberOr(height, this.bounds.height))); if (nextWidth === this.bounds.width && nextHeight === this.bounds.height) return; this.emit('will-resize'); this.bounds = {x: this.bounds.x, y: this.bounds.y, width: nextWidth, height: nextHeight}; this.emit('resize'); if (this.isNormal()) this.normalBounds = {...this.bounds}; if (this.id !== 1) void this.command('window.setSize', {width: nextWidth, height: nextHeight}).catch(console.error); }
   focus() { if (this.destroyed) return; if (this.focused) return; this.focused = true; this.emit('focus'); if (this.id !== 1) void this.command('window.focus').catch(console.error); }
   blur() { if (this.destroyed) return; if (!this.focused) return; this.focused = false; this.emit('blur'); if (this.id !== 1) void this.command('window.blur').catch(console.error); }
   isDestroyed() { return this.destroyed; }
+  private hostState(op: string, args: any = {}) {
+    if (this.destroyed || this.id === 1) return;
+    void this.command(op, args).catch(() => { compatWarnings.push(`${op} is not supported and has no effect`); });
+  }
+  // stateful chrome-ish properties
+  getTitle() { return this.title; }
+  setTitle(title: string) { if (this.destroyed) return; this.title = String(title ?? ''); void this.command('window.setTitle', {title: this.title}).catch(console.error); }
+  isAlwaysOnTop() { return this.alwaysOnTop; }
+  setAlwaysOnTop(flag: boolean, level?: any, relativeLevel?: any) { if (this.destroyed) return; this.alwaysOnTop = !!flag; this.hostState('window.setAlwaysOnTop', {alwaysOnTop: this.alwaysOnTop, level, relativeLevel}); }
+  setSkipTaskbar(skip: boolean) { if (this.destroyed) return; this.skipTaskbar = !!skip; this.hostState('window.setSkipTaskbar', {skipTaskbar: this.skipTaskbar}); }
+  isResizable() { return this.resizable; }
+  setResizable(resizable: boolean) { if (this.destroyed) return; this.resizable = !!resizable; this.hostState('window.setResizable', {resizable: this.resizable}); }
+  isMovable() { return this.movable; }
+  setMovable(movable: boolean) { if (this.destroyed) return; this.movable = !!movable; this.hostState('window.setMovable', {movable: this.movable}); }
+  isMinimizable() { return this.minimizable; }
+  setMinimizable(minimizable: boolean) { if (this.destroyed) return; this.minimizable = !!minimizable; this.hostState('window.setMinimizable', {minimizable: this.minimizable}); }
+  isMaximizable() { return this.maximizable; }
+  setMaximizable(maximizable: boolean) { if (this.destroyed) return; this.maximizable = !!maximizable; this.hostState('window.setMaximizable', {maximizable: this.maximizable}); }
+  isClosable() { return this.closable; }
+  setClosable(closable: boolean) { if (this.destroyed) return; this.closable = !!closable; this.hostState('window.setClosable', {closable: this.closable}); }
+  setFullScreenable(fullScreenable: boolean) { this.fullScreenable = !!fullScreenable; this.hostState('window.setFullScreenable', {fullScreenable: this.fullScreenable}); }
+  isSimpleFullScreen() { return this.simpleFullScreen; }
+  setSimpleFullScreen(flag: boolean) { if (this.destroyed) return; const next = !!flag; if (next === this.simpleFullScreen) return; this.simpleFullScreen = next; this.hostState('window.setSimpleFullScreen', {simpleFullScreen: this.simpleFullScreen}); }
+  isKiosk() { return this.kiosk; }
+  setKiosk(flag: boolean) { if (this.destroyed) return; this.kiosk = !!flag; this.hostState('window.setKiosk', {kiosk: this.kiosk}); }
+  setAspectRatio(aspectRatio: number, extraSize?: any) { if (this.destroyed) return; this.aspectRatio = numberOr(aspectRatio, this.aspectRatio); this.hostState('window.setAspectRatio', {aspectRatio: this.aspectRatio, extraSize}); }
+  getAspectRatio() { return this.aspectRatio; }
+  // menu
+  setMenu(menu: any) { if (this.destroyed) return; this.menu = menu ?? null; this.hostState('window.setMenu', {menu: this.menu}); }
+  getMenu() { return this.menu; }
+  removeMenu() { if (this.destroyed) return; this.menu = null; this.hostState('window.removeMenu', {}); }
+  // child windows
+  getChildWindows() { return [...windows.values()].filter(w => w.parent === this && !w.destroyed); }
+  // browser view stubs
+  getBrowserView() { return this.browserView; }
+  getBrowserViews() { return [...this.browserViews]; }
+  addBrowserView(view: any) { if (this.destroyed) return; if (view && !this.browserViews.includes(view)) this.browserViews.push(view); if (!this.browserView) this.browserView = view; this.hostState('window.addBrowserView', {view}); }
+  removeBrowserView(view: any) { if (this.destroyed) return; this.browserViews = this.browserViews.filter(v => v !== view); if (this.browserView === view) this.browserView = this.browserViews[0] ?? null; this.hostState('window.removeBrowserView', {view}); }
+  setBrowserView(view: any) { if (this.destroyed) return; this.browserView = view ?? null; this.browserViews = view ? [view] : []; this.hostState('window.setBrowserView', {view}); }
+  // bounds
+  getNormalBounds() { return { x: this.normalBounds.x, y: this.normalBounds.y, width: this.normalBounds.width, height: this.normalBounds.height }; }
+  center() { if (this.destroyed) return; try {
+    const primary = (screen as any)?.getPrimaryDisplay?.();
+    const area = primary?.workAreaSize || primary?.size || { width: 1920, height: 1080 };
+    const x = Math.max(0, Math.round((area.width - this.bounds.width) / 2));
+    const y = Math.max(0, Math.round((area.height - this.bounds.height) / 2));
+    this.setPosition(x, y);
+  } catch { /* ignore */ } }
+  flashFrame(flag: boolean) { if (this.destroyed) return; this.flashing = !!flag; this.hostState('window.flashFrame', {flag: this.flashing}); }
+  // opacity / colors
+  setOpacity(opacity: number) { if (this.destroyed) return; this.opacity = numberOr(opacity, this.opacity); this.hostState('window.setOpacity', {opacity: this.opacity}); }
+  getOpacity() { return this.opacity; }
+  setBackgroundColor(color: any) { if (this.destroyed) return; this.backgroundColor = color; this.hostState('window.setBackgroundColor', {backgroundColor: this.backgroundColor}); }
+  getBackgroundColor() { return this.backgroundColor; }
+  // mouse events
+  setIgnoreMouseEvents(ignore: boolean, options?: any) { if (this.destroyed) return; this.ignoreMouseEvents = !!ignore; this.hostState('window.setIgnoreMouseEvents', {ignore: this.ignoreMouseEvents, options}); }
+  // progress
+  setProgressBar(progress: number, options?: any) { if (this.destroyed) return; this.progressBar = numberOr(progress, this.progressBar); this.hostState('window.setProgressBar', {progress: this.progressBar, options}); }
+  // overlay / thumbnail
+  setOverlayIcon(overlay: any, description: string) { if (this.destroyed) return; this.overlayIcon = overlay; this.hostState('window.setOverlayIcon', {overlay, description}); }
+  setThumbarButtons(buttons: any[]) { if (this.destroyed) return; this.thumbarButtons = Array.isArray(buttons) ? [...buttons] : []; this.hostState('window.setThumbarButtons', {buttons: this.thumbarButtons}); return true; }
+  setThumbnailClip(region: any) { if (this.destroyed) return; this.thumbnailClip = region; this.hostState('window.setThumbnailClip', {region}); }
+  setThumbnailToolTip(toolTip: string) { if (this.destroyed) return; this.thumbnailToolTip = String(toolTip ?? ''); this.hostState('window.setThumbnailToolTip', {toolTip: this.thumbnailToolTip}); }
+  // represented file / document edited
+  setRepresentedFilename(filename: string) { if (this.destroyed) return; this.representedFilename = String(filename ?? ''); this.hostState('window.setRepresentedFilename', {filename: this.representedFilename}); }
+  getRepresentedFilename() { return this.representedFilename; }
+  setDocumentEdited(edited: boolean) { if (this.destroyed) return; this.documentEdited = !!edited; this.hostState('window.setDocumentEdited', {edited: this.documentEdited}); }
+  isDocumentEdited() { return this.documentEdited; }
+  // shadow/focusable/enabled
+  hasShadow() { return this.shadow; }
+  setHasShadow(hasShadow: boolean) { if (this.destroyed) return; this.shadow = !!hasShadow; this.hostState('window.setHasShadow', {hasShadow: this.shadow}); }
+  isFocusable() { return this.focusable; }
+  setFocusable(focusable: boolean) { if (this.destroyed) return; this.focusable = !!focusable; this.hostState('window.setFocusable', {focusable: this.focusable}); }
+  isEnabled() { return this.enabled; }
+  setEnabled(enabled: boolean) { if (this.destroyed) return; this.enabled = !!enabled; this.hostState('window.setEnabled', {enabled: this.enabled}); }
+  // native handle
+  getNativeWindowHandle() { try { if (typeof Buffer !== 'undefined') return Buffer.alloc(8); } catch {} return new Uint8Array(8); }
+  // preview
+  previewFile(path: string, displayName?: string) { warn('BrowserWindow.previewFile'); return undefined; }
+  // closeable helpers already
+  // bounds tracking update normalBounds on setBounds etc? patch below
   static getAllWindows() { return [...windows.values()]; }
   static getFocusedWindow() { for (const win of windows.values()) if (win.focused) return win; return [...windows.values()].find(win => !win.destroyed && win.visible && !win.minimized) || windows.values().next().value || null; }
 }
-// BaseWindow shares the native window lifecycle; composing child views is not yet supported.
-export class BaseWindow extends BrowserWindow {
-  get contentView(): never { return unsupported('BaseWindow.contentView'); }
-}
-export class BrowserView { constructor(_options?: any) { unsupported('BrowserView'); } }
-export class WebContentsView { constructor(_options?: any) { unsupported('WebContentsView'); } }
-export const utilityProcess = { fork(..._args: any[]): never { return unsupported('utilityProcess.fork'); } };
+// BaseWindow, BrowserView, View, WebContentsView are provided by their shards.
+// utilityProcess is provided by the electron-utilities shard (see lazy loader above).
 // Only the page-facing part of Electron's webContents: each window's webContents object (send, on, id).
 export const webContents = {
   fromId(id: number) { return windows.get(id)?.webContents ?? null; },
-  getAllWebContents() { return [...windows.values()].map(window => window.webContents); }
+  getAllWebContents() { return [...windows.values()].map(window => window.webContents); },
+  getFocusedWebContents() { const win = BrowserWindow.getFocusedWindow(); return win ? win.webContents : null; },
+  fromBrowserView(_view: any) { return null; },
+  fromFrame(_frame: any) { return null; },
+  fromWebContents(wc: any) { return wc ?? null; },
+  fromDevToolsTargetId(_targetId: string) { return null; },
 };
 export const ipcMain = {
   handle(channel: string, fn: Function) { handle(channel, fn); },
@@ -351,4 +654,4 @@ export class Notification extends EventEmitter {
 // `unsupportedModule` that throws a clear error on first use, instead of being undefined.
 export * from './electron-coverage';
 import * as coverage from './electron-coverage';
-export default {...coverage, app, BrowserWindow, BaseWindow, BrowserView, WebContentsView, utilityProcess, webContents, screen, MessageChannelMain, webFrame, powerSaveBlocker, ipcMain, ipcRenderer, contextBridge, dialog, shell, clipboard, safeStorage, Notification, nativeTheme, Menu, MenuItem, net, nativeImage, Tray, globalShortcut, session, protocol};
+export default {...coverage, app, BrowserWindow, BaseWindow, BrowserView, WebContentsView, utilityProcess, webContents, screen, MessageChannelMain, webFrame, powerSaveBlocker, ipcMain, ipcRenderer, contextBridge, dialog, shell, clipboard, safeStorage, Notification, nativeTheme, Menu, MenuItem, net, nativeImage, Tray, globalShortcut, session, protocol, ShareMenu, systemPreferences, TouchBar, webUtils, autoUpdater};

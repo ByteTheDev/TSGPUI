@@ -73,7 +73,101 @@ export const net = {
     if (nav && typeof nav.onLine === 'boolean') return nav.onLine;
     return true;
   },
-  fetch() { return Promise.reject(new Error('net.fetch is not supported')); },
+  async fetch(input: any, init?: any): Promise<any> {
+    let url: string;
+    let options: any = init && typeof init === 'object' ? { ...init } : {};
+    if (typeof input === 'string') url = input;
+    else if (input instanceof URL) url = input.toString();
+    else if (input && typeof input === 'object') {
+      url = input.url || input.href || String(input);
+      options = { ...input, ...options };
+      delete options.url;
+    } else {
+      url = String(input);
+    }
+
+    const method = String(options.method || 'GET').toUpperCase();
+    const headers: any = {};
+    const rawHeaders = options.headers;
+    if (rawHeaders && typeof rawHeaders === 'object') {
+      if (typeof rawHeaders.forEach === 'function' && typeof rawHeaders.get !== 'undefined') {
+        try { rawHeaders.forEach((v: any, k: any) => { headers[k] = v; }); } catch {}
+      } else {
+        for (const k of Object.keys(rawHeaders)) headers[k] = rawHeaders[k];
+      }
+    }
+
+    const redirect = options.redirect || 'follow';
+    if (redirect !== 'follow' && redirect !== 'manual' && redirect !== 'error') throw new TypeError('net.fetch redirect must be follow, manual or error');
+
+    let bodyToSend: any = undefined;
+    if (options.body != null) {
+      const b = options.body;
+      if (typeof b === 'string') bodyToSend = b;
+      else if (b instanceof Uint8Array) bodyToSend = b;
+      else if (b instanceof ArrayBuffer) bodyToSend = new Uint8Array(b);
+      else if (ArrayBuffer.isView(b)) bodyToSend = new Uint8Array((b as any).buffer, (b as any).byteOffset, (b as any).byteLength);
+      else if (typeof b === 'object') {
+        try {
+          if (typeof URLSearchParams !== 'undefined' && b instanceof URLSearchParams) {
+            bodyToSend = b.toString();
+            if (!hasContentType(headers)) headers['content-type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+          } else {
+            bodyToSend = JSON.stringify(b);
+            if (!hasContentType(headers)) headers['content-type'] = 'application/json';
+          }
+        } catch {
+          bodyToSend = String(b);
+        }
+      } else {
+        bodyToSend = String(b);
+      }
+    }
+
+    const signal = options.signal;
+
+    return new Promise((resolve, reject) => {
+      let redirected = false;
+      let finalUrl = url;
+
+      const reqOpts: any = { url, method, headers, redirect };
+      const req = (this as any).request(reqOpts, (res: any) => {
+        const chunks: any[] = [];
+        res.on('data', (c: any) => chunks.push(c));
+        res.on('end', () => {
+          const bytes = collectFetchBytes(chunks);
+          resolve(makeFetchResponse(res, bytes, finalUrl, redirected));
+        });
+        res.on('error', (e: any) => reject(e instanceof Error ? e : new Error(String(e))));
+      });
+
+      if (typeof req.on === 'function') {
+        req.on('redirect', (_status: any, _method: any, redirectUrl: any) => {
+          redirected = true;
+          finalUrl = String(redirectUrl);
+        });
+        req.on('error', (e: any) => reject(e instanceof Error ? e : new Error(String(e))));
+      }
+
+      if (signal) {
+        const abort = () => {
+          try { req.abort(); } catch {}
+          const err: any = new Error('The operation was aborted.');
+          err.name = 'AbortError';
+          reject(err);
+        };
+        if (signal.aborted) { abort(); return; }
+        if (typeof signal.addEventListener === 'function') signal.addEventListener('abort', abort, { once: true });
+      }
+
+      try {
+        if (bodyToSend !== undefined) req.write(bodyToSend);
+        req.end();
+      } catch (e: any) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  },
   request(options: any, ...rest: any[]) {
     if (typeof options !== 'string' && (!options || typeof options !== 'object')) throw new TypeError('net.request requires a URL or options object');
     const callback = rest.find(a => typeof a === 'function');
@@ -256,4 +350,92 @@ export const net = {
     return req;
   },
 };
+
+function hasContentType(headers: any): boolean {
+  return Object.keys(headers || {}).some(k => String(k).toLowerCase() === 'content-type');
+}
+
+function collectFetchBytes(chunks: any[]): Uint8Array {
+  const arrays = chunks.map((c: any) => {
+    if (c == null) return new Uint8Array(0);
+    if (typeof c === 'string') return encodeUtf8(c);
+    const b = toBytes(c);
+    return b || new Uint8Array(0);
+  });
+  let total = 0;
+  for (const a of arrays) total += a.length;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+const STATUS_TEXT: Record<number, string> = {
+  200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content', 301: 'Moved Permanently',
+  302: 'Found', 303: 'See Other', 304: 'Not Modified', 307: 'Temporary Redirect', 308: 'Permanent Redirect',
+  400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed',
+  408: 'Request Timeout', 409: 'Conflict', 413: 'Payload Too Large', 429: 'Too Many Requests',
+  500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout',
+};
+
+function createFetchHeaders(raw: any): any {
+  const lower: any = {};
+  for (const k of Object.keys(raw || {})) lower[String(k).toLowerCase()] = raw[k];
+  const get = (name: any) => {
+    const v = lower[String(name).toLowerCase()];
+    if (v == null) return null;
+    return Array.isArray(v) ? v.join(', ') : String(v);
+  };
+  const has = (name: any) => Object.prototype.hasOwnProperty.call(lower, String(name).toLowerCase());
+  const forEach = (cb: Function) => { for (const k of Object.keys(lower)) cb(lower[k], k, headers); };
+  const headers: any = { ...lower };
+  headers.get = get;
+  headers.has = has;
+  headers.forEach = forEach;
+  headers.entries = () => Object.entries(lower);
+  headers.keys = () => Object.keys(lower);
+  headers.values = () => Object.values(lower);
+  return headers;
+}
+
+function makeFetchResponse(res: any, bytes: Uint8Array, url: string, redirected: boolean): any {
+  const status = res?.statusCode ?? res?.status ?? 200;
+  const rawHeaders = res?.headers || {};
+  const headers = createFetchHeaders(rawHeaders);
+  let used = false;
+  const response: any = {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: STATUS_TEXT[status] || '',
+    url,
+    redirected,
+    type: 'basic',
+    headers,
+    bodyUsed: false,
+    async text() {
+      if (used) throw new TypeError('Body has already been consumed.');
+      used = true;
+      response.bodyUsed = true;
+      return decodeUtf8(bytes);
+    },
+    async json() {
+      const t = await response.text();
+      return JSON.parse(t);
+    },
+    async arrayBuffer() {
+      if (used) throw new TypeError('Body has already been consumed.');
+      used = true;
+      response.bodyUsed = true;
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    },
+    async blob() {
+      const ab = await response.arrayBuffer();
+      return { size: bytes.length, type: headers.get('content-type') || '', arrayBuffer: async () => ab };
+    },
+    clone() {
+      return makeFetchResponse({ statusCode: status, headers: rawHeaders }, new Uint8Array(bytes), url, redirected);
+    },
+  };
+  return response;
+}
 

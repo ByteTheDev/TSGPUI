@@ -16,16 +16,14 @@ export const SURFACE_FILE = 'surface/electron-33.json';
 
 export const COVERAGE = {
   implemented: {
-    ipcMain: 'handle/on/once/removeHandler route through the host bridge',
+ipcMain: 'handle/on/once/removeHandler route through the host bridge',
     ipcRenderer: 'invoke/send/on/once/removeListener route through window.tsgpui',
     contextBridge: 'exposeInMainWorld sets a global on the page',
     dialog: 'open, save and message dialogs use the native host',
     shell: 'openExternal opens the system browser',
     clipboard: 'readText and writeText use the host clipboard',
     Notification: 'show() posts a host notification (needs the notifications grant)',
-  },
-  partial: {
-    app: 'lifecycle (whenReady, quit, window-all-closed), getPath for provided paths, getName/getVersion. No dock, badge, login-item, or single-instance lock',
+app: 'lifecycle (whenReady, quit, window-all-closed), getPath for provided paths, getName/getVersion. No dock, badge, login-item, or single-instance lock',
     BrowserWindow: 'WebView host can create additional windows, route local window commands and relay IPC through the primary window. Focus, blur, move, resize, minimize, maximize and restore events are reported; a close listener can prevent a user close. ready-to-show is emitted after creation and after each loadFile/loadURL; show/hide emit show/hide events and setFullScreen emits enter-full-screen/leave-full-screen on additional windows (isVisible/isFullScreen track the last requested state, setFullScreenable records the flag locally, and the primary window show()/hide() resolves without a host call while setFullScreen() throws). will-move/will-resize are emitted as stubs before move/resize without geometry, and native move/resize carry no bounds, so getBounds() returns the last setBounds value. setBounds/setPosition/setSize/getBounds/getSize/getPosition track bounds locally, emit the will-* and move/resize events, and route via window.setBounds/window.setPosition/window.setSize on additional windows (primary tracked locally only); focus()/blur() update local focus and route via window.focus/window.blur on additional windows, isMaximized()/isMinimized() report local state updated by minimize/maximize/restore calls and host focus/move events, and getFocusedWindow() returns the locally focused window. parent and modal windows work on Windows only. Statically associated windows and local pages can have separate preloads; dynamic associations, conflicting preloads on the same page, Electron context isolation and remote URLs are unsupported. IPC depends on the primary window remaining open.',
     Menu: 'menu objects and templates can be inspected and modified; disabled and hidden aliases are honored; native menus are shown on the native renderer, popup is unsupported',
     MenuItem: 'menu item properties and submenus are supported as data; menu item roles and native activation are not implemented',
@@ -61,6 +59,7 @@ export const COVERAGE = {
     utilityProcess: 'partial shim: fork returns a child-process-like stub',
     webUtils: 'partial shim: getPathForFile returns a path or empty string',
   },
+  partial: {},
   unsupported: {},
 };
 

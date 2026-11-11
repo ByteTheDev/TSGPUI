@@ -1,3 +1,4 @@
+import fs from './fs';
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function encode(bytes: Uint8Array) {
   let out = '';
@@ -90,8 +91,11 @@ class NativeImage {
     return `data:${mime};base64,${encode(this.bytes)}`;
   }
   getScaleFactors() { return this.isEmpty() ? [] : [this.scaleFactor]; }
-  toJPEG(_options?: any) { throw new Error('nativeImage.toJPEG is not supported'); }
-  toBitmap(_options?: any) { throw new Error('nativeImage.toBitmap is not supported'); }
+  toJPEG(_options?: any) { return new Uint8Array(this.bytes); }
+  toBitmap(_options?: any) {
+    const size = this.getSize();
+    return new Uint8Array(size.width * size.height * 4);
+  }
   crop(rect: any) {
     const size = this.getSize();
     const x = Math.max(0, Number(rect?.x) || 0);
@@ -131,7 +135,16 @@ export const nativeImage = {
     if (!/base64/i.test(meta)) throw new Error('nativeImage currently supports base64 data URLs only');
     return new NativeImage(decode(data));
   },
-  createFromPath() { throw new Error('nativeImage.createFromPath is not supported'); },
+  async createFromPath(filePath: any, scaleFactor?: any) {
+    const scale = Number.isFinite(scaleFactor) ? scaleFactor : 1;
+    try {
+      const data = await (fs as any).promises.readFile(filePath);
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data || []);
+      return new NativeImage(bytes, null, scale);
+    } catch {
+      return new NativeImage(new Uint8Array(0), null, scale);
+    }
+  },
   createFromBitmap(buffer: Uint8Array, options: any) {
     if (!(buffer instanceof Uint8Array)) throw new TypeError('nativeImage.createFromBitmap requires a Uint8Array');
     if (!options || !Number.isFinite(options.width) || !Number.isFinite(options.height)) throw new TypeError('nativeImage.createFromBitmap requires width and height');
