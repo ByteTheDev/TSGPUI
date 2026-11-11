@@ -1,7 +1,8 @@
 ﻿import {readFile, writeFile} from 'node:fs/promises';
 import {createHash, createPrivateKey, sign} from 'node:crypto';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 
 export async function writeManifest(files, destination, keyPath) {
   const artifacts = {};
@@ -16,9 +17,52 @@ export async function writeManifest(files, destination, keyPath) {
   return destination;
 }
 
-export async function signArtifact(file, command = process.env.TSGPUI_SIGN_COMMAND) {
-  if (!command) { console.log('Artifact is unsigned (TSGPUI_SIGN_COMMAND is not set).'); return false; }
-  // Pass the path as a shell positional parameter, never as part of command text.
+// Locate signtool.exe on Windows. Returns an absolute path or null.
+export function findSigntool() {
+  if (process.platform !== 'win32') return null;
+  // PATH first.
+  try {
+    const probe = spawnSync('signtool', ['/?'], {stdio: 'ignore', windowsHide: true});
+    if (probe.status === 0 || probe.status === 1) return 'signtool';
+  } catch {}
+  // Common Windows SDK locations.
+  const roots = [
+    'C:\\Program Files (x86)\\Windows Kits\\10\\bin',
+    'C:\\Program Files\\Windows Kits\\10\\bin',
+  ];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    let versions = [];
+    try { versions = fs.readdirSync(root).sort().reverse(); } catch {}
+    for (const v of versions) {
+      const candidate = path.join(root, v, 'x64', 'signtool.exe');
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+// Resolve the signing command to run. Returns a command string or null (unsigned).
+// Precedence: TSGPUI_SIGN_COMMAND, then platform-specific env shortcuts.
+export function resolveSignCommand() {
+  if (process.env.TSGPUI_SIGN_COMMAND) return process.env.TSGPUI_SIGN_COMMAND;
+  if (process.platform === 'win32' && process.env.TSGPUI_CERT_FILE) {
+    const tool = findSigntool();
+    if (!tool) return null;
+    const cert = process.env.TSGPUI_CERT_FILE;
+    const password = process.env.TSGPUI_CERT_PASSWORD || '';
+    const pw = password ? ` /p "${password}"` : '';
+    return `"${tool}" sign /f "${cert}"${pw} /tr http://timestamp.digicert.com /td sha256 /fd sha256`;
+  }
+  if (process.platform === 'darwin' && process.env.TSGPUI_CODESIGN_IDENTITY) {
+    const identity = process.env.TSGPUI_CODESIGN_IDENTITY;
+    return `codesign --sign "${identity}" --timestamp --options runtime`;
+  }
+  return null;
+}
+
+export async function signArtifact(file, command = resolveSignCommand()) {
+  if (!command) { console.log('Artifact is unsigned (set TSGPUI_SIGN_COMMAND, or TSGPUI_CERT_FILE on Windows / TSGPUI_CODESIGN_IDENTITY on macOS).'); return false; }
   const child = process.platform === 'win32'
     ? spawn('cmd.exe', ['/d', '/s', '/c', `${command} "%TSGPUI_SIGN_FILE%"`], {env:{...process.env, TSGPUI_SIGN_FILE:path.resolve(file)}, stdio:'ignore', windowsHide:true})
     : spawn('/bin/sh', ['-c', `${command} "$1"`, 'tsgpui-sign', path.resolve(file)], {stdio:'ignore'});

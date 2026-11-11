@@ -4,7 +4,7 @@
 
 The `release-hosts` workflow builds the native and WebView hosts for six targets (win32-x64, win32-arm64, darwin-x64, darwin-arm64, linux-x64 and linux-arm64), attests their build provenance, and attaches them with `hosts.json` to the release. The CLI checks each downloaded host against that manifest.
 
-The signing helper reads `TSGPUI_SIGN_COMMAND` from the environment, appends the artifact path, and does not log its command or output. Keep certificates and credentials outside the repository. If the variable is missing, the artifact is unsigned.
+The signing helper reads `TSGPUI_SIGN_COMMAND` from the environment, appends the artifact path, and does not log its command or output. Keep certificates and credentials outside the repository. If the variable is missing, the artifact is unsigned. As a convenience, you can also set `TSGPUI_CERT_FILE` (plus optional `TSGPUI_CERT_PASSWORD`) on Windows to auto-build a `signtool` command, or `TSGPUI_CODESIGN_IDENTITY` on macOS to auto-build a `codesign` command; `TSGPUI_SIGN_COMMAND` always takes precedence.
 
 The manifest helper writes SHA-256 hashes for supplied artifacts. An optional Ed25519 private key path produces a detached base64 signature over the exact manifest bytes. The host does not verify signatures yet; verification requires a Rust change owned by another agent.
 

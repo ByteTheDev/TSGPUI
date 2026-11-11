@@ -10,7 +10,7 @@ import {buildPackage,readProject} from '../src/compiler.mjs';
 import {importElectron} from '../src/import-electron.mjs';
 import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
-import {signArtifact,writeManifest} from '../src/signing.mjs';
+import {signArtifact,resolveSignCommand,writeManifest} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
 import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuiHome,verifyCachedHost} from '../src/hosts.mjs';
 
@@ -468,7 +468,7 @@ async function packageApp() {
   const info = await packageExecutable(host, result.bundleFile, output);
   console.log(`Built native application: ${info.file}`);
   if (sign) await signArtifact(info.file);
-  if (sign && !process.env.TSGPUI_SIGN_COMMAND) console.log('Signing skipped: set TSGPUI_SIGN_COMMAND=<your sign command> (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpui package --installer nsis --sign`.');
+  if (sign && !resolveSignCommand()) console.log('Signing skipped: set TSGPUI_SIGN_COMMAND=<your sign command>, or TSGPUI_CERT_FILE (+TSGPUI_CERT_PASSWORD) on Windows / TSGPUI_CODESIGN_IDENTITY on macOS (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpui package --installer nsis --sign`.');
   if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set TSGPUI_SIGN_COMMAND to sign with that certificate.`);
   const artifacts = [info.file];
   if (installer === 'nsis') {
