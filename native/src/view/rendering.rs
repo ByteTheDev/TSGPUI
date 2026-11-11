@@ -561,7 +561,8 @@ impl AppView {
             }).and_then(Value::as_bool)
                 .or_else(|| self.local_values.get(&node.key).and_then(Value::as_bool))
                 .unwrap_or_else(|| node.attrs.contains_key("checked"));
-            let label = node.attrs.get("aria-label").map(|label| format!("{} {label}", if checked { "[x]" } else { "[ ]" }))
+            let aria = crate::accessibility::AriaMetadata::from_node(node);
+            let label = aria.effective_label(node).map(|label| format!("{} {label}", if checked { "[x]" } else { "[ ]" }))
                 .unwrap_or_else(|| if checked { "[x]".into() } else { "[ ]".into() });
             element = element.child(label);
         } else {
@@ -595,10 +596,8 @@ impl AppView {
                 }
             }
             if node.children.is_empty() && node.tag == "button" {
-                let label = node.attrs.get("aria-label")
-                    .or_else(|| node.attrs.get("title"))
-                    .or_else(|| node.attrs.get("alt"));
-                if let Some(label) = label { element = element.child(label.clone()); }
+                let aria = crate::accessibility::AriaMetadata::from_node(node);
+                if let Some(label) = aria.effective_label(node) { element = element.child(label); }
             }
             if is_form {
                 if let Some(message) = self.validation_errors.get(&node.key) { element = element.child(div().child(message.clone())); }

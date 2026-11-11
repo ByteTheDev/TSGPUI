@@ -573,12 +573,23 @@ export const ipcMain = {
 };
 const rendererListeners = new Map<string, Map<Function, Function[]>>();
 function rendererOn(channel: string, fn: Function, once = false) { const bridge = page(); if (!bridge?.on) return unsupported('ipcRenderer.on'); const byFn = rendererListeners.get(channel) || new Map(); rendererListeners.set(channel, byFn); let unsubscribe: Function = () => {}; const wrapped = (payload: any) => { if (once) { unsubscribe(); const list = byFn.get(fn) || []; byFn.set(fn, list.filter(x => x !== unsubscribe)); } fn({}, payload); }; unsubscribe = bridge.on(channel, wrapped); byFn.set(fn, [...(byFn.get(fn) || []), unsubscribe]); }
+function rendererRemoveAll(channel?: string) {
+  const channels = channel ? [channel] : [...rendererListeners.keys()];
+  for (const name of channels) {
+    const map = rendererListeners.get(name);
+    for (const unsubs of map?.values() || []) for (const unsub of unsubs) try { unsub(); } catch {}
+    rendererListeners.delete(name);
+  }
+}
 export const ipcRenderer = {
   invoke(channel: string, payload?: any) { return host('ipc.invoke', {channel, payload}); },
   send(channel: string, payload?: any) { void host('ipc.send', {channel, payload}); },
+  sendSync(channel: string, ...args: any[]) { compatWarnings.push('ipcRenderer.sendSync is not supported by the async host bridge; use ipcRenderer.invoke instead'); return undefined; },
+  postMessage(channel: string, message: any, transfer?: any[]) { void host('ipc.send', {channel, payload: message}); },
   on(channel: string, fn: Function) { rendererOn(channel, fn); return this; },
   once(channel: string, fn: Function) { rendererOn(channel, fn, true); return this; },
-  removeListener(channel: string, fn: Function) { const map = rendererListeners.get(channel); for (const unsub of map?.get(fn) || []) unsub(); map?.delete(fn); return this; }
+  removeListener(channel: string, fn: Function) { const map = rendererListeners.get(channel); for (const unsub of map?.get(fn) || []) unsub(); map?.delete(fn); return this; },
+  removeAllListeners(channel?: string) { rendererRemoveAll(channel); return this; },
 };
 function copyBridgeValue(value: any, seen = new Map<any, any>()): any {
   if (typeof value === 'function') return (...args: any[]) => { const result = value(...args.map(arg => copyBridgeValue(arg))); return result && typeof result.then === 'function' ? Promise.resolve(result).then(v => copyBridgeValue(v)) : copyBridgeValue(result); };

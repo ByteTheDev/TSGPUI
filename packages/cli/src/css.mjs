@@ -329,7 +329,16 @@ const HANDLERS = {
 
 function normalizeDeclaration(prop, value) {
   if (IGNORED.has(prop)) return [];
-  if (UNSUPPORTED.has(prop)) throw new Error(`'${prop}' is not supported yet`);
+  if (UNSUPPORTED.has(prop)) {
+    // Motion properties have no GPUI element primitive to target: GPUI 0.2.2 (and the newer
+    // community forks we evaluated) exposes transforms only on SVG, so CSS motion cannot be
+    // emulated on the native path. Point users at the WebView renderer, which runs the real
+    // platform browser engine.
+    const motion = prop === 'transition' || prop === 'transform' || prop === 'animation';
+    throw new Error(motion
+      ? `'${prop}' is not supported yet (no GPUI transform/animation primitive; use renderer: "webview" for CSS motion)`
+      : `'${prop}' is not supported yet`);
+  }
   const handler = HANDLERS[prop];
   if (!handler) throw new Error(`unknown CSS property '${prop}'`);
   return handler(value);
