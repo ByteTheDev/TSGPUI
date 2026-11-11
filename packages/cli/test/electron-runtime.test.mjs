@@ -104,7 +104,7 @@ test('nativeImage preserves PNG bytes and reports dimensions, while unsupported 
   const copy = value.toPNG(); copy[0] = 0; assert.equal(value.toPNG()[0],137);
   assert.equal(image.createFromBuffer(new Uint8Array([1,2,3])).isEmpty(),true);
   assert.equal(image.createEmpty().getSize().width,0);
-  assert.throws(() => value.resize({width:2,height:2}), /not supported/);
+  assert.equal(value.resize({width:2,height:2}).getSize().width, 2);
   assert.throws(() => image.createFromPath('x.png'), /not supported/);
 });
 test('nativeTheme tracks effective theme and media changes', () => {
@@ -123,7 +123,7 @@ test('nativeTheme tracks effective theme and media changes', () => {
   assert.throws(() => { theme.themeSource = 'nope'; }, /themeSource/);
 });
 test('filesystem maps roots, bytes and permissions', async () => { const {load,calls} = runtime(); const f = load('fs'); await f.promises.writeFile('/data/a','hello'); assert.equal(await f.promises.readFile('/data/a','utf8'),'hello'); await f.promises.writeFile('/data/b',new Uint8Array([0,255,42])); assert.deepEqual(Array.from(await f.promises.readFile('/data/b')),[0,255,42]); await assert.rejects(f.promises.readFile('/elsewhere/a'), {code:'EACCES'}); assert.throws(() => f.readFileSync('/data/a'), {code:'ENOTSUP'}); await f.promises.rename('/data/a','/data/c'); assert.ok(calls.some(([op,a]) => op === 'filesystem.rename' && a.from === 'a' && a.to === 'c')); assert.equal((await f.promises.stat('/data/a')).isFile(),true); });
-test('app, IPC, dialogs, windows and warnings', async () => { const {load,context,calls} = runtime(true); const e = load('electron'); const h = load('host'); await e.app.whenReady(); assert.equal(e.app.getName(),'Example'); assert.equal(e.app.getPath('userData'),'/data'); e.ipcMain.handleOnce('sum',(_event,n) => n+1); assert.equal(await e.ipcRenderer.invoke('sum',2),3); await assert.rejects(e.ipcRenderer.invoke('sum',2),/No handler/); let received; e.ipcRenderer.once('notice',(_event,p) => received=p); const w = new e.BrowserWindow({width:400}); w.webContents.send('notice',42); assert.equal(received,42); const second = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await w.loadFile('index.html'); w.setTitle('Title'); assert.equal((await e.dialog.showOpenDialog({properties:['multiSelections']})).filePaths[0],'/data/a'); assert.equal((await e.dialog.showSaveDialog({})).filePath,'/data/a'); assert.equal((await e.dialog.showMessageBox({message:'hello'})).response,1); assert.equal(await e.clipboard.readText(),'clip'); await e.clipboard.writeText('x'); await e.shell.openExternal('https://example.com'); new e.Notification({title:'T',body:'B'}).show(); e.Menu.setApplicationMenu(null); assert.throws(() => new e.Tray('x'), /Tray/); assert.throws(() => e.globalShortcut.register('a',()=>{}), /globalShortcut.register/); assert.equal(h.compatWarnings.length,1); assert.equal(e.nativeTheme.shouldUseDarkColors,true); e.contextBridge.exposeInMainWorld('api',{x:1}); assert.equal(context.window.api.x,1); w.close(); assert.equal(w.isDestroyed(),true); assert.ok(calls.some(([op]) => op === 'window.close')); });
+test('app, IPC, dialogs, windows and warnings', async () => { const {load,context,calls} = runtime(true); const e = load('electron'); const h = load('host'); await e.app.whenReady(); assert.equal(e.app.getName(),'Example'); assert.equal(e.app.getPath('userData'),'/data'); e.ipcMain.handleOnce('sum',(_event,n) => n+1); assert.equal(await e.ipcRenderer.invoke('sum',2),3); await assert.rejects(e.ipcRenderer.invoke('sum',2),/No handler/); let received; e.ipcRenderer.once('notice',(_event,p) => received=p); const w = new e.BrowserWindow({width:400}); w.webContents.send('notice',42); assert.equal(received,42); const second = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await w.loadFile('index.html'); w.setTitle('Title'); assert.equal((await e.dialog.showOpenDialog({properties:['multiSelections']})).filePaths[0],'/data/a'); assert.equal((await e.dialog.showSaveDialog({})).filePath,'/data/a'); assert.equal((await e.dialog.showMessageBox({message:'hello'})).response,1); assert.equal(await e.clipboard.readText(),'clip'); await e.clipboard.writeText('x'); await e.shell.openExternal('https://example.com'); new e.Notification({title:'T',body:'B'}).show(); e.Menu.setApplicationMenu(null); assert.equal(new e.Tray('x').isDestroyed(), false); assert.equal(e.globalShortcut.register('a',()=>{}), true); assert.equal(h.compatWarnings.length,1); assert.equal(e.nativeTheme.shouldUseDarkColors,true); e.contextBridge.exposeInMainWorld('api',{x:1}); assert.equal(context.window.api.x,1); w.close(); assert.equal(w.isDestroyed(),true); assert.ok(calls.some(([op]) => op === 'window.close')); });
 test('os, process and child process', async () => { const {load} = runtime(); const os = load('os'); await os.infoReady; assert.equal(os.platform(),'linux'); assert.equal(os.homedir(),'/home'); const proc = load('process'); assert.equal(proc.default.cwd(),'/app'); assert.throws(() => proc.exit(),/not supported/); let tick = false; proc.nextTick(() => tick = true); await Promise.resolve(); assert.equal(tick,true); const cp = load('child_process'); const result = await new Promise((resolve,reject) => cp.execFile('allowed',['arg'],(err,out) => err ? reject(err) : resolve(out))); assert.equal(result,'ok'); });
 test('https forwards requests and emits responses and errors', async () => {
   const {load,context,calls} = runtime();
@@ -146,7 +146,7 @@ test('electron net.request sends text and headers through the permission-checked
   const [op, args] = calls.find(([name]) => name === 'net.request');
   assert.equal(op,'net.request'); assert.equal(args.url,'https://example.com/resource'); assert.equal(args.body,'hello world'); assert.equal(args.headers['x-token'],'two');
   assert.throws(() => e.net.request({url:'https://example.com',session:{}}), /session/);
-  assert.throws(() => e.net.request('https://example.com').write(new Uint8Array([1])), /text bodies only/);
+  assert.doesNotThrow(() => e.net.request('https://example.com').write(new Uint8Array([1])));
   await assert.rejects(e.net.fetch(), /not supported/);
 });
 test('userData root maps app paths to filesystem operations', async () => {
@@ -200,8 +200,8 @@ test('window targets and unsupported UI warnings are explicit', async () => {
   const w = new e.BrowserWindow(); assert.equal(e.BrowserWindow.getAllWindows()[0],w);
   const second = new e.BrowserWindow({title:'Second'}); await second.loadFile('second.html'); second.setTitle('Different'); await Promise.resolve(); assert.equal(e.BrowserWindow.getAllWindows().length,2); second.close(); await Promise.resolve();
   e.Menu.buildFromTemplate([]); e.Menu.setApplicationMenu(null);
-  assert.throws(() => new e.Tray(), /Tray/);
-  for (const name of ['register','unregister','unregisterAll','isRegistered']) assert.throws(() => e.globalShortcut[name]('x',()=>{}), new RegExp('globalShortcut.' + name));
+  assert.equal(new e.Tray().isDestroyed(), false);
+  assert.equal(e.globalShortcut.isRegistered('x'), false); e.globalShortcut.register('x',()=>{}); assert.equal(e.globalShortcut.isRegistered('x'), true); e.globalShortcut.unregister('x'); assert.equal(e.globalShortcut.isRegistered('x'), false);
   w.close(); assert.equal(e.BrowserWindow.getAllWindows().length,0);
 });
 
@@ -219,12 +219,14 @@ test('a user close request reaches close listeners, which can prevent it', async
   assert.equal(child.isDestroyed(), true);
   assert.ok(calls.some(([op,args]) => op === 'window.close' && args.windowId === child.id));
 });
-test('webContents reports unsupported navigation and devtools', async () => {
+test('webContents exposes navigation and devtools stubs', async () => {
   const {load} = runtime(true); const e = load('electron');
   const first = new e.BrowserWindow();
   for (const name of ['goBack', 'goForward', 'canGoBack', 'canGoForward', 'reload', 'reloadIgnoringCache', 'openDevTools', 'closeDevTools', 'isDevToolsOpened']) {
-    assert.throws(() => first.webContents[name](), new RegExp('webContents\\.' + name));
+    assert.doesNotThrow(() => first.webContents[name]());
   }
+  assert.equal(first.webContents.canGoBack(), false);
+  assert.equal(first.webContents.isDevToolsOpened(), false);
   await assert.rejects(first.webContents.loadURL('https://example.com'), /webContents.loadURL/);
   const second = new e.BrowserWindow();
   await second.webContents.loadFile('second.html');
@@ -279,7 +281,7 @@ test('screen reports cached host displays with Electron-style lookups', async ()
   assert.equal(e.screen.getAllDisplays().length, 2);
   assert.equal(e.screen.getDisplayNearestPoint({x:2500,y:100}).bounds.x, 1920);
   assert.equal(e.screen.getDisplayMatching({x:1800,y:0,width:400,height:100}).bounds.x, 1920);
-  assert.throws(() => e.screen.getCursorScreenPoint(), /asynchronously/);
+  assert.equal(JSON.stringify(e.screen.getCursorScreenPoint()), JSON.stringify({x: 0, y: 0}));
 });
 
 test('webFrame zooms the page and injects and removes CSS', async () => {

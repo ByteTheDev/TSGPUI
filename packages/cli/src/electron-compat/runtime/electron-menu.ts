@@ -12,7 +12,7 @@ export class MenuItem {
     if (!['normal', 'separator', 'submenu', 'checkbox', 'radio'].includes(this.type)) throw new TypeError(`Invalid menu item type: ${this.type}`);
     this.id = options.id || ''; this.label = options.label || ''; this.sublabel = options.sublabel || '';
     this.role = options.role; this.accelerator = options.accelerator; this.click = options.click;
-    this.enabled = options.enabled !== false; this.visible = options.visible !== false; this.checked = options.checked === true;
+    this.enabled = options.enabled !== false && options.disabled !== true; this.visible = options.visible !== false && options.hidden !== true; this.checked = options.checked === true;
     this.submenu = Array.isArray(options.submenu) ? Menu.fromTemplate(options.submenu) : options.submenu || null;
     if (this.submenu && !(this.submenu instanceof Menu)) throw new TypeError('submenu must be a Menu or an array of menu item options');
   }

@@ -54,6 +54,10 @@ pub fn text_label(node: &Node) -> String { label(node) }
 
 pub fn is_checked(node: &Node) -> bool { node.attrs.contains_key("checked") }
 
+pub fn is_disabled(node: &Node) -> bool { node.attrs.contains_key("disabled") }
+
+pub fn is_visible(node: &Node) -> bool { !node.attrs.contains_key("hidden") && node.attrs.get("visible").map(|v| v != "false").unwrap_or(true) }
+
 #[cfg(test)]
 mod tests {
     use super::*;
