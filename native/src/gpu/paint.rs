@@ -904,11 +904,14 @@ mod offscreen_tests {
         let mut app = App::new(doc);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
-        })).expect("adapter");
+        })) else {
+            eprintln!("skipping: no GPU adapter available");
+            return;
+        };
         let info = adapter.get_info();
         println!("ADAPTER: backend={:?} device={} vendor={:#x}", info.backend, info.name, info.vendor);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
@@ -946,16 +949,22 @@ mod offscreen_tests {
     #[test]
     fn offscreen_counter_renders_text_pixels() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/tsgpu-counter.tgp");
-        let json = std::fs::read_to_string(&path).expect("counter bundle");
+        let Ok(json) = std::fs::read_to_string(&path) else {
+            eprintln!("skipping: counter bundle not built at {}", path.display());
+            return;
+        };
         let doc: crate::package::AppPackage = serde_json::from_str(&json).expect("parse bundle");
         let mut app = App::new(doc);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
-        })).expect("adapter");
+        })) else {
+            eprintln!("skipping: no GPU adapter available");
+            return;
+        };
         let info = adapter.get_info();
         println!("ADAPTER: backend={:?} device={} vendor={:#x}", info.backend, info.name, info.vendor);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
