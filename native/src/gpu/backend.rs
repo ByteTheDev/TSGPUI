@@ -50,6 +50,7 @@ pub struct App {
     values: HashMap<u64, String>,
     /// Last produced frame BEFORE glyph shaping, so hit tests still see `Text` ops with node keys.
     hit_frame: Option<PaintFrame>,
+    debug_dumped: bool,
 }
 
 impl App {
@@ -69,6 +70,7 @@ impl App {
             checked: HashMap::new(),
             values: HashMap::new(),
             hit_frame: None,
+    debug_dumped: false,
         }
     }
 
@@ -76,6 +78,18 @@ impl App {
         let scale = if scale > 0.0 { scale } else { 1.0 };
         let logical = (size.0 as f32 / scale, size.1 as f32 / scale);
         let output = layout::measure(&self.doc.root, logical, scale, &mut self.text);
+        if std::env::var_os("TSGPU_DEBUG_FRAME").is_some() && !self.debug_dumped {
+            self.debug_dumped = true;
+            let mut dump = String::new();
+            for key in [2u64, 3, 4, 11, 19, 21, 23] {
+                if let Some(rect) = output.rects.get(&key) {
+                    dump.push_str(&format!("node {key}: x={:.1} y={:.1} w={:.1} h={:.1}\n", rect.x, rect.y, rect.w, rect.h));
+                }
+            }
+            dump.push_str(&format!("scale={scale} size={size:?} logical={logical:?}\n"));
+            let path = std::env::temp_dir().join("tsgpu-frame-debug.txt");
+            let _ = std::fs::write(&path, dump);
+        }
 
         let mut frame = PaintFrame {
             width: size.0,
@@ -821,7 +835,43 @@ mod diagnostic {
         for op in &frame.ops {
             if let DrawOp::Glyphs(batch) = op { glyph_instances += batch.instances.len(); }
         }
-        println!("rect_ops={rect_ops} text_ops={text_ops} glyph_instances={glyph_instances}"); let atlas = app.atlas(); println!("atlas: {}x{} gen={} bytes={}", atlas.width, atlas.height, atlas.generation, atlas.rgba.len()); let mut batch_i = 0usize; for op in frame.ops.iter() { if let DrawOp::Glyphs(batch) = op { if batch_i < 8 { if let Some(first) = batch.instances.first() { println!("batch {batch_i}: n={} first pos=({:.1},{:.1}) size=({:.1},{:.1})", batch.instances.len(), first.pos[0], first.pos[1], first.size[0], first.size[1]); } } batch_i += 1; } }
+        println!("rect_ops={rect_ops} text_ops={text_ops} glyph_instances={glyph_instances}"); let atlas = app.atlas(); println!("atlas: {}x{} gen={} bytes={}", atlas.width, atlas.height, atlas.generation, atlas.rgba.len());
+        // Dump the atlas as a PNG so rasterization quality is human-inspectable.
+        if let Some(img) = image::RgbaImage::from_raw(atlas.width, atlas.height, atlas.rgba.clone()) {
+            // RGB is white by design; visualize the alpha (coverage) channel as luminance.
+            let mut alpha_view = image::RgbaImage::new(atlas.width, atlas.height);
+            for (x, y, p) in alpha_view.enumerate_pixels_mut() {
+                let a = atlas.rgba[((y * atlas.width + x) * 4 + 3) as usize];
+                *p = image::Rgba([a, a, a, 255]);
+            }
+            let path = std::env::temp_dir().join("tsgpu-atlas-alpha.png");
+            let _ = alpha_view.save(&path);
+            println!("atlas alpha saved: {}", path.display());
+            let path = std::env::temp_dir().join("tsgpu-atlas.png");
+            let _ = img.save(&path);
+            println!("atlas saved: {}", path.display());
+        }
+        for op in frame.ops.iter() {
+            if let DrawOp::Glyphs(batch) = op {
+                if batch.instances.len() == 6 {
+                    for inst in batch.instances.iter() {
+                        let mut opaque = 0u32;
+                        for yy in 0..(inst.size[1] as u32) {
+                            for xx in 0..(inst.size[0] as u32) {
+                                let px = inst.uv[0] as u32 + xx;
+                                let py = inst.uv[1] as u32 + yy;
+                                if px < atlas.width && py < atlas.height {
+                                    let a = atlas.rgba[((py * atlas.width + px) * 4 + 3) as usize];
+                                    if a > 32 { opaque += 1; }
+                                }
+                            }
+                        }
+                        println!("glyph pos=({:.1},{:.1}) uv=({:.1},{:.1}) size=({:.1},{:.1}) opaque_px={}", inst.pos[0], inst.pos[1], inst.uv[0], inst.uv[1], inst.size[0], inst.size[1], opaque);
+                    }
+                    break;
+                }
+            }
+        }
         for (key, rect) in frame.ops.iter().filter_map(|op| match op {
             DrawOp::Rect(s) if s.node == 2 || s.node == 3 || s.node == 4 || s.node == 19 => Some((s.node, s.rect)),
             _ => None,

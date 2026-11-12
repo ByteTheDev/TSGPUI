@@ -78,9 +78,12 @@ struct WindowState {
     scale: f64,
     /// Physical surface size, kept in sync with the last Resized/configure.
     size: (u32, u32),
+    /// The configured surface format, for debug render targets that must match the pipelines.
+    format: wgpu::TextureFormat,
     /// Last known cursor position in physical pixels. MouseInput carries no position, so
     /// buttons are dispatched against this.
     cursor: (f64, f64),
+    debug_pixels_done: bool,
 }
 
 impl WindowState {
@@ -105,6 +108,57 @@ impl WindowState {
         // list each time and the painter uploads it wholesale.
         let frame = app.frame(self.scale_f32(), (width, height));
         self.painter.set_glyph_atlas(app.atlas());
+
+        // Debug: render the same frame into a copyable texture and dump raw pixels, so the
+        // live GPU output can be compared with the window contents directly.
+        if std::env::var_os("TSGPU_DEBUG_PIXELS").is_some() && !self.debug_pixels_done {
+            self.debug_pixels_done = true;
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("tsgpu live debug"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu live debug") });
+            self.painter.paint(&self.device, &mut encoder, &view, &frame);
+            self.queue.submit(Some(encoder.finish()));
+            let padded = (width * 4 + 255) / 256 * 256;
+            let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("tsgpu live readback"),
+                size: (padded * height) as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu live readback") });
+            encoder.copy_texture_to_buffer(
+                texture.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(height) },
+                },
+                wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            );
+            self.queue.submit(Some(encoder.finish()));
+            let slice = readback.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+            self.device.poll(wgpu::PollType::Wait).ok();
+            if rx.recv().is_ok() {
+                let data = slice.get_mapped_range();
+                let mut out = Vec::with_capacity((width * height * 4) as usize);
+                for row in 0..height {
+                    let start = (row * padded) as usize;
+                    out.extend_from_slice(&data[start..start + (width * 4) as usize]);
+                }
+                let _ = std::fs::write(std::env::temp_dir().join("tsgpu-live-pixels.bin"), out);
+            }
+            readback.unmap();
+        }
 
         let texture = match self.surface.get_current_texture() {
             Ok(texture) => texture,
@@ -185,6 +239,8 @@ impl GpuApp {
             scale,
             size: (size.width, size.height),
             cursor: (0.0, 0.0),
+            debug_pixels_done: false,
+            format,
         })
     }
 }

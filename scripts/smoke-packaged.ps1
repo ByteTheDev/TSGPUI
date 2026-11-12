@@ -16,6 +16,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
+# Per-monitor DPI awareness: without this, a DPI-unaware PowerShell gets virtualized window
+# coordinates and PrintWindow returns a resampled bitmap (125% Windows = mushy text captures).
+try { Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DpiAware { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'; [void][DpiAware]::SetProcessDPIAware() } catch {}
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;

@@ -62,7 +62,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: InstanceInput) -> VertexOut {
     let px = inst.rect.xy + corner * inst.rect.zw;
     // wgpu follows Vulkan NDC: y points down, (-1,-1) is the top-left of the target.
     var out: VertexOut;
-    out.clip = vec4<f32>(px / globals.viewport * 2.0 - 1.0, 0.0, 1.0);
+    out.clip = vec4<f32>(px.x / globals.viewport.x * 2.0 - 1.0, 1.0 - px.y / globals.viewport.y * 2.0, 0.0, 1.0);
     out.local = corner * inst.rect.zw;
     out.size = inst.rect.zw;
     out.radius = inst.params.x;
@@ -149,7 +149,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: InstanceInput) -> VertexOut {
     let corner = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
     let px = inst.pos_size.xy + corner * inst.pos_size.zw;
     var out: VertexOut;
-    out.clip = vec4<f32>(px / globals.viewport * 2.0 - 1.0, 0.0, 1.0);
+    out.clip = vec4<f32>(px.x / globals.viewport.x * 2.0 - 1.0, 1.0 - px.y / globals.viewport.y * 2.0, 0.0, 1.0);
     out.uv = inst.uv.xy + corner * inst.pos_size.zw;
     out.color = inst.color;
     return out;
@@ -319,6 +319,7 @@ pub struct Painter {
     uploaded_generation: u64,
     /// Last generation seen by `set_glyph_atlas`, so an unchanged atlas is never re-cloned.
     seen_generation: u64,
+    debug_logged: bool,
     /// Viewport from `resize` (width, height, scale). `paint` trusts `frame` instead (per
     /// contract they should agree); kept for the fixed signature and future use.
     #[allow(dead_code)]
@@ -500,6 +501,7 @@ impl Painter {
         let text_instances = make_instances("tsgpu text instances", 512, TEXT_STRIDE);
 
         Self {
+            debug_logged: false,
             queue: queue.clone(),
             rect_pipeline,
             text_pipeline,
@@ -565,6 +567,24 @@ impl Painter {
         });
 
         let scale = frame.scale;
+        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() && !self.debug_logged {
+            self.debug_logged = true;
+            let mut dump = String::new();
+            dump.push_str(&format!("surface paint: w={} h={} scale={} atlas_pending={} gen_uploaded={}\n", frame.width, frame.height, frame.scale, self.pending_atlas.is_some(), self.uploaded_generation));
+            for op in frame.ops.iter().take(64) {
+                match op {
+                    types::DrawOp::Glyphs(batch) => {
+                        if let Some(first) = batch.instances.first() {
+                            dump.push_str(&format!("glyphbatch n={} first pos=({:.1},{:.1}) uv=({:.1},{:.1}) size=({:.1},{:.1})\n", batch.instances.len(), first.pos[0], first.pos[1], first.uv[0], first.uv[1], first.size[0], first.size[1]));
+                        }
+                    }
+                    types::DrawOp::Rect(_) => {}
+                    types::DrawOp::Text(_) => {}
+                }
+            }
+            let path = std::env::temp_dir().join("tsgpu-paint-debug.txt");
+            let _ = std::fs::write(&path, dump);
+        }
         if scale.is_finite() && scale > 0.0 && frame.width > 0 && frame.height > 0 {
             // Upload a newly generated atlas (needs `&Device`, hence here rather than in
             // `set_glyph_atlas`). TODO(M1+): partial/gpu-side atlas updates instead of full
@@ -600,6 +620,8 @@ impl Painter {
             // offset would win for ALL earlier draws recorded against it).
             let mut rect_cursor: u32 = 0;
             let mut text_cursor: u32 = 0;
+            let mut glyph_draws: u32 = 0;
+            let mut glyph_skips: u32 = 0;
 
             for op in &frame.ops {
                 match op {
@@ -634,6 +656,7 @@ impl Painter {
                     }
                     types::DrawOp::Glyphs(batch) => {
                         if batch.instances.is_empty() || self.text_bind_group.is_none() {
+                            glyph_skips += batch.instances.len() as u32;
                             continue; // nothing to draw, or no atlas uploaded yet
                         }
                         let count = batch.instances.len() as u32;
@@ -647,7 +670,12 @@ impl Painter {
                             "tsgpu text instances",
                         );
                         let base = text_cursor as u64 * TEXT_STRIDE;
-                        let data: Vec<GlyphInstanceData> = batch
+                        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() && text_cursor == 0 {
+                            for g in batch.instances.iter().take(2) {
+                                let d = glyph_instance_data(g, scale);
+                                println!("instance: pos_size={:?} uv={:?} color={:?}", d.pos_size, d.uv, d.color);
+                            }
+                        }                        let data: Vec<GlyphInstanceData> = batch
                             .instances
                             .iter()
                             .map(|g| glyph_instance_data(g, scale))
@@ -677,6 +705,9 @@ impl Painter {
                             i = j;
                         }
                         text_cursor += count;
+                        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() {
+                            println!("paint batch: n={count} cursor={text_cursor} bind_group={} uploaded_gen={}", self.text_bind_group.is_some(), self.uploaded_generation);
+                        }                        glyph_draws += count;
                     }
                     types::DrawOp::Text(_) => {
                         // Replaced by `DrawOp::Glyphs` in text.rs before paint sees the frame.
@@ -789,5 +820,171 @@ impl Painter {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod offscreen_tests {
+    use super::*;
+    use crate::gpu::backend::App;
+    use crate::gpu::types::*;
+
+    /// Renders rame into an offscreen RGBA8 texture and returns the pixels.
+    /// This is the headless framebuffer harness: CI-runnable, no window needed.
+    fn render_offscreen(painter: &mut Painter, device: &wgpu::Device, queue: &wgpu::Queue, frame: &PaintFrame, format: wgpu::TextureFormat) -> Vec<u8> {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("tsgpu offscreen"),
+            size: wgpu::Extent3d { width: frame.width, height: frame.height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu offscreen encoder") });
+        painter.paint(device, &mut encoder, &view, frame);
+        queue.submit(Some(encoder.finish()));
+
+        let bytes_per_row = frame.width * 4;
+        let padded = (bytes_per_row + 255) / 256 * 256;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tsgpu readback"),
+            size: (padded * frame.height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu readback encoder") });
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(frame.height) },
+            },
+            wgpu::Extent3d { width: frame.width, height: frame.height, depth_or_array_layers: 1 },
+        );
+        queue.submit(Some(encoder.finish()));
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+        device.poll(wgpu::PollType::Wait).ok();
+        rx.recv().expect("map result").expect("map ok");
+        let data = slice.get_mapped_range().to_vec();
+        readback.unmap();
+        // Strip row padding.
+        let mut out = Vec::with_capacity((frame.width * frame.height * 4) as usize);
+        for row in 0..frame.height {
+            let start = (row * padded) as usize;
+            out.extend_from_slice(&data[start..start + (frame.width * 4) as usize]);
+        }
+        out
+    }
+
+    /// Counts pixels whose alpha exceeds 	hreshold in the logical-px rect region.
+    fn opaque_in(pixels: &[u8], width: u32, region: &Rect) -> u32 {
+        let mut count = 0u32;
+        for y in region.y as u32..(region.y + region.h) as u32 {
+            for x in region.x as u32..(region.x + region.w) as u32 {
+                let a = pixels[((y * width + x) * 4 + 3) as usize];
+                if a > 64 { count += 1; }
+            }
+        }
+        count
+    }
+
+    /// Minimal repro: one text run, no rects. Isolates the glyph pipeline from any
+    /// interference, with a human-inspectable magnified crop of the render.
+    #[test]
+    fn offscreen_minimal_text_repro() {
+        let json = r##"{"format":"tsgpu-1","name":"app","title":"T","width":400,"height":160,
+            "backend_js":"","root":{"tag":"div","key":1,"style":{"background":"#090b14","color":"#ffffff"},
+            "children":[{"tag":"div","key":2,"style":{"background":"#ff0000","color":"#ffffff","font-size":"48px","font-weight":"700"},"children":[{"tag":"#text","key":3,"text":"TS-GPU"}]}]}}"##;
+        let doc: crate::package::AppPackage = serde_json::from_str(json).unwrap();
+        let mut app = App::new(doc);
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        })).expect("adapter");
+        let info = adapter.get_info();
+        println!("ADAPTER: backend={:?} device={} vendor={:#x}", info.backend, info.name, info.vendor);
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
+        // Surface validation errors that would otherwise vanish with the window subsystem.
+        device.on_uncaptured_error(Box::new(|error| println!("WGPU ERROR: {error}")));
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let mut painter = Painter::new(&device, &queue, format);
+        painter.resize(400, 160, 1.0);
+
+        let frame = app.frame(1.0, (400, 160));
+        for op in frame.ops.iter() {
+            match op {
+                types::DrawOp::Rect(r) => println!("rect node={} x={:.1} y={:.1} w={:.1} h={:.1}", r.node, r.rect.x, r.rect.y, r.rect.w, r.rect.h),
+                types::DrawOp::Text(t) => println!("text node={} x={:.1} y={:.1} size={:.1} text={:?}", t.node, t.x, t.y, t.size, t.text.chars().take(8).collect::<String>()),
+                types::DrawOp::Glyphs(g) => println!("glyphs n={}", g.instances.len()),
+            }
+        }
+        let atlas = app.atlas(); println!("atlas: {}x{} gen={}", atlas.width, atlas.height, atlas.generation);
+        {
+            let mut alpha_view = image::RgbaImage::new(atlas.width, atlas.height);
+            for (x, y, p) in alpha_view.enumerate_pixels_mut() {
+                let a = atlas.rgba[((y * atlas.width + x) * 4 + 3) as usize];
+                *p = image::Rgba([a, a, a, 255]);
+            }
+            let _ = alpha_view.save(std::env::temp_dir().join("tsgpu-minimal-atlas.png"));
+        }
+        painter.set_glyph_atlas(app.atlas());
+        let pixels = render_offscreen(&mut painter, &device, &queue, &frame, format);
+        if let Some(img) = image::RgbaImage::from_raw(400, 160, pixels.clone()) {
+            let path = std::env::temp_dir().join("tsgpu-minimal-repro.png");
+            let _ = img.save(&path);
+            println!("minimal repro saved (full 400x160): {}", path.display());
+        }
+    }
+    #[test]
+    fn offscreen_counter_renders_text_pixels() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/tsgpu-counter.tgp");
+        let json = std::fs::read_to_string(&path).expect("counter bundle");
+        let doc: crate::package::AppPackage = serde_json::from_str(&json).expect("parse bundle");
+        let mut app = App::new(doc);
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        })).expect("adapter");
+        let info = adapter.get_info();
+        println!("ADAPTER: backend={:?} device={} vendor={:#x}", info.backend, info.name, info.vendor);
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
+        // The live window surface on Windows is typically Bgra8UnormSrgb; verify the pipeline
+        // is correct on that exact target, not just the neutral Rgba8Unorm offscreen path.
+        let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let mut painter = Painter::new(&device, &queue, format);
+        painter.resize(1125, 750, 1.25);
+
+        let frame = app.frame(1.25, (1125, 750));
+        painter.set_glyph_atlas(app.atlas());
+        // Paint, then paint a SECOND frame with a FRESH atlas (the live app rebuilds the atlas
+        // every frame, so the texture/view/bind-group are recreated while earlier frames may
+        // still be in flight â€” this is the live-window cycle).
+        let _ = render_offscreen(&mut painter, &device, &queue, &frame, format);
+        let frame2 = app.frame(1.25, (1125, 750));
+        painter.set_glyph_atlas(app.atlas());
+        let pixels = render_offscreen(&mut painter, &device, &queue, &frame2, format);
+
+        // The h1 "TS-GPU" glyphs: logical x 166..380, y ~126..166, at 1.25 scale => physical.
+        let heading = opaque_in(&pixels, 1125, &Rect { x: 205.0, y: 155.0, w: 280.0, h: 65.0 });
+        println!("heading opaque px: {heading}");
+        // Save the render for visual inspection â€” pixel counts cannot distinguish correct
+        // glyphs from fragments.
+        if let Some(img) = image::RgbaImage::from_raw(1125, 750, pixels.clone()) {
+            let path = std::env::temp_dir().join("tsgpu-offscreen-view.png");
+            let _ = img.save(&path);
+            println!("offscreen saved: {}", path.display());
+        }
+        assert!(heading > 300, "the h1 heading should paint hundreds of text pixels, got {heading}");
     }
 }

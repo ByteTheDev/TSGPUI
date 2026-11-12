@@ -56,6 +56,13 @@ pub struct TextStyle {
     pub align: TextAlign,
 }
 
+impl Default for TextStyle {
+    fn default() -> Self {
+        // The CSS initial values for inherited text properties.
+        TextStyle { size: 16.0, weight: 400, color: [0.0, 0.0, 0.0, 1.0], align: TextAlign::Left }
+    }
+}
+
 /// `FontSystem`-independent estimate of where the first baseline sits inside a line box whose
 /// height is `1.25em` (see text.rs): typical UI-font ascent ≈ 0.78em, and cosmic-text centers
 /// the glyph box in the line, giving baseline ≈ (1.25 − 1.0)/2 + 0.78 = 0.905em. 0.91 is close
@@ -84,7 +91,7 @@ pub fn measure(root: &Node, viewport: (f32, f32), scale: f32, text: &mut dyn Tex
     let mut out = LayoutOutput::default();
     let mut ids: HashMap<u64, NodeId> = HashMap::new();
 
-    let Some(root_id) = build(&mut tree, root, vp, &mut out, &mut ids, true) else {
+    let Some(root_id) = build(&mut tree, root, vp, &mut out, &mut ids, true, TextStyle::default()) else {
         return out;
     };
     tree.compute_layout_with_measure(
@@ -122,14 +129,16 @@ fn build(
     out: &mut LayoutOutput,
     ids: &mut HashMap<u64, NodeId>,
     is_root: bool,
+    inherited: TextStyle,
 ) -> Option<NodeId> {
     let mut style = style_for(node, vp);
     if is_root {
         // The root fills the viewport.
         style.size = TaffySize { width: Dimension::percent(1.0), height: Dimension::percent(1.0) };
     }
+    let effective_text = text_style_for(node, vp, &inherited);
     if !node.text.trim().is_empty() {
-        out.text_styles.insert(node.key, text_style_for(node, vp));
+        out.text_styles.insert(node.key, effective_text.clone());
     }
 
     let id = if node.children.is_empty() {
@@ -151,7 +160,7 @@ fn build(
     } else {
         let mut children = Vec::with_capacity(node.children.len());
         for child in &node.children {
-            children.push(build(tree, child, vp, out, ids, false)?);
+            children.push(build(tree, child, vp, out, ids, false, effective_text.clone())?);
         }
         tree.new_with_children(style, &children).ok()?
     };
@@ -384,19 +393,22 @@ fn style_for(node: &Node, vp: (f32, f32)) -> Style {
 }
 
 /// Extract the text styling the backend needs for `TextRun`s.
-fn text_style_for(node: &Node, vp: (f32, f32)) -> TextStyle {
+/// Resolves one node's text style over the INHERITED parent style. `color`, `font-size`,
+/// `font-weight` and `text-align` are inherited CSS properties: a bare `#text` node has no
+/// declarations of its own and must take the nearest ancestor's values (a `color` set on
+/// `body` reaches every label through this).
+fn text_style_for(node: &Node, vp: (f32, f32), inherited: &TextStyle) -> TextStyle {
     let s = &node.style;
     let size = s
         .get("font-size")
         .and_then(|v| parse_length_value(v, vp))
         .and_then(|parsed| match parsed {
             ParsedLength::Px(px) => Some(px),
-            // font-size percentages resolve against the parent font size; without inheritance
-            // M0 resolves them against the 16px default.
-            ParsedLength::Percent(p) => Some(REM_PX * p),
+            // font-size percentages resolve against the PARENT font size (CSS semantics).
+            ParsedLength::Percent(p) => Some(inherited.size * p),
         })
         .filter(|px| *px > 0.0)
-        .unwrap_or(REM_PX);
+        .unwrap_or(inherited.size);
     let weight = s
         .get("font-weight")
         .and_then(|v| match v.trim().to_ascii_lowercase().as_str() {
@@ -405,12 +417,12 @@ fn text_style_for(node: &Node, vp: (f32, f32)) -> TextStyle {
             _ => parse_num(v),
         })
         .map(|w| w.clamp(1.0, 1000.0) as u16)
-        .unwrap_or(400);
-    let color = s.get("color").and_then(|v| parse_color(v)).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        .unwrap_or(inherited.weight);
+    let color = s.get("color").and_then(|v| parse_color(v)).unwrap_or(inherited.color);
     let align = match decl(s, "text-align").as_str() {
         "center" => TextAlign::Center,
         "right" | "end" => TextAlign::Right,
-        _ => TextAlign::Left, // left, start, and unparsed values
+        _ => inherited.align, // left, start, unparsed values, and unset inherit
     };
     TextStyle { size, weight, color, align }
 }
