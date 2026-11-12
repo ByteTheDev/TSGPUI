@@ -1,8 +1,8 @@
-﻿import type { AppDefinition, BackendAPI } from "tsgpu/types";
+import type { AppDefinition, BackendAPI } from "tsgpu/types";
 import { noteFileName, messageOf } from "./notes";
 
 // A full-stack example: the UI is HTML/CSS, and this backend uses the host's granted file access.
-// Notes live in the `notes` folder granted in tsgpui.config.json. Every file name is checked here,
+// Notes live in the `notes` folder granted in tsgpu.config.json. Every file name is checked here,
 // and the host checks it again.
 
 type FileEntry = { name: string; kind: "file" | "directory" | "other"; size: number };

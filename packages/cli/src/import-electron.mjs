@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
-import {existsSync} from 'node:fs';
+import {existsSync, statSync} from 'node:fs';
 import {readFile, writeFile, mkdir, cp, stat, readdir, realpath} from 'node:fs/promises';
 import {bundleBackend} from './backend.mjs';
 import {statusOf} from './electron-compat/coverage.mjs';
@@ -19,6 +19,183 @@ const exists = async p => !!(await stat(p).catch(() => null));
 const inside = (root,p) => p === root || p.startsWith(root + path.sep);
 const literal = n => n && (ts.isStringLiteralLike(n) || ts.isNoSubstitutionTemplateLiteral(n)) ? n.text : undefined;
 const relImport = (from,to) => { let p = slash(path.relative(path.dirname(from),to)).replace(/\.ts$/, ''); return p.startsWith('.') ? p : './'+p; };
+
+// --- Rendrix page adaptation -------------------------------------------------------------
+// Imported Electron renderer pages are browser documents; the Rendrix compiler accepts only the
+// subset in docs/SUPPORTED_SYNTAX.md (ALLOWED_TAGS in src/html.mjs). Every copied page is
+// rewritten here: the document wrappers are stripped, unsupported elements become neutral <div>
+// containers (keeping id and class so structure survives), unsupported attributes are dropped,
+// and every change is recorded for the import report.
+const IMPORT_KEEP_TAGS = new Set([
+  'main','header','footer','section','article','div','nav','aside',
+  'h1','h2','h3','h4','h5','h6','p','span','strong','small','blockquote','pre','code','figure','figcaption',
+  'details','summary','table','caption','thead','tbody','tfoot','tr','th','td',
+  'button','label','form','ul','ol','li','hr','img','input','textarea','select','option',
+]);
+const IMPORT_VOID_TAGS = new Set(['input','img','hr']);
+// Raw-text elements: their content is not markup. script/style are removed entirely (logic belongs
+// in backend.ts / the CSS file); title is captured as a fallback title; textarea passes through.
+const IMPORT_RAW_TEXT_TAGS = new Set(['script','style','title','textarea']);
+// Elements dropped without their content: metadata/void tags with nothing to preserve.
+const IMPORT_DROP_TAGS = new Set(['link','meta','base','br','wbr']);
+// Document wrappers are unwrapped; their children become the page content.
+const IMPORT_UNWRAP_TAGS = new Set(['html','head','body']);
+const IMPORT_KEEP_ATTRS = new Set(['id','class','title','aria-label','alt','name','placeholder','value','disabled','required','selected','for','tabindex','role']);
+const IMPORT_INPUT_TYPES = new Set(['text','number','checkbox','email','password','search']);
+const IMPORT_BUTTON_TYPES = new Set(['button','submit']);
+
+function parsePageAttrs(text) {
+  const attrs = [];
+  for (const match of text.matchAll(/([^\s=/<>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) {
+    const name = match[1].toLowerCase();
+    if (!/^[a-zA-Z_][\w:.-]*$/.test(name)) continue;
+    if (!attrs.some(attr => attr.name === name)) attrs.push({name, value: match[2] ?? match[3] ?? match[4] ?? ''});
+  }
+  return attrs;
+}
+function escapePageAttr(value) { return String(value).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function escapePageText(value) { return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+// Rewrites one page and returns {html, pageTitle, notes}. `resolveImg` maps an img src to the
+// copied asset's project-relative path, or null when the compiler could not load it.
+function renderrizePage(source, resolveImg = null) {
+  const replaced = new Map(), droppedAttrs = new Map();
+  let removedScripts = 0, removedStyles = 0, removedMetadata = 0, removedBreaks = 0, removedTemplates = 0, rewrittenImgs = 0, pageTitle = null;
+  const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+  const counts = map => [...map.entries()].sort().map(([key, count]) => `${key}×${count}`).join(', ');
+  const keptAttrs = (tag, attrs) => {
+    const kept = [], seen = new Set();
+    const effectiveType = tag === 'input' ? (attrs.find(attr => attr.name === 'type')?.value ?? 'text').toLowerCase() : undefined;
+    for (const {name, value} of attrs) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      if (name === 'id' || name === 'class') { kept.push(`${name}="${escapePageAttr(value)}"`); continue; }
+      if (IMPORT_KEEP_ATTRS.has(name) && (name !== 'alt' || tag === 'img')) { kept.push(`${name}="${escapePageAttr(value)}"`); continue; }
+      if (name === 'src' && tag === 'img' && value && !/^(?:[a-z]+:|[\\/])|\.\./i.test(value)) { kept.push(`src="${escapePageAttr(value)}"`); continue; }
+      if (name === 'type' && tag === 'input' && IMPORT_INPUT_TYPES.has(effectiveType)) { kept.push(`type="${effectiveType}"`); continue; }
+      if (name === 'type' && tag === 'button' && IMPORT_BUTTON_TYPES.has(value.toLowerCase())) { kept.push(`type="${value.toLowerCase()}"`); continue; }
+      if (name === 'checked' && tag === 'input' && effectiveType === 'checkbox') { kept.push('checked=""'); continue; }
+      if (['min','max','step'].includes(name) && tag === 'input' && effectiveType === 'number') { kept.push(`${name}="${escapePageAttr(value)}"`); continue; }
+      bump(droppedAttrs, name);
+    }
+    return kept.length ? ' ' + kept.join(' ') : '';
+  };
+  const out = [];
+  const topLevel = [];  // 'tag' for a top-level element, null for a top-level text run.
+  const stack = [];     // {srcTag, emitted}; emitted is null for unwrapped wrappers.
+  const depth = () => stack.filter(entry => entry.emitted !== null).length;
+  const closeTop = () => { const entry = stack.pop(); if (entry.emitted !== null) out.push(`</${entry.emitted}>`); };
+  let index = 0;
+  while (index < source.length) {
+    const rest = source.slice(index);
+    if (rest.startsWith('<!--')) {
+      const close = source.indexOf('-->', index + 4);
+      index = close < 0 ? source.length : close + 3;
+      continue;
+    }
+    const doctype = /^<!doctype\s+html\s*>/i.exec(rest);
+    if (doctype) { index += doctype[0].length; continue; }
+    if (rest[0] === '<') {
+      const token = /^<\/?[a-zA-Z](?:[^'"=>]|=\s*"[^"]*"|=\s*'[^']*'|=)*>/.exec(rest);
+      if (!token) { out.push('&lt;'); index++; continue; }
+      index += token[0].length;
+      const tag = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/.exec(token[0])[1].toLowerCase();
+      const closing = token[0].startsWith('</');
+      const selfClosing = token[0].endsWith('/>');
+      const tagNameLength = /^<\/?[a-zA-Z][a-zA-Z0-9-]*/.exec(token[0])[0].length;
+      if (closing) {
+        const depthIndex = stack.map(entry => entry.srcTag).lastIndexOf(tag);
+        if (depthIndex < 0) continue;  // A stray closing tag; browsers ignore it too.
+        while (stack.length > depthIndex + 1) closeTop();
+        closeTop();
+        continue;
+      }
+      const attrs = parsePageAttrs(token[0].slice(tagNameLength, selfClosing ? -2 : -1));
+      if (IMPORT_RAW_TEXT_TAGS.has(tag)) {
+        const end = new RegExp(`</\\s*${tag}\\s*>`, 'i').exec(source.slice(index));
+        const raw = end ? source.slice(index, index + end.index) : source.slice(index);
+        index = end ? index + end.index + end[0].length : source.length;
+        if (tag === 'title') { if (pageTitle === null) pageTitle = raw.replace(/\s+/g, ' ').trim(); }
+        else if (tag === 'textarea') {
+          if (depth() === 0) topLevel.push('textarea');
+          out.push(`<textarea${keptAttrs('textarea', attrs)}>${escapePageText(raw)}</textarea>`);
+        }
+        else if (tag === 'script') removedScripts++;
+        else if (tag === 'style') removedStyles++;
+        continue;
+      }
+      if (tag === 'template') {
+        const end = /<\/\s*template\s*>/i.exec(source.slice(index));
+        index = end ? index + end.index + end[0].length : source.length;
+        removedTemplates++;
+        continue;
+      }
+      if (IMPORT_UNWRAP_TAGS.has(tag)) {
+        if (!selfClosing) stack.push({srcTag: tag, emitted: null});
+        continue;
+      }
+      if (IMPORT_DROP_TAGS.has(tag)) {
+        if (tag === 'br' || tag === 'wbr') { removedBreaks++; out.push(' '); } else removedMetadata++;
+        continue;
+      }
+      // An <img> the Rendrix compiler cannot load (no src, or a src that resolves to no copied
+      // asset) becomes a <div> that keeps id/class and shows the alt text. A resolvable src is
+      // rewritten to the copied asset's project-relative path, because the compiler resolves
+      // image srcs against the project root.
+      if (tag === 'img') {
+        const rawSrc = attrs.find(attr => attr.name === 'src')?.value ?? '';
+        const rewritten = resolveImg && rawSrc ? resolveImg(rawSrc) : (rawSrc && !/^(?:[a-z]+:|[\\/])|\.\./i.test(rawSrc) ? rawSrc : null);
+        if (!rewritten) {
+          const kept = keptAttrs('div', attrs);
+          const alt = attrs.find(attr => attr.name === 'alt')?.value;
+          if (depth() === 0) topLevel.push('div');
+          bump(replaced, 'img');
+          out.push(alt ? `<div${kept}>${escapePageText(alt)}</div>` : `<div${kept}/>`);
+          continue;
+        }
+        const kept = keptAttrs('img', attrs.filter(attr => attr.name !== 'src')) + ` src="${escapePageAttr(rewritten)}"`;
+        if (depth() === 0) topLevel.push('img');
+        rewrittenImgs++;
+        out.push(`<img${kept}/>`);
+        continue;
+      }
+      const unsupported = !IMPORT_KEEP_TAGS.has(tag);
+      const emitted = unsupported ? 'div' : tag;
+      const attributes = keptAttrs(unsupported ? 'div' : tag, attrs);
+      if (depth() === 0) topLevel.push(emitted);
+      if (unsupported) bump(replaced, tag);
+      if (selfClosing || IMPORT_VOID_TAGS.has(tag)) out.push(`<${emitted}${attributes}/>`);
+      else { out.push(`<${emitted}${attributes}>`); stack.push({srcTag: tag, emitted}); }
+      continue;
+    }
+    const next = source.indexOf('<', index);
+    const raw = source.slice(index, next === -1 ? undefined : next);
+    index = next === -1 ? source.length : next;
+    if (raw.trim()) {
+      if (depth() === 0) topLevel.push(null);
+      out.push(raw);
+    }
+  }
+  while (stack.length) closeTop();
+  let html = out.join('');
+  const elements = topLevel.filter(Boolean);
+  const singleRoot = topLevel.length === 1 && elements.length === 1 && ['main','div','section'].includes(elements[0]);
+  if (!topLevel.length) html = '<div></div>';
+  else if (!singleRoot) html = `<div>${html}</div>`;
+  const changes = [];
+  if (replaced.size) changes.push(`replaced unsupported elements with <div> containers (${counts(replaced)})`);
+  if (droppedAttrs.size) changes.push(`dropped unsupported attributes (${counts(droppedAttrs)})`);
+  if (removedScripts) changes.push(`removed ${removedScripts} <script> element${removedScripts > 1 ? 's' : ''} (move the logic into backend.ts)`);
+  if (removedStyles) changes.push(`removed ${removedStyles} inline <style> element${removedStyles > 1 ? 's' : ''} (move the rules into the CSS file)`);
+  if (removedTemplates) changes.push(`removed ${removedTemplates} <template> block${removedTemplates > 1 ? 's' : ''} (inert browser templates have no renderer equivalent)`);
+  if (rewrittenImgs) changes.push(`rewrote ${rewrittenImgs} image src path${rewrittenImgs > 1 ? 's' : ''} to the copied assets (the compiler resolves image srcs from the project root)`);
+  if (removedMetadata) changes.push(`removed ${removedMetadata} <link>/<meta>/<base> tag${removedMetadata > 1 ? 's' : ''}`);
+  if (removedBreaks) changes.push(`dropped ${removedBreaks} line-break tag${removedBreaks > 1 ? 's' : ''}`);
+  const notes = changes.length ? [`adapted for the Rendrix renderer: ${changes.join('; ')}; stripped the <html>/<head>/<body> document wrappers`] : [];
+  return {html, pageTitle, notes};
+}
+// --- end Rendrix page adaptation ---------------------------------------------------------
+
 
 export async function importElectron(input, {out, build = false, force = false} = {}) {
   const root = await realpath(path.resolve(input)).catch(() => path.resolve(input)), dest = path.resolve(out || root + '-tsgpu');
@@ -353,20 +530,41 @@ export async function importElectron(input, {out, build = false, force = false} 
   }
   for (const name of usedRuntime) if(!runtimeFiles.includes(name + '.ts')) notes.push(`Compatibility runtime missing ${name}.ts; copy it into src/tsgpu-runtime before building.`);
   await writeFile(path.join(sourceDir,'backend.ts'),`import ${JSON.stringify(relImport(path.join(sourceDir,'backend.ts'),targetFor(main)))};\nexport default { state: {}, actions: {} };\n`);
+  // Adapt every copied renderer page to the HTML subset the Rendrix compiler accepts: strip the
+  // document wrappers, drop <script>/<style>/<meta>/<link> (the backend and the CSS file carry
+  // that content) and replace unsupported elements with neutral <div> containers. Image srcs are
+  // rewritten to the copied assets, because the compiler resolves them from the project root.
+  let pageTitle = null;
+  const rendererCopyRoot = path.join(sourceDir,'renderer');
+  async function adaptRendererPages(dir) {
+    for (const item of await readdir(dir,{withFileTypes:true})) {
+      const pageFile=path.join(dir,item.name);
+      if (item.isDirectory()) { await adaptRendererPages(pageFile); continue; }
+      if (!item.isFile() || !/\.(?:html|htm)$/i.test(item.name)) continue;
+      const resolveImg = value => {
+        let decoded;
+        try { decoded = decodeURIComponent(value.split(/[?#]/)[0]); } catch { return null; }
+        if (!decoded) return null;
+        const candidates = /^[\\/]/.test(decoded)
+          ? [path.join(rendererCopyRoot, decoded.replace(/^[\\/]+/, ''))]
+          : [path.resolve(path.dirname(pageFile), decoded)];
+        for (const candidate of candidates) {
+          if (inside(rendererCopyRoot, candidate) && existsSync(candidate) && statSync(candidate).isFile()) {
+            return 'src/renderer/' + slash(path.relative(rendererCopyRoot, candidate));
+          }
+        }
+        return null;
+      };
+      const adapted=renderrizePage(await readFile(pageFile,'utf8'), resolveImg);
+      await writeFile(pageFile,adapted.html);
+      if (path.resolve(pageFile) === path.resolve(convertedRenderer(renderer)) && adapted.pageTitle) pageTitle=adapted.pageTitle;
+      for (const note of adapted.notes) notes.push(`${slash('src/renderer/'+path.relative(rendererCopyRoot,pageFile))}: ${note}`);
+    }
+  }
+  await adaptRendererPages(path.join(sourceDir,'renderer'));
   const preloadNotes=[];
   for (const [page,preload] of pagePreloads) {
-    const entry=path.join(sourceDir,`preload-entry-${preloadNotes.length}.ts`);
-    await writeFile(entry,`import ${JSON.stringify(relImport(entry,targetFor(preload)))};\nexport default { state: {}, actions: {} };\n`);
-    try {
-      const bundled=await bundleBackend(entry,dest,async (base,file)=>{if(!inside(base,file)) throw new Error('Module outside output');});
-      const htmlFile=convertedRenderer(page);
-      let html=await readFile(htmlFile,'utf8');
-      const script=`<script data-tsgpui-preload>\n((renderer)=>{const local=Object.create(null); const scope=new Proxy(local,{get(target,key){if(key==='window'||key==='self'||key==='globalThis') return scope; if(key==='__tsgpui_bridge_target') return renderer; if(Reflect.has(target,key)) return Reflect.get(target,key); const value=renderer[key]; return typeof value==='function' ? value.bind(renderer) : value;},has(target,key){return Reflect.has(target,key)||key in renderer;}}); ((globalThis,window,self)=>{${bundled.js.replace(/<\/script/gi,'<\\/script')}})(scope,scope,scope);})(globalThis);\n</script>\n`;
-      const match=/<script\b/i.exec(html); html=match ? html.slice(0,match.index)+script+html.slice(match.index) : html.replace(/<\/head\s*>/i,script+'</head>');
-      if(!html.includes('data-tsgpui-preload')) html=script+html;
-      await writeFile(htmlFile,html);
-      preloadNotes.push(`${slash(path.relative(root,page))}: preload bundled before renderer scripts; review Electron isolation and preload assumptions.`);
-    } catch(e) {preloadNotes.push(`${slash(path.relative(root,page))}: preload could not be bundled: ${e.message}. Migrate it manually.`);}
+    preloadNotes.push(`${slash(path.relative(root,page))}: preload ${slash(path.relative(root,preload))} was detected, but Electron preload scripts have no equivalent in the Rendrix renderer; move the preload logic into backend.ts actions.`);
   }
   for (const [id,preload] of windowPreloads) if (![...pagePreloads.values()].includes(preload)) notes.push(`Preload ${slash(path.relative(root,preload))} could not be associated with one static window page (${id.split('\0').at(-1)}); review manually.`);
   const preloadNote=preloadNotes.length ? preloadNotes.join('\n- ') : 'No statically associated preload was detected.';
@@ -406,7 +604,7 @@ export async function importElectron(input, {out, build = false, force = false} 
   if (protocolSchemes.size) notes.push(`Custom protocols allowlisted (${[...protocolSchemes].sort().join(', ')}): rewritten to packaged app assets by the protocol shim; review handlers that compute paths dynamically.`);
   // Converted apps run on the Rendrix host: no renderer key (absent = "rendrix"), a primary backend
   // window, and the first renderer page as the packaged entry. Extra windows remain a review item.
-  const config={name,title:title || pkg.build?.productName || pkg.productName || pkg.name || name,version,...(bundleId ? {bundleId} : {}),...(outDir ? {outDir} : {}),...(packaging ? {packaging} : {}),...(sessionPersist ? {persist:true} : {}),...(protocolSchemes.size ? {protocolSchemes:[...protocolSchemes].sort()} : {}),window:{width,height},html:'src/renderer/'+slash(path.relative(root,renderer)),css,backend:'src/backend.ts',permissions};
+  const config={name,title:title || pkg.build?.productName || pkg.productName || pageTitle || pkg.name || name,version,...(bundleId ? {bundleId} : {}),...(outDir ? {outDir} : {}),...(packaging ? {packaging} : {}),...(sessionPersist ? {persist:true} : {}),...(protocolSchemes.size ? {protocolSchemes:[...protocolSchemes].sort()} : {}),window:{width,height},html:'src/renderer/'+slash(path.relative(root,renderer)),css,backend:'src/backend.ts',permissions};
   await writeFile(path.join(dest,'tsgpu.config.json'),JSON.stringify(config,null,2)+'\n');
   const fsSection = filesystemPaths.length ? `\n## Filesystem paths\n\n${filesystemPaths.map(x=>'- '+x).join('\n')}\n` : (usage.fs ? `\n## Filesystem paths\n\n- No auto-granted filesystem paths were detected; review filesystem call sites manually.\n` : '');
   const fsFooter = usage.relativeFs ? 'The ./data filesystem root is a placeholder for detected relative paths; review original paths and access.\n' : (usage.fs && !fsNeedsReview && filesystemPaths.length ? 'All detected filesystem paths are auto-granted (userData/dialog-selected); no explicit permissions.filesystem entry was added. Review other filesystem paths.\n' : (usage.fs ? 'No ./data root was granted; userData and dialog-selected files are auto-granted. Review other filesystem paths.\n' : ''));

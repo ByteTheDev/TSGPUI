@@ -424,3 +424,21 @@ mod tests {
         assert!(matches!(frame.ops[1], DrawOp::Glyphs(_)), "text op shaped in place");
     }
 }
+
+/// Lays out can ask the text system how big a run is (taffy has no intrinsic text size).
+impl crate::gpu::layout::TextMeasure for TextSystem {
+    fn measure_text(&mut self, text: &str, size: f32, weight: u16, max_width: f32) -> (f32, f32) {
+        self.measure_run(&crate::gpu::types::TextRun {
+            node: 0,
+            x: 0.0,
+            y: 0.0,
+            max_width,
+            text: text.to_string(),
+            size,
+            weight,
+            color: [0.0, 0.0, 0.0, 1.0],
+            align: crate::gpu::types::TextAlign::Left,
+            clip: Vec::new(),
+        })
+    }
+}

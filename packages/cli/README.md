@@ -89,7 +89,7 @@ Cross-target builds use `--target`, which takes one target, a comma-separated li
 
 ## Project shape
 
-Projects contain `tsgpui.config.json`, `src/index.html`, `src/styles.css`, and `src/backend.ts`. The renderer key is optional: an absent key selects `"rendrix"`, the Rendrix renderer. `"native"` still selects the deprecated GPUI host with a deprecation warning; `"webview"` is a hard error — the WebView renderer was removed, and TS-GPU renders natively with Rendrix. The HTML/CSS subset and the backend API are described in the [TS-GPU docs](https://github.com/ByteTheDev/TSGPUI/tree/main/docs).
+Projects contain `tsgpu.config.json`, `src/index.html`, `src/styles.css`, and `src/backend.ts`. The renderer key is optional: an absent key selects `"rendrix"`, the Rendrix renderer. `"native"` still selects the deprecated GPUI host with a deprecation warning; `"webview"` is a hard error — the WebView renderer was removed, and TS-GPU renders natively with Rendrix. The HTML/CSS subset and the backend API are described in the [TS-GPU docs](https://github.com/ByteTheDev/TSGPUI/tree/main/docs).
 
 ## Trusted code
 

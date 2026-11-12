@@ -28,7 +28,7 @@ test('HTML rejects scripts, duplicate IDs, and unsupported attributes',()=>{
 });
 test('HTML decodes text entities',()=>{
   const root=parseHTML('<body><p>A &amp; B &#10003;</p></body>');
-  assert.equal(root.children[0].children[0].text,'A & B âœ“');
+  assert.equal(root.children[0].children[0].text,'A & B ✓');
 });
 test('a > inside a quoted attribute value does not end the tag',()=>{
   const root=parseHTML('<body><button title="Next > page" data-onclick="next">Next</button><p aria-label=\'a > b\'>3 &gt; 2</p></body>');
@@ -57,7 +57,7 @@ test('Backend transpiles TS and actions mutate state in a JS VM',()=>{
   const js=compileBackend(`type S = {count:number}; const app: S = {count:0}; export default {state:app,actions:{increment(api: any){api.set('count',api.get('count')+1)}}};`);
   const context=vm.createContext({});
   vm.runInContext(js,context,{timeout:1000});
-  const model=context.__tsgpu_app;
+  const model=context.__tsgpui_app;
   const api={ get:k=>model.state[k],set:(k,v)=>{model.state[k]=v;} };
   model.actions.increment(api);
   assert.equal(model.state.count,1);
@@ -70,7 +70,7 @@ test('Compiler creates strict package schema',()=>{
   const doc=compileProject({html,css,backend,config});
   assert.equal(doc.format,'tsgpu-1');
   assert.equal(doc.root.tag,'body');
-  assert.ok(doc.backend_js.includes('__tsgpu_app'));
+  assert.ok(doc.backend_js.includes('__tsgpui_app'));
 });
 test('Compiler records dev, persistence, and diagnostics',()=>{
   const doc=compileProject({html,css,backend,config:{...config,persist:true,dev:true},warnings:['line 1: warning']});
@@ -133,7 +133,7 @@ test('bundles and watches local backend modules', async()=>{
       assert.ok(built.watchAssets.includes(path.join('src','nested.ts')));
       const context=vm.createContext({});
       vm.runInContext(built.bundle.backend_js,context,{timeout:1000});
-      const app=context.__tsgpu_app;
+      const app=context.__tsgpui_app;
       app.actions.increment({get:k=>app.state[k],set:(k,v)=>app.state[k]=v});
       assert.equal(app.state.count,1);
     }

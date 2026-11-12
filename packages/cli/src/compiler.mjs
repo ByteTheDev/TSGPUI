@@ -190,16 +190,16 @@ function collectImagePaths(node, paths = new Set()) {
 export async function readProject(projectPath) {
   const projectRoot = path.resolve(projectPath);
   // tsgpu.config.json is the canonical name since the TS-GPU rename; the old
-  // tsgpu.config.json still loads with a deprecation warning for one transition.
+  // tsgpui.config.json still loads with a deprecation warning for one transition.
   const newFile = path.join(projectRoot,'tsgpu.config.json');
-  const legacyFile = path.join(projectRoot,'tsgpu.config.json');
+  const legacyFile = path.join(projectRoot,'tsgpui.config.json');
   const legacyExists = await readFile(legacyFile,'utf8').then(() => true,() => false);
   const newExists = await readFile(newFile,'utf8').then(() => true,() => false);
   if (!newExists && legacyExists) {
-    console.error('Warning: this project uses tsgpu.config.json; rename it to tsgpu.config.json (the old name is deprecated by the TS-GPU rename).');
+    console.error('Warning: this project uses tsgpui.config.json; rename it to tsgpu.config.json (the old name is deprecated by the TS-GPU rename).');
   }
   const configFile = newExists ? newFile : legacyFile;
-  const label = newExists ? 'tsgpu.config.json' : 'tsgpu.config.json';
+  const label = newExists ? 'tsgpu.config.json' : 'tsgpui.config.json';
   if (!newExists && !legacyExists) throw new Error('No tsgpu.config.json found in the project root');
   await assertRealInside(projectRoot,configFile,label);
   const config = validateConfig(JSON.parse(await readFile(configFile,'utf8')));

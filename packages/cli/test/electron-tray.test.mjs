@@ -14,7 +14,7 @@ function runtime() {
   const calls = [];
   const listeners = new Map();
   const host = async (op, args = {}) => { calls.push([op, args]); return {}; };
-  const context = vm.createContext({ console, Uint8Array, ArrayBuffer, Promise, Map, setTimeout, __tsgpu_host: host });
+  const context = vm.createContext({ console, Uint8Array, ArrayBuffer, Promise, Map, setTimeout, __tsgpui_host: host });
   const cache = new Map();
   function load(name) {
     name = name.replace(/^\.\//, '').replace(/\.ts$/, '');
@@ -27,7 +27,7 @@ function runtime() {
     fn(load, module, module.exports);
     return module.exports;
   }
-  const emit = (channel, payload) => context.__tsgpu_host_event(channel, payload);
+  const emit = (channel, payload) => context.__tsgpui_host_event(channel, payload);
   return { load, calls, emit, context, listeners };
 }
 

@@ -1,18 +1,18 @@
-//! Document â†’ layout â†’ paint glue; owns the frame cache and re-layouts on state change.
+//! Document Ã¢â€ â€™ layout Ã¢â€ â€™ paint glue; owns the frame cache and re-layouts on state change.
 //! Owner: agent D.
 //!
 //! Contract (fixed):
 //! - `App::new(doc: crate::package::AppPackage) -> Self`
-//! - `App::frame(&mut self, scale: f32, size: (u32, u32)) -> types::PaintFrame` â€” full repaint:
+//! - `App::frame(&mut self, scale: f32, size: (u32, u32)) -> types::PaintFrame` Ã¢â‚¬â€ full repaint:
 //!   layout::measure on doc.root, text runs for visible text nodes, clips flattened down the tree.
-//! - `App::pointer(&mut self, event: input::PointerEvent)` â€” hit test via input::hit_test,
+//! - `App::pointer(&mut self, event: input::PointerEvent)` Ã¢â‚¬â€ hit test via input::hit_test,
 //!   hover/active state, dispatch `data-onclick` actions (M0: log to stdout is acceptable;
 //!   QuickJS backend wiring via the existing runtime bridge is M1)
 //! - `App::key(&mut self, event: input::KeyEvent)`
 //!
 //! M0 notes: `frame()` rebuilds the whole draw list on every call (surface repaints every vsync),
 //! so state changes are picked up without an explicit dirty flag. Hit testing uses a cached
-//! PRE-shaping copy of the last frame â€” shaping replaces `Text` ops with `Glyphs` batches that
+//! PRE-shaping copy of the last frame Ã¢â‚¬â€ shaping replaces `Text` ops with `Glyphs` batches that
 //! carry no node key.
 
 use crate::gpu::{input, layout, text, types};
@@ -34,9 +34,9 @@ const BASELINE_EM: f32 = 0.9;
 pub struct App {
     doc: crate::package::AppPackage,
     text: text::TextSystem,
-    /// Node key â†’ tag, flattened at construction (the doc tree is immutable in M0).
+    /// Node key Ã¢â€ â€™ tag, flattened at construction (the doc tree is immutable in M0).
     tags: HashMap<u64, String>,
-    /// Node key â†’ action name for `data-onclick`.
+    /// Node key Ã¢â€ â€™ action name for `data-onclick`.
     onclick: HashMap<u64, String>,
     // --- interaction state (M0) ---
     hovered: Option<u64>,
@@ -75,7 +75,7 @@ impl App {
     pub fn frame(&mut self, scale: f32, size: (u32, u32)) -> PaintFrame {
         let scale = if scale > 0.0 { scale } else { 1.0 };
         let logical = (size.0 as f32 / scale, size.1 as f32 / scale);
-        let output = layout::measure(&self.doc.root, logical, scale);
+        let output = layout::measure(&self.doc.root, logical, scale, &mut self.text);
 
         let mut frame = PaintFrame {
             width: size.0,
@@ -182,7 +182,7 @@ impl App {
         }
     }
 
-    /// Which interaction states currently apply â€” merged into styles during paint.
+    /// Which interaction states currently apply Ã¢â‚¬â€ merged into styles during paint.
     fn state_flags(&self) -> StateFlags<'_> {
         StateFlags {
             hovered: self.hovered,
@@ -473,7 +473,7 @@ fn parse_color(value: &str) -> Option<Color> {
                 s.parse::<f32>().ok().map(|v| (v / 255.0).clamp(0.0, 1.0))
             }
         };
-        // Alpha is 0â€“1 (or a percentage), never divided by 255.
+        // Alpha is 0Ã¢â‚¬â€œ1 (or a percentage), never divided by 255.
         let alpha = |s: &str| -> Option<f32> {
             if let Some(pct) = s.strip_suffix('%') {
                 pct.parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0))
@@ -552,7 +552,7 @@ fn text_content(node: &Node, flags: &StateFlags) -> String {
         "checkbox" => {
             let base = node.text.clone();
             if flags.checked.get(&node.key).copied().unwrap_or(false) {
-                format!("âœ“ {base}")
+                format!("Ã¢Å“â€œ {base}")
             } else {
                 base
             }
@@ -794,5 +794,39 @@ mod tests {
         let app = App::new(doc("{}"));
         let atlas = app.atlas();
         assert_eq!(atlas.generation, 0);
+    }
+}
+
+#[cfg(test)]
+mod diagnostic {
+    use super::*;
+
+    #[test]
+    fn diagnostic_counter_bundle_rects_and_glyphs() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/tsgpu-counter.tgp");
+        let json = std::fs::read_to_string(&path).expect("counter bundle");
+        let doc: crate::package::AppPackage = serde_json::from_str(&json).expect("parse bundle");
+        let mut app = App::new(doc);
+        let frame = app.frame(1.0, (900, 600));
+        if let Some(hit) = &app.hit_frame {
+            for op in hit.ops.iter() {
+                if let DrawOp::Text(run) = op {
+                    println!("textrun node={} x={:.1} y={:.1} mw={:.1} size={:.1} text={:?}", run.node, run.x, run.y, run.max_width, run.size, run.text.chars().take(12).collect::<String>());
+                }
+            }
+        }
+        let text_ops = frame.ops.iter().filter(|op| matches!(op, DrawOp::Text(_))).count();
+        let rect_ops = frame.ops.iter().filter(|op| matches!(op, DrawOp::Rect(_))).count();
+        let mut glyph_instances = 0usize;
+        for op in &frame.ops {
+            if let DrawOp::Glyphs(batch) = op { glyph_instances += batch.instances.len(); }
+        }
+        println!("rect_ops={rect_ops} text_ops={text_ops} glyph_instances={glyph_instances}"); let atlas = app.atlas(); println!("atlas: {}x{} gen={} bytes={}", atlas.width, atlas.height, atlas.generation, atlas.rgba.len()); let mut batch_i = 0usize; for op in frame.ops.iter() { if let DrawOp::Glyphs(batch) = op { if batch_i < 8 { if let Some(first) = batch.instances.first() { println!("batch {batch_i}: n={} first pos=({:.1},{:.1}) size=({:.1},{:.1})", batch.instances.len(), first.pos[0], first.pos[1], first.size[0], first.size[1]); } } batch_i += 1; } }
+        for (key, rect) in frame.ops.iter().filter_map(|op| match op {
+            DrawOp::Rect(s) if s.node == 2 || s.node == 3 || s.node == 4 || s.node == 19 => Some((s.node, s.rect)),
+            _ => None,
+        }) {
+            println!("node {key}: x={:.1} y={:.1} w={:.1} h={:.1}", rect.x, rect.y, rect.w, rect.h);
+        }
     }
 }

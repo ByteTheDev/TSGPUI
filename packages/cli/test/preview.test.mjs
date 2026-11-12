@@ -44,7 +44,7 @@ test('the page embeds the bundle as JSON that cannot end its script element', ()
     warnings: [],
   });
   const page = renderPreviewHTML(bundle);
-  const json = page.slice(page.indexOf('id="tsgpui-bundle">') + 'id="tsgpui-bundle">'.length, page.indexOf('</script>', page.indexOf('id="tsgpui-bundle">')));
+  const json = page.slice(page.indexOf('id="tsgpu-bundle">') + 'id="tsgpu-bundle">'.length, page.indexOf('</script>', page.indexOf('id="tsgpu-bundle">')));
   assert.doesNotMatch(json, /</, 'angle brackets are escaped in the JSON');
   assert.equal(JSON.parse(json).backend_js.includes('</script>'), true, 'the value survives as data');
   assert.match(page, /<title>Preview &lt;App&gt;<\/title>/);
@@ -93,7 +93,7 @@ test('startPreview serves the page and a version that changes only on rebuild', 
       const page = await fetch(session.url);
       assert.equal(page.status, 200);
       const html = await page.text();
-      assert.match(html, /id="tsgpui-bundle"/);
+      assert.match(html, /id="tsgpu-bundle"/);
       assert.match(html, /"live":1/);
       const version = await (await fetch(new URL('/version', session.url))).json();
       assert.deepEqual(version, { version: 1 });

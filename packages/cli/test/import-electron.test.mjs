@@ -102,7 +102,7 @@ test('imports Electron configuration, modules and permissions, with a review rep
   assert.deepEqual(config.permissions.filesystem,{read:['./data'],write:['./data']});
   assert.deepEqual(config.permissions.processes,['git']); assert.deepEqual(config.permissions.network,['api.example.com','example.com']); assert.equal(config.permissions.ipc,true);
   const main=await readFile(path.join(output,'src/main/main.ts'),'utf8');
-  assert.match(main,/import \* as __tsgpu_import_0 from "\.\.\/tsgpu-runtime\/electron"/);
+  assert.match(main,/import \* as __tsgpui_import_0 from "\.\.\/tsgpu-runtime\/electron"/);
   assert.doesNotMatch(main,/require\(/);
   assert.match(main,/tsgpu-runtime\/https/);
   const report=await readFile(path.join(output,'TSGPU_IMPORT_REPORT.md'),'utf8');

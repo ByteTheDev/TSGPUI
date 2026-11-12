@@ -34,6 +34,19 @@ use taffy::prelude::{
 };
 use taffy::prelude::{Rect as TaffyRect, Size as TaffySize};
 
+/// Measures one text run for layout. Implemented by `text::TextSystem` in the app; stubs in
+/// tests. Taffy cannot size text on its own, so every text leaf asks this during layout —
+/// without it, shrink-to-fit containers (buttons, centered spans) collapse to zero width.
+pub trait TextMeasure {
+    /// Returns the wrapped (width, height) of `text` at `size`/`weight` within `max_width`.
+    fn measure_text(&mut self, text: &str, size: f32, weight: u16, max_width: f32) -> (f32, f32);
+}
+
+/// Per-node measure context for taffy text leaves.
+enum MeasureContext {
+    Text { text: String, size: f32, weight: u16 },
+}
+
 /// Text styling extracted per node so the backend can build `types::TextRun` ops.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextStyle {
@@ -62,28 +75,39 @@ pub struct LayoutOutput {
 }
 
 /// Lay out the document tree within `viewport` (logical px) and return absolute rects.
-pub fn measure(root: &Node, viewport: (f32, f32), scale: f32) -> LayoutOutput {
+pub fn measure(root: &Node, viewport: (f32, f32), scale: f32, text: &mut dyn TextMeasure) -> LayoutOutput {
     // M0: styles are px and rects are logical px; `scale` is kept for future DPI work only.
     let _ = scale;
     let vp = (viewport.0.max(1.0), viewport.1.max(1.0));
 
-    let mut tree = TaffyTree::new();
+    let mut tree: TaffyTree<MeasureContext> = TaffyTree::new();
     let mut out = LayoutOutput::default();
     let mut ids: HashMap<u64, NodeId> = HashMap::new();
 
     let Some(root_id) = build(&mut tree, root, vp, &mut out, &mut ids, true) else {
         return out;
     };
-    tree.compute_layout(
+    tree.compute_layout_with_measure(
         root_id,
         TaffySize {
             width: AvailableSpace::Definite(vp.0),
             height: AvailableSpace::Definite(vp.1),
         },
+        |known, available, _id, context, _style| {
+            let Some(MeasureContext::Text { text: content, size, weight }) = context.map(|c| &*c) else {
+                return TaffySize { width: 0.0, height: 0.0 };
+            };
+            let max_width = known
+                .width
+                .or(match available.width { AvailableSpace::Definite(w) => Some(w), _ => None })
+                .unwrap_or(f32::MAX);
+            let (w, h) = text.measure_text(content, *size, *weight, max_width);
+            TaffySize { width: w, height: h }
+        },
     )
     .expect("taffy compute_layout failed");
 
-    collect(&tree, root, &ids, &mut out);
+    collect(&tree, root, &ids, &mut out, 0.0, 0.0);
     if let Ok(root_layout) = tree.layout(root_id) {
         out.content = (root_layout.size.width, root_layout.size.height);
     }
@@ -92,7 +116,7 @@ pub fn measure(root: &Node, viewport: (f32, f32), scale: f32) -> LayoutOutput {
 
 /// Recursively add `node` to the taffy tree, recording text styles on the way down.
 fn build(
-    tree: &mut TaffyTree,
+    tree: &mut TaffyTree<MeasureContext>,
     node: &Node,
     vp: (f32, f32),
     out: &mut LayoutOutput,
@@ -109,7 +133,21 @@ fn build(
     }
 
     let id = if node.children.is_empty() {
-        tree.new_leaf(style).ok()?
+        if node.text.trim().is_empty() {
+            tree.new_leaf(style).ok()?
+        } else {
+            // Text leaves carry a measure context so flexbox can size shrink-to-fit
+            // containers (buttons, centered labels) around their real text.
+            tree.new_leaf_with_context(
+                style,
+                MeasureContext::Text {
+                    text: node.text.clone(),
+                    size: out.text_styles.get(&node.key).map(|s| s.size).unwrap_or(16.0),
+                    weight: out.text_styles.get(&node.key).map(|s| s.weight).unwrap_or(400),
+                },
+            )
+            .ok()?
+        }
     } else {
         let mut children = Vec::with_capacity(node.children.len());
         for child in &node.children {
@@ -123,25 +161,33 @@ fn build(
 }
 
 /// Copy taffy's resolved geometry into the output, walking the document tree in parallel.
-fn collect(tree: &TaffyTree, node: &Node, ids: &HashMap<u64, NodeId>, out: &mut LayoutOutput) {
+/// Taffy reports each node's location relative to its parent, so the absolute position is
+/// accumulated down the walk.
+fn collect(
+    tree: &TaffyTree<MeasureContext>,
+    node: &Node,
+    ids: &HashMap<u64, NodeId>,
+    out: &mut LayoutOutput,
+    offset_x: f32,
+    offset_y: f32,
+) {
     let Some(id) = ids.get(&node.key).copied() else { return };
-    if let Ok(layout) = tree.layout(id) {
+    let (child_dx, child_dy) = if let Ok(layout) = tree.layout(id) {
+        let abs_x = offset_x + layout.location.x;
+        let abs_y = offset_y + layout.location.y;
         out.rects.insert(
             node.key,
-            Rect {
-                x: layout.location.x,
-                y: layout.location.y,
-                w: layout.size.width,
-                h: layout.size.height,
-            },
+            Rect { x: abs_x, y: abs_y, w: layout.size.width, h: layout.size.height },
         );
         if let Some(text_style) = out.text_styles.get(&node.key) {
-            let content_top = layout.location.y + layout.border.top + layout.padding.top;
-            out.baselines.insert(node.key, content_top + text_style.size * FIRST_BASELINE_EM);
+            out.baselines.insert(node.key, abs_y + layout.border.top + layout.padding.top + text_style.size * FIRST_BASELINE_EM);
         }
-    }
+        (abs_x, abs_y)
+    } else {
+        (offset_x, offset_y)
+    };
     for child in &node.children {
-        collect(tree, child, ids, out);
+        collect(tree, child, ids, out, child_dx, child_dy);
     }
 }
 
@@ -651,7 +697,7 @@ mod tests {
     #[test]
     fn root_fills_viewport() {
         let root = node(1, &[], "", vec![]);
-        let out = measure(&root, (300.0, 200.0), 1.0);
+        let out = measure(&root, (300.0, 200.0), 1.0, &mut NoText);
         assert_eq!(out.content, (300.0, 200.0));
         assert!(rect_at(out.rects[&1], 0.0, 0.0, 300.0, 200.0));
     }
@@ -664,7 +710,7 @@ mod tests {
             "",
             vec![node(2, &[("height", "20px")], "", vec![]), node(3, &[("height", "30px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         // Children stretch to the full width in a column flex container.
         assert!(rect_at(out.rects[&2], 0.0, 0.0, 200.0, 20.0), "{:?}", out.rects);
         assert!(rect_at(out.rects[&3], 0.0, 30.0, 200.0, 30.0), "{:?}", out.rects);
@@ -683,7 +729,7 @@ mod tests {
                 vec![node(3, &[("height", "20px")], "", vec![])],
             )],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         // Inner box sits inside the padding and fills the content width; the padded box grows
         // to content + padding (border-box auto height).
         assert!(rect_at(out.rects[&3], 8.0, 8.0, 184.0, 20.0), "{:?}", out.rects);
@@ -698,7 +744,7 @@ mod tests {
             "",
             vec![node(2, &[("width", "50%"), ("height", "30px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         assert!(rect_at(out.rects[&2], 0.0, 0.0, 100.0, 30.0), "{:?}", out.rects);
     }
 
@@ -710,7 +756,7 @@ mod tests {
             "",
             vec![node(2, &[("width", "50%"), ("min-width", "120px"), ("height", "30px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         assert!(close(out.rects[&2].w, 120.0), "{:?}", out.rects);
     }
 
@@ -727,7 +773,7 @@ mod tests {
             "Hi",
             vec![],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         let style = out.text_styles.get(&1).expect("text style recorded");
         assert!(close(style.size, 14.0));
         assert_eq!(style.weight, 600);
@@ -741,7 +787,7 @@ mod tests {
     #[test]
     fn text_style_defaults() {
         let root = node(1, &[], "plain", vec![]);
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         let style = out.text_styles.get(&1).expect("text style recorded");
         assert_eq!(*style, TextStyle { size: 16.0, weight: 400, color: [0.0, 0.0, 0.0, 1.0], align: TextAlign::Left });
     }
@@ -784,7 +830,7 @@ mod tests {
             "",
             vec![node(2, &[("height", "20px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         assert!(rect_at(out.rects[&2], 0.0, 0.0, 200.0, 20.0), "{:?}", out.rects);
     }
 
@@ -796,7 +842,7 @@ mod tests {
             "",
             vec![node(2, &[("width", "50px"), ("height", "20px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         assert!(rect_at(out.rects[&2], 0.0, 0.0, 50.0, 20.0), "{:?}", out.rects);
     }
 
@@ -813,7 +859,7 @@ mod tests {
             "",
             vec![node(2, &[("width", "40px"), ("height", "20px")], "", vec![]), node(3, &[("width", "40px"), ("height", "20px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         assert!(rect_at(out.rects[&2], 0.0, 40.0, 40.0, 20.0), "{:?}", out.rects);
         assert!(rect_at(out.rects[&3], 160.0, 40.0, 40.0, 20.0), "{:?}", out.rects);
     }
@@ -826,8 +872,15 @@ mod tests {
             "",
             vec![node(2, &[("height", "20px"), ("margin", "4px 8px")], "", vec![])],
         );
-        let out = measure(&root, (200.0, 100.0), 1.0);
+        let out = measure(&root, (200.0, 100.0), 1.0, &mut NoText);
         // margin top 4, right 8, bottom 4, left 8: child box is inset horizontally.
         assert!(rect_at(out.rects[&2], 8.0, 4.0, 184.0, 20.0), "{:?}", out.rects);
     }
+}
+
+#[cfg(test)]
+struct NoText;
+#[cfg(test)]
+impl TextMeasure for NoText {
+    fn measure_text(&mut self, _text: &str, _size: f32, _weight: u16, _max_width: f32) -> (f32, f32) { (0.0, 0.0) }
 }

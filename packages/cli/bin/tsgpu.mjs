@@ -110,8 +110,10 @@ async function buildTargets(dir, targets) {
 }
 // Prepare Electron projects in a fresh directory so the original project is never rewritten.
 async function prepareProject(input) {
+  // tsgpu.config.json is the canonical name; tsgpui.config.json is the pre-rename name, still read
+  // by readProject with a deprecation warning.
   if (fs.existsSync(path.join(input, 'tsgpu.config.json'))) return input;
-  if (fs.existsSync(path.join(input, 'tsgpu.config.json'))) return input; // pre-rename name; readProject warns
+  if (fs.existsSync(path.join(input, 'tsgpui.config.json'))) return input;
   if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No tsgpu.config.json or Electron package.json found in ${input}`);
   const temp = await mkdtemp(path.join(os.tmpdir(), 'tsgpu-project-'));
   const options = {out: path.join(temp, 'app')};
@@ -451,7 +453,8 @@ async function packageApp() {
   const result = await buildPackage(projectDir());
   printWarnings(result.warnings);
   let packaging = {};
-  try { packaging = JSON.parse(fs.readFileSync(path.join(projectDir(), 'tsgpu.config.json'), 'utf8')).packaging ?? {}; } catch {}
+  const configFilePath = ['tsgpu.config.json', 'tsgpui.config.json'].map(name => path.join(projectDir(), name)).find(file => fs.existsSync(file)) ?? path.join(projectDir(), 'tsgpu.config.json');
+  try { packaging = JSON.parse(fs.readFileSync(configFilePath, 'utf8')).packaging ?? {}; } catch {}
   const publishUrl = flag('publish-url', packaging.publishUrl || '');
   const certificateSubjectName = packaging.certificateSubjectName || '';
   const host = await hostPath(true, result.bundle.renderer);

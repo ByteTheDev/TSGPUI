@@ -5,7 +5,7 @@ export interface BackendAPI<State extends Record<string, unknown>> {
   get<K extends keyof State>(key: K): State[K];
   set<K extends keyof State>(key: K, value: State[K]): void;
   update<K extends keyof State>(key: K, change: (previous: State[K]) => State[K]): void;
-  /** Host operations, each checked against the grants in `tsgpui.config.json`. Calls return
+  /** Host operations, each checked against the grants in `tsgpu.config.json`. Calls return
    * promises and reject when the grant is missing or the operation fails. */
   native: NativeBridge;
 }
