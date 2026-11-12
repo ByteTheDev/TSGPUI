@@ -398,7 +398,7 @@ export async function importElectron(input, {out, build = false, force = false} 
     else if (publishRaw.provider === 'github' && publishRaw.owner && publishRaw.repo) publishUrl = `https://github.com/${publishRaw.owner}/${publishRaw.repo}`;
     else if (typeof publishRaw.provider === 'string' && publishRaw.provider) publishUrl = `(${publishRaw.provider})`;
   }
-  const autoUpdaterStatus = statusOf('autoUpdater') || {status: 'implemented', reason: 'checks a configured update feed, emits update-available or update-not-available, downloads and verifies the update artifact, and installs it on quitAndInstall'};
+  const autoUpdaterStatus = statusOf('autoUpdater') || {status: 'implemented', reason: 'checks a configured update feed, emits update-available or update-not-available, has the host download and SHA-256-verify the artifact into userData/updates, and swaps it over the running executable on quitAndInstall (relaunch on request)'};
   const packaging = pkg.build ? {installer: 'nsis', signCmd: 'TSGPUI_SIGN_COMMAND', signCommandEnv: 'TSGPUI_SIGN_COMMAND', manifestKeyEnv: 'TSGPUI_MANIFEST_KEY', certificateSubjectName: certificateSubjectName ?? null, publishUrl: publishUrl ?? null} : undefined;
   for (const note of sessionNotes) notes.push(note);
   if (sessionPersist) notes.push(`Session/partition detected: set "persist": true in tsgpui.config.json so backend state and cookies survive restarts (host 'session.cookies' falls back to an in-memory Map).`);

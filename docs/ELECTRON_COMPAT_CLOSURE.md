@@ -26,6 +26,7 @@ already exist. No Rust/GPUI change is required.
 - `Tray` - in-memory inspectable state and click/right-click/double-click events.
 - `session` - host-backed or in-memory cookies, with persistent `persist:` partitions mirrored to a JSON file under `userData`; storage clearing, permission handlers, user agent, webRequest listener registry and download item stubs.
 - `protocol` - in-page schemes from packaged assets, remote proxy responses through the permission-checked HTTPS transport, binary/streaming bodies and recorded privileged-scheme flags.
+- `autoUpdater` - checks a configured JSON update feed, emits the usual events (`checking-for-update`, `update-available`/`update-not-available`, `update-downloaded`), has the host download and SHA-256-verify the artifact into `userData/updates`, and swaps it over the running executable on `quitAndInstall` (backup kept as `<exe>.old`; relaunch on request). Without a staged artifact the fallback opens the artifact in the system browser and quits. `download-progress`, cancellation, retries, and signed update manifests are 1.x work; see the roadmap's Track 7.
 - `globalShortcut` - in-memory register/query/unregister registry.
 - `ipcMain`, `ipcRenderer` - invoke/send/on/once/removeListener/removeAllListeners, plus `postMessage`; `sendSync` warns because the host bridge is async.
 - `contextBridge` - `exposeInMainWorld`.
@@ -50,7 +51,6 @@ These require new native host operations or platform APIs before they can behave
 
 ## (c) Permanently unsupported with reasons
 
-- `autoUpdater` - TSGPUI ships updates through its release process, not in-app update checks.
 - `TouchBar` - macOS Touch Bar hardware only; no cross-platform equivalent.
 - `inAppPurchase` - store billing is platform/store specific and not provided by the host.
 - `pushNotifications` - remote push requires platform push services; local notifications are supported via `Notification`.

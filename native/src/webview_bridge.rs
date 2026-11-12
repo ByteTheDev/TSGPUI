@@ -107,8 +107,28 @@ mod protocol_tests {
 
 /// Runs one WebView host operation. Clipboard, dialogs, power, links and HTTPS are shared with the
 /// native host through `platform`; dialog-selected files and the app description stay here.
-pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name: &str, version: &str, session: &mut Session) -> Result<Value,String> {
-    if matches!(op,"clipboard.readText"|"clipboard.writeText"|"dialog.openFile"|"dialog.saveFile"|"dialog.message") {
+/// Dispatches the in-app update operations. Both hosts share `crate::updater`; the webview
+/// bridge resolves `userData` here because its capabilities layer has no app identity.
+fn updater_call(op: &str, user_data: &Path, args: &Value, network_hosts: &[String]) -> Result<Value, String> {
+    match op {
+        "updater.download" => {
+            let url = args["url"].as_str().ok_or("url must be a string")?;
+            let name = args["name"].as_str().unwrap_or("update.bin");
+            let sha256 = args["sha256"].as_str();
+            let staged = crate::updater::download(user_data, url, name, sha256, network_hosts)?;
+            Ok(json!({ "staged": staged.to_string_lossy() }))
+        }
+        "updater.install" => {
+            let staged = args["path"].as_str().ok_or("path must be a string")?;
+            let restart = args["restart"].as_bool().unwrap_or(false);
+            let backup = crate::updater::install(user_data, staged, restart)?;
+            Ok(json!({ "backup": backup.to_string_lossy() }))
+        }
+        _ => Err(format!("unsupported op: {op}")),
+    }
+}
+
+pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name: &str, version: &str, session: &mut Session) -> Result<Value,String> {    if matches!(op,"clipboard.readText"|"clipboard.writeText"|"dialog.openFile"|"dialog.saveFile"|"dialog.message") {
         let result = match op {
             "clipboard.readText" => json!({"text": platform::clipboard_read_text()?}),
             "clipboard.writeText" => { platform::clipboard_write_text(args["text"].as_str().unwrap_or(""))?; Value::Null },
@@ -229,7 +249,16 @@ pub fn call(op: &str, args: &Value, permissions: &Permissions, base: &Path, name
         // its in-page toast fallback.
         return Capabilities::from_permissions(permissions,base.to_path_buf()).call(op,&[args.clone()],&[]);
     }
-    if matches!(op, "app.quit" | "app.exit" | "updater.install" | "updater.quitAndInstall") {
+    if op == "updater.download" || op == "updater.install" {
+        // In-app update staging and install. The staged artifact lives under the app's
+        // userData/updates folder; download streams the granted HTTPS URL to disk and
+        // verifies SHA-256, install swaps it over the running executable before quit.
+        let user_data = crate::package::state_file(name)
+            .and_then(|file| file.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| base.to_path_buf());
+        return updater_call(op, &user_data, args, &permissions.network_hosts);
+    }
+    if matches!(op, "app.quit" | "app.exit") {
         return Ok(Value::Null);
     }
     if op.starts_with("tray.") {

@@ -18,6 +18,7 @@ use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
 #[path = "webview_capabilities.rs"] mod capabilities;
 mod platform;
 mod protocol;
+mod updater;
 mod webview_bridge;
 mod image_store;
 mod tray;

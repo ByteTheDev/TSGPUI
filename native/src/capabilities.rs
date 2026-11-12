@@ -315,11 +315,37 @@ impl Capabilities {
         }
         match operation {
             "app.info" => Ok(self.app_info()),
-            // Minimal in-app update support: the TS autoUpdater checks the feed and downloads the
-            // artifact itself, then asks the host to quit (and opens the installer via
-            // shell.openExternal). Quitting the native GPUI process is driven by UiCommand::Quit in
-            // the runtime, so capabilities only needs to accept the operation here.
-            "app.quit" | "app.exit" | "updater.install" | "updater.quitAndInstall" => Ok(Value::Null),
+            // Quitting the native GPUI process is driven by UiCommand::Quit in the runtime, so
+            // only the accept-and-ignore behavior is needed here for the quit operations.
+            "app.quit" | "app.exit" => Ok(Value::Null),
+            "updater.download" => {
+                // In-app update staging: the host streams the granted HTTPS artifact straight
+                // into userData/updates while computing SHA-256; the page never handles the
+                // bytes. The allowlist check mirrors `net.request`.
+                let opts = options(args);
+                let url = opts["url"].as_str().ok_or("url must be a string")?;
+                let parsed_host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default();
+                let allowed = self.network.iter().any(|(granted_host, _)| granted_host.eq_ignore_ascii_case(&parsed_host));
+                if !allowed {
+                    return Err("PERMISSION_DENIED: Network host is not granted for this host and method".into());
+                }
+                let hosts = self.network.iter().map(|(host, _)| host.clone()).collect::<Vec<_>>();
+                let staged = crate::updater::download(
+                    &self.user_data_dir(),
+                    url,
+                    opts["name"].as_str().unwrap_or("update.bin"),
+                    opts["sha256"].as_str(),
+                    &hosts,
+                )?;
+                Ok(json!({ "staged": staged.to_string_lossy() }))
+            }
+            "updater.install" => {
+                let opts = options(args);
+                let staged = opts["path"].as_str().ok_or("path must be a string")?;
+                let restart = opts["restart"].as_bool().unwrap_or(false);
+                let backup = crate::updater::install(&self.user_data_dir(), staged, restart)?;
+                Ok(json!({ "backup": backup.to_string_lossy() }))
+            }
             "clipboard.readText" => platform::clipboard_read_text().map(Value::from),
             "clipboard.writeText" => platform::clipboard_write_text(text_arg(args, 0)?).map(|_| Value::Null),
             "dialog.openFile" => {

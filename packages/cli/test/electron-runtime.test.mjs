@@ -617,6 +617,58 @@ test('autoUpdater reports no update when the feed version is older', async () =>
   assert.ok(updateNotAvailable);
 });
 
+test('autoUpdater stages the artifact on the host and swaps it in on quitAndInstall', async () => {
+  const {load, context, calls} = runtime();
+  context.__tsgpui_host = async (op, args) => {
+    calls.push([op, args]);
+    if (op === 'app.info') return {name: 'Example', version: '1.2'};
+    if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/downloads/my app.exe', sha256: 'abc'})};
+    if (op === 'updater.download') return {staged: '/data/updates/my_app.exe'};
+    return {};
+  };
+  const e = load('electron');
+  const autoUpdater = e.autoUpdater;
+  autoUpdater.setFeedURL('https://example.com/feed.json');
+  let downloaded;
+  autoUpdater.on('update-downloaded', (info) => { downloaded = info; });
+  const result = await autoUpdater.checkForUpdates();
+  await result.downloadPromise;
+  assert.equal(downloaded.stagedPath, 'updates/my_app.exe');
+  autoUpdater.quitAndInstall(false, true);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const installCall = calls.find(([op]) => op === 'updater.install');
+  assert.ok(installCall, 'updater.install was not called');
+  assert.equal(installCall[1].path, 'my_app.exe');
+  assert.equal(installCall[1].restart, true);
+  assert.ok(!calls.some(([op]) => op === 'shell.openExternal'), 'a staged install must not open the browser');
+  assert.ok(calls.some(([op]) => op === 'app.quit'));
+  assert.ok(calls.findIndex(([op]) => op === 'updater.install') < calls.findIndex(([op]) => op === 'app.quit'));
+});
+
+test('autoUpdater falls back to an in-memory download and browser install when the host cannot stage', async () => {
+  const {load, context, calls} = runtime();
+  context.__tsgpui_host = async (op, args) => {
+    calls.push([op, args]);
+    if (op === 'app.info') return {name: 'Example', version: '1.2'};
+    if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/downloads/app.exe'})};
+    if (op === 'updater.download') throw new Error('no staging on this host');
+    return {};
+  };
+  const e = load('electron');
+  const autoUpdater = e.autoUpdater;
+  autoUpdater.setFeedURL('https://example.com/feed.json');
+  let downloaded;
+  autoUpdater.on('update-downloaded', (info) => { downloaded = info; });
+  const result = await autoUpdater.checkForUpdates();
+  await result.downloadPromise;
+  assert.equal(downloaded.stagedPath, undefined);
+  autoUpdater.quitAndInstall();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(!calls.some(([op]) => op === 'updater.install'), 'nothing was staged, so nothing may be swapped');
+  assert.ok(calls.some(([op, args]) => op === 'shell.openExternal' && args.url === 'https://example.com/downloads/app.exe'));
+  assert.ok(calls.some(([op]) => op === 'app.quit'));
+});
+
 test('protocol registers schemes, applies privileges and normalizes streaming bodies', async () => {
   const {load} = runtime();
   const protocolModule = load('protocol');

@@ -1,6 +1,7 @@
 #![cfg_attr(all(target_os="windows",not(debug_assertions)),windows_subsystem="windows")]
 mod capabilities;
 mod platform;
+mod updater;
 mod ipc;
 mod package;
 mod network;

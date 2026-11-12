@@ -53,16 +53,26 @@ tsgpui host install --file path/to/tsgpui-host --sha256 <64-digit hash> --target
 ## Package for Windows
 
 ```sh
-tsgpui package                         # dist/<name>.exe and dist/<name>.manifest.json
-tsgpui package --installer nsis        # also dist/<name>-setup.exe
-tsgpui package --sign                  # sign each artifact with TSGPUI_SIGN_COMMAND
+tsgpui package                                  # dist/<name>.exe and dist/<name>.manifest.json
+tsgpui package --installer nsis                 # also dist/<name>-setup.exe
+tsgpui package --sign                           # sign each artifact with TSGPUI_SIGN_COMMAND
+tsgpui package --installer nsis --sign          # signed installer (TSGPUI_SIGN_COMMAND) + manifest
+tsgpui package --installer nsis --sign --publish-url https://example.com/app  # manual-publish reminder
 ```
 
 `package` works on Windows only. It writes a SHA-256 manifest beside the artifacts. If you pass `--manifest-key` (or set `TSGPUI_MANIFEST_KEY`), the manifest also gets an Ed25519 signature. The NSIS installer needs `makensis` and the inetc plugin. Signing runs the command in `TSGPUI_SIGN_COMMAND` on each file; the release guide covers the details in [RELEASING.md](RELEASING.md).
 
+Electron-builder counts differ here: `publish` has no TSGPUI equivalent. After `tsgpui package --installer nsis --sign`, upload the `.exe`, `-setup.exe` and `.manifest.json` (plus `.manifest.json.sig` when signed) to the old `publishUrl` by hand; `tsgpui package --publish-url <URL>` (or `packaging.publishUrl` in `tsgpui.config.json`) only prints that reminder, it does not upload. Electron `autoUpdater` is `unsupported` in the [coverage ledger](../packages/cli/src/electron-compat/coverage.mjs) ("TSGPUI updates are shipped by its release process, not by the app"): remove in-app update checks and ship updates through the TSGPUI release process instead.
+
 For macOS, `build` produces an unsigned `.app`. Sign and notarize it separately.
 
 ## Electron projects
+
+### Easy transfer in 3 steps
+
+1. **Import:** `tsgpui import electron path/to/electron-app --out ./ported` (adds `-tsgpui` suffix by default; use `--build` to run the app's build first, `--force` to reuse an existing output directory, or `--fix` to preview fixes from the report without overwriting). The importer also emits a `packaging` section in `tsgpui.config.json` (`installer`/`signCmd`/`publishUrl`) for projects with electron-builder config.
+2. **Review the report:** open `./ported/TSGPUI_IMPORT_REPORT.md`. Work the checklist top-down — each item now prints a concrete fix command, for example `add "bundleId": "com.example..."` (from `pkg.build.appId`), `set "outDir" to "release"` (from `pkg.build.directories.output`), `tsgpui package --installer nsis --sign` with `TSGPUI_SIGN_COMMAND`/ `TSGPUI_MANIFEST_KEY` (from `win.certificateFile`/`certificateSubjectName`/`publish`), a `publishUrl` manual-upload step, and an `autoUpdater` status line, plus `Fix:` lines for permissions and `tsgpui import electron <dir> --out <dir> --fix` to preview the next fixes. Apply edits to `./ported/tsgpui.config.json` (see [Signing, publishing and auto-update](#signing-publishing-and-auto-update)).
+3. **Build:** `tsgpui build --project ./ported` (or `cd ./ported && tsgpui build`). If the build complains, re-check the report's `Fix:` lines and re-run with `--fix --force` to regenerate a fresh conversion. On Windows, finish the release with `tsgpui package --installer nsis --sign --project ./ported` (see [Signing, publishing and auto-update](#signing-publishing-and-auto-update)).
 
 `run`, `build` and the target shortcuts detect an Electron project: a directory with a `package.json` and no `tsgpui.config.json`. They convert it into a new temporary directory and build or run that copy. The source project is not modified.
 
@@ -73,9 +83,30 @@ tsgpui import electron path/to/electron-app                # writes path/to/elec
 tsgpui import electron path/to/electron-app --out ./ported # chosen output directory
 tsgpui import electron path/to/electron-app --force        # reuse an existing output directory
 tsgpui import electron path/to/electron-app --build        # run the app's build script first
+tsgpui import electron path/to/electron-app --out ./ported --fix  # preview fixes from the report (no overwrite without --force)
 ```
 
 The output directory must not contain the source directory or lie inside it. An existing output directory is refused unless you pass `--force`.
+
+### Signing, publishing and auto-update
+
+Electron-builder signing, publishing and in-app updates have no TSGPUI equivalent. The 3-step guide above leaves them as manual release steps; the import report and the generated `packaging` section record what to do. Use the exact commands from the report:
+
+```sh
+# 1. Sign with your own signtool/Azure Trusted Signing command. The path is passed
+#    via TSGPUI_SIGN_COMMAND (never committed); the command is not logged.
+#    win.certificateFile / certificateSubjectName map here.
+TSGPUI_SIGN_COMMAND="signtool sign /fd SHA256 /a /f <your-cert.pfx> /p <password>" \
+  tsgpui package --installer nsis --sign
+
+# 2. Sign the SHA-256 manifest with an Ed25519 key (TSGPUI_MANIFEST_KEY is another option).
+TSGPUI_MANIFEST_KEY=<path-to-ed25519-key> tsgpui package --installer nsis --sign
+# or: tsgpui package --installer nsis --sign --manifest-key <path-to-ed25519-key>
+```
+
+Final artifacts are `dist/<name>.exe`, `dist/<name>-setup.exe`, `dist/<name>.manifest.json` and, when signed, `dist/<name>.manifest.json.sig`. Publishing itself is manual: upload those files to the old electron-builder `publishUrl` (surfaced in the report as `publishUrl` and copied to `packaging.publishUrl` in `tsgpui.config.json`) and verify the `.exe`/manifest identity there. `tsgpui package --publish-url <URL>` only prints this reminder; it does not upload.
+
+`autoUpdater` is `unsupported` in the [coverage ledger](../packages/cli/src/electron-compat/coverage.mjs): "TSGPUI updates are shipped by its release process, not by the app". Remove `autoUpdater`/`update-electron-app` checks and any `checkForUpdates`/`quitAndInstall` flow from the converted backend, and ship newer versions through the TSGPUI release process described in [RELEASING.md](RELEASING.md). Keep certificates, passwords and `TSGPUI_SIGN_COMMAND`/`TSGPUI_MANIFEST_KEY` values outside the repository.
 
 ### What the conversion does
 

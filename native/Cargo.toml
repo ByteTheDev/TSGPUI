@@ -9,6 +9,7 @@ description = "Native GPUI and system WebView hosts for TSGPUI bundles"
 default = ["native-host"]
 native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest", "dep:ureq", "dep:url"]
 webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url", "dep:notify-rust"]
+gpu-host = ["dep:winit", "dep:wgpu", "dep:taffy", "dep:cosmic-text", "dep:pollster", "dep:bytemuck", "dep:url", "dep:ureq"]
 
 [[bin]]
 name = "tsgpui-host"
@@ -19,6 +20,11 @@ required-features = ["native-host"]
 name = "tsgpui-webview-host"
 path = "src/webview_main.rs"
 required-features = ["webview-host"]
+
+[[bin]]
+name = "tsgpui-gpu-host"
+path = "src/gpu_main.rs"
+required-features = ["gpu-host"]
 
 [dependencies]
 base64 = { version = "=0.22.1", optional = true }
@@ -34,6 +40,13 @@ tao = { version = "=0.37.1", optional = true }
 wry = { version = "=0.57.0", optional = true }
 ureq = { version = "2", optional = true }
 url = { version = "2", optional = true }
+sha2 = "0.10"
+winit = { version = "0.30", optional = true }
+wgpu = { version = "25", optional = true }
+taffy = { version = "0.9", optional = true }
+cosmic-text = { version = "0.14", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", optional = true, features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
