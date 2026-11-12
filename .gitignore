@@ -16,3 +16,7 @@ packages/cli/native/
 
 # Release archive built by `bun run release:archive`
 packages/cli/release/
+smoke-report.json
+smoke-screenshot.png
+benchmark-report.json
+e2e-report.json
