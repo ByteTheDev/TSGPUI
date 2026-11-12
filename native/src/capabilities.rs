@@ -468,12 +468,11 @@ impl Capabilities {
                 let title = options.get("title").and_then(Value::as_str).ok_or("Notification title must be a string")?;
                 let body = options.get("body").and_then(Value::as_str).unwrap_or("");
                 let mut notification = notify_rust::Notification::new();
-                notification.appname("TSGPUI").summary(title).body(body);
+                notification.appname("TS-GPU").summary(title).body(body);
                 notification.show().map(|_| Value::Null).map_err(|error| error.to_string())
             }
             // OS tray icons and global hotkeys. The backend is trusted app code, so no grant is
-            // needed; pages in the WebView host are restricted to the backend window in
-            // webview_main.rs.
+            // needed; only the backend can call these.
             "tray.create" | "tray.setIcon" | "tray.setToolTip" | "tray.setTitle" | "tray.setContextMenu"
             | "tray.popUpContextMenu" | "tray.destroy" | "tray.bounds" => {
                 crate::tray::call(operation, args.first().unwrap_or(&Value::Null))

@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +17,7 @@ async function fixture() {
   const outside = path.join(root, 'outside');
   await mkdir(path.join(project, 'src'), { recursive: true });
   await mkdir(outside, { recursive: true });
-  await writeFile(path.join(project, 'tsgpui.config.json'), JSON.stringify(config));
+  await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify(config));
   await writeFile(path.join(project, 'src/index.html'), html);
   await writeFile(path.join(project, 'src/styles.css'), css);
   await writeFile(path.join(project, 'src/backend.ts'), backend);
@@ -40,7 +40,7 @@ test('a valid project builds with a missing output directory', async () => {
   try {
     const result = await buildPackage(project);
     assert.equal(path.basename(result.bundleFile), 'contained.tgp');
-    assert.ok((await readFile(result.bundleFile, 'utf8')).includes('"tsgpui-1"'));
+    assert.ok((await readFile(result.bundleFile, 'utf8')).includes('"tsgpu-1"'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -74,9 +74,9 @@ test('the config file symlinked outside the project is rejected', async (t) => {
   const { root, project, outside } = await fixture();
   try {
     await writeFile(path.join(outside, 'config.json'), JSON.stringify(config));
-    await rm(path.join(project, 'tsgpui.config.json'));
-    if (!await link(path.join(outside, 'config.json'), path.join(project, 'tsgpui.config.json'))) return t.skip('symlinks unavailable');
-    await assert.rejects(readProject(project), /tsgpui.config.json resolves outside the project/);
+    await rm(path.join(project, 'tsgpu.config.json'));
+    if (!await link(path.join(outside, 'config.json'), path.join(project, 'tsgpu.config.json'))) return t.skip('symlinks unavailable');
+    await assert.rejects(readProject(project), /tsgpu.config.json resolves outside the project/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -97,7 +97,7 @@ test('a missing output directory whose parent is a symlink outside the project i
   const { root, project, outside } = await fixture();
   try {
     if (!await link(outside, path.join(project, 'build'), 'junction')) return t.skip('symlinks unavailable');
-    await writeFile(path.join(project, 'tsgpui.config.json'), JSON.stringify({ ...config, outDir: 'build/nested' }));
+    await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify({ ...config, outDir: 'build/nested' }));
     await assert.rejects(buildPackage(project), /Output directory resolves outside the project/);
     assert.deepEqual(await readdir(outside), []);
   } finally {

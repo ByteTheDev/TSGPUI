@@ -1,4 +1,6 @@
-name: Compile Windows GPUI host
+name: Compile Windows hosts
+# Builds the deprecated GPUI host and the Rendrix host for Windows x64 and saves SHA-256
+# hashes. The WebView host is gone with the WebView renderer.
 on:
   workflow_dispatch:
   push:
@@ -20,30 +22,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      - name: Test GPUI host
-        run: cargo test --manifest-path native/Cargo.toml
-      - name: Build GPUI host
-        run: cargo build --manifest-path native/Cargo.toml --release
-      - name: Build WebView host
-        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features webview-host --bin tsgpui-webview-host
-      - name: Save WebView SHA-256 hash
+      - name: Test Rendrix host
+        run: cargo test --manifest-path native/Cargo.toml --features rendrix --bin rendrix-host
+      - name: Build Rendrix host
+        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features rendrix --bin rendrix-host
+      - name: Build deprecated GPUI host
+        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpu-gpui-host
+      - name: Save Rendrix SHA-256 hash
         shell: pwsh
-        run: (Get-FileHash 'native/target/release/tsgpui-webview-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpui-webview-host.exe.sha256
-      - name: Save SHA-256 hash
+        run: (Get-FileHash 'native/target/release/rendrix-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/rendrix-host.exe.sha256
+      - name: Save GPUI SHA-256 hash
         shell: pwsh
-        run: (Get-FileHash 'native/target/release/tsgpui-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpui-host.exe.sha256
+        run: (Get-FileHash 'native/target/release/tsgpu-gpui-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpu-gpui-host.exe.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: tsgpui-host-windows-x64
+          name: rendrix-host-windows-x64
           path: |
-            native/target/release/tsgpui-host.exe
-            native/target/release/tsgpui-host.exe.sha256
+            native/target/release/rendrix-host.exe
+            native/target/release/rendrix-host.exe.sha256
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tsgpui-webview-host-windows-x64
+          name: tsgpu-gpui-host-windows-x64
           path: |
-            native/target/release/tsgpui-webview-host.exe
-            native/target/release/tsgpui-webview-host.exe.sha256
+            native/target/release/tsgpu-gpui-host.exe
+            native/target/release/tsgpu-gpui-host.exe.sha256
           if-no-files-found: error

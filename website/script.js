@@ -222,7 +222,7 @@
 
   // ---------------------------------------------------------------------------
   // Simulated counter. This mirrors the UI of examples/counter. It runs in
-  // the page and does not use the TSGPUI runtime; the page says so.
+  // the page and does not use the TS-GPU runtime; the page says so.
   // ---------------------------------------------------------------------------
   document.querySelectorAll("[data-counter]").forEach(function (app) {
     var countEl = app.querySelector("[data-count]");

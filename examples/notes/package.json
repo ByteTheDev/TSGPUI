@@ -1,14 +1,14 @@
 {
-  "name": "tsgpui-notes-example",
+  "name": "tsgpu-notes-example",
   "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "gpui": "tsgpui build",
-    "gpui:dev": "tsgpui dev",
-    "gpui:compile": "tsgpui compile"
+    "build": "tsgpu build",
+    "dev": "tsgpu dev",
+    "compile": "tsgpu compile"
   },
   "devDependencies": {
-    "@bytethedeveloper/tsgpui": "workspace:*"
+    "@bytethedeveloper/tsgpu": "workspace:*"
   }
 }

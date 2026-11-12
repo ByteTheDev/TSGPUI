@@ -7,10 +7,11 @@ This document describes the deepened Electron compatibility shims in
 - [`electron-session.ts`](../packages/cli/src/electron-compat/runtime/electron-session.ts)
 - the `webContents` object in [`electron.ts`](../packages/cli/src/electron-compat/runtime/electron.ts)
 
-They are a compatibility layer for apps converted with `tsgpui import`, not a
-Chromium replacement. The WebView host still owns navigation, cookies, network
-access and rendering; the shims keep the Electron-shaped state and route what the
-host supports.
+They are a compatibility layer for apps converted with `tsgpu import`, not a
+Chromium replacement. The shims keep the Electron-shaped state and route what the
+host supports. (Historical: the removed WebView renderer's page owned navigation,
+cookies, network access and rendering; with that renderer gone, cookies are
+shim-state and network access is the permission-checked host transport.)
 
 ## protocol
 
@@ -20,7 +21,7 @@ host supports.
 | --- | --- |
 | `handle(scheme, handler)` | Registers a handler for an in-page scheme. |
 | `unhandle(scheme)` | Removes a handler. |
-| `registerFileProtocol(scheme, handler?)` | With no handler, rewrites the request URL onto the packaged `tsgpui://localhost/` space. |
+| `registerFileProtocol(scheme, handler?)` | With no handler, rewrites the request URL onto the packaged `tsgpu://localhost/` space. |
 | `registerBufferProtocol`, `registerStringProtocol`, `registerStreamProtocol`, `registerHttpProtocol` | Register a handler with the same dispatch path. |
 | `interceptFileProtocol`, `interceptBufferProtocol`, `interceptStringProtocol`, `interceptStreamProtocol`, `interceptHttpProtocol` | Register a handler and mark the scheme intercepted. |
 | `isProtocolHandled`, `isProtocolRegistered`, `isProtocolIntercepted` | Query the corresponding registry state. |
@@ -34,7 +35,7 @@ Privileged-scheme records are separate from handlers:
 `getSchemePrivileges(scheme)` and `getPrivilegedSchemes()` report privilege
 records.
 
-Scheme names are lowercased and validated. `tsgpui` is host-owned. Registering
+Scheme names are lowercased and validated. `tsgpu` is host-owned. Registering
 `http`, `https`, `ws` or `wss` with `handle` or `register*Protocol` throws:
 remote traffic must use the permission-checked HTTPS transport
 (`permissions.network`). `registerHttpProtocol` is therefore for a **custom**
@@ -42,14 +43,15 @@ scheme whose handler returns a remote target, not for registering `https` itself
 
 The `intercept*Protocol` methods are the exception: Electron uses them to wrap
 existing schemes, including `http`/`https`. The shim stores those remote handlers
-and `dispatchRequest` can invoke them, but the system WebView still performs
+and `dispatchRequest` can invoke them, but the removed WebView renderer performed
 page-network requests itself, so a remote interception handler affects explicit
 `dispatchRequest` calls only. Treat this as registry support, not transparent
 page-network interception.
 
 `BrowserWindow.loadURL('app://...')` and `loadURL('file://...')` are rewritten to
-`tsgpui://localhost/...`, so packaged pages listed in `html` / `webviewPages`
-load. The importer allowlists literal schemes in `protocolSchemes`; dynamic
+`tsgpu://localhost/...`, so the packaged document loads (`html` / `webviewPages`
+was the webview-era multi-page list and is historical). The importer allowlists
+literal schemes in `protocolSchemes`; dynamic
 scheme names need manual review.
 
 ### Handler styles and responses
@@ -136,8 +138,8 @@ Only the flags the shim can apply are applied:
   when the handler did not set one;
 - `standard`, `supportFetchAPI`, `bypassCSP`, `allowServiceWorkers`, `stream` and
   `codeCache` are recorded and reported, but browser-level CORS, fetch, CSP,
-  service-worker and code-cache behaviour is controlled by the system WebView,
-  not by this shim.
+  service-worker and code-cache behaviour was controlled by the removed WebView
+  renderer's system engine, not by this shim.
 
 Call `registerSchemesAsPrivileged` during startup, before windows load pages.
 
@@ -145,7 +147,7 @@ Call `registerSchemesAsPrivileged` during startup, before windows load pages.
 
 ### Partitions
 
-`session.defaultSession` is a persistent session (`persist:tsgpui-default`).
+`session.defaultSession` is a persistent session (`persist:tsgpu-default`).
 `session.fromPartition(partition)` caches one `Session` per partition; a
 `persist:` prefix makes it persistent. `session.fromPath(path)` creates a
 persistent session keyed by the path. `isPersistent()`, `storagePath` and
@@ -169,7 +171,7 @@ matching.
 For persistent sessions, the in-memory store is also mirrored to disk:
 
 - one file per partition under the host-provided `userData` root, named
-  `tsgpui-session-cookies-<sanitized-partition>-<hash>.json`;
+  `tsgpu-session-cookies-<sanitized-partition>-<hash>.json`;
 - the file is loaded on the first cookie operation for that session;
 - only non-session cookies (those with an `expirationDate` and without
   `session: true`) are written;
@@ -180,7 +182,8 @@ For persistent sessions, the in-memory store is also mirrored to disk:
   warning.
 
 The shim stores the cookie registry; it does not inject `Cookie`/`Set-Cookie`
-headers into page requests. That is the WebView host's job.
+headers into page requests. (Historical: that was the removed WebView renderer's
+engine behaviour.)
 
 ### Storage, cache and data clearing
 
@@ -202,7 +205,7 @@ the shared-dictionary methods remain host-dependent stubs.
 ### Permission handlers
 
 `setPermissionRequestHandler(handler)` and `setPermissionCheckHandler(handler)`
-validate a function or `null` and store it. The WebView host does not emit
+validate a function or `null` and store it. No in-tree host emits
 permission prompts, so the shim exposes two extension methods that invoke the
 stored callbacks:
 
@@ -237,8 +240,8 @@ All Electron webRequest events are present:
 `onResponseStarted`, `onBeforeRedirect`, `onCompleted`, `onErrorOccurred`.
 
 Listeners and filters are validated and stored. `filter.urls` accepts wildcards
-(`*`, `<all_urls>`). The shim records the listeners but the WebView host does not
-intercept requests, so listeners do not cancel, redirect or rewrite headers. A
+(`*`, `<all_urls>`). The shim records the listeners but no in-tree host
+intercepts requests, so listeners do not cancel, redirect or rewrite headers. A
 single compatibility warning is emitted per event type when first used. The
 non-enumerable `webRequest._emit(event, details)` helper invokes matching
 listeners for tests and diagnostics.
@@ -272,7 +275,7 @@ is recorded; the shim never invents downloaded bytes. If the host reports
 `event.preventDefault()` or `item.cancel()` prevents the host call.
 
 `createInterruptedDownload(options)` records an interrupted item and
-`getDownloadItems()` returns the session's items (a TSGPUI extension).
+`getDownloadItems()` returns the session's items (a TS-GPU extension).
 Actual byte transfer, resumption and OS download UI remain host work.
 
 ### Remaining session stubs

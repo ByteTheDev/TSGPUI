@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
 // The compatibility runtime as the native (GPUI) backend runs it: `api.native` is the only host bridge,
-// and there is no `__tsgpui_host`. These tests check that the shims reach `api.native` with the
+// and there is no `__tsgpu_host`. These tests check that the shims reach `api.native` with the
 // arguments it expects and read its results in the shapes the shims use.
 const dir = fileURLToPath(new URL('../src/electron-compat/runtime/', import.meta.url));
 
@@ -82,7 +82,7 @@ function fakeNative(files = new Map()) {
 
 // Loads the runtime modules the way the backend bundle does, with `api` as the only host bridge.
 function nativeRuntime(api) {
-  const context = vm.createContext({ console, Uint8Array, Promise, Map, setTimeout, __tsgpui_native: api });
+  const context = vm.createContext({ console, Uint8Array, Promise, Map, setTimeout, __tsgpu_native: api });
   const cache = new Map();
   function load(name) {
     name = name.replace(/^\.\//, '').replace(/\.ts$/, '');
@@ -180,12 +180,12 @@ test('native net.request sends the request options and returns the response body
   assert.equal(calls.find(([name]) => name === 'net.request')[1][0].url, 'https://example.com/ping');
 });
 
-test('operations that need a page or an extra window name the renderer that provides them', async () => {
+test('window and page operations explain the Rendrix-host limitation instead of failing silently', async () => {
   const { api } = fakeNative();
   const { load } = nativeRuntime(api);
   const host = load('host');
-  await assert.rejects(host.host('window.create', {}), /renderer: "webview"/);
-  await assert.rejects(host.host('ipc.invoke', { channel: 'x' }), /not available in the native renderer/);
+  await assert.rejects(host.host('window.create', {}), /not supported by the Rendrix host yet/);
+  await assert.rejects(host.host('ipc.invoke', { channel: 'x' }), /not supported by the Rendrix host yet/);
 });
 
 test('page messages and close listeners warn in the native renderer instead of failing', async () => {
@@ -203,7 +203,7 @@ test('page messages and close listeners warn in the native renderer instead of f
 
 test('the WebView bridge keeps its object protocol when it is present', async () => {
   const seen = [];
-  const context = vm.createContext({ console, Promise, __tsgpui_host: async (op, args) => { seen.push([op, args]); return { ok: true }; }, __tsgpui_native: { app: {} } });
+  const context = vm.createContext({ console, Promise, __tsgpu_host: async (op, args) => { seen.push([op, args]); return { ok: true }; }, __tsgpu_native: { app: {} } });
   const mod = { exports: {} };
   const source = fs.readFileSync(path.join(dir, 'host.ts'), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;

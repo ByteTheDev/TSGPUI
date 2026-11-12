@@ -1,4 +1,4 @@
-import type { AppDefinition, BackendAPI } from "tsgpui/types";
+﻿import type { AppDefinition, BackendAPI } from "tsgpu/types";
 import { noteFileName, messageOf } from "./notes";
 
 // A full-stack example: the UI is HTML/CSS, and this backend uses the host's granted file access.

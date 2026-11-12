@@ -2,34 +2,33 @@
 
 ## Source pipeline
 
-The `renderer` setting selects one of two paths:
+The `renderer` setting selects the host:
 
-- `native` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render GPUI elements. Actions run in embedded QuickJS.
-- `webview`: prepare HTML and CSS and collect local files into a versioned asset map for the operating system's WebView engine through Wry. The compiled backend script runs in that page, which also supports the basic TSGPUI data bindings.
+- `rendrix` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render through the Rendrix engine (winit + wgpu + taffy + cosmic-text). Actions run in embedded QuickJS. **Rendrix is in early beta**; feature coverage is limited, and state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility, and animations are on the Rendrix M1–M3 ladder (see [RENDERER_TSGPU.md](RENDERER_TSGPU.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
+- `native`: the deprecated GPUI host. Accepted with a deprecation warning until the Rendrix M1 gate removes it.
+- `webview`: a hard error. The WebView renderer was removed in the rewrite; see below.
 
-Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.tgp` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][TSGPUI01]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/tsgpui.tgp`. Packaged apps do not need Node or Bun at runtime.
+Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.tgp` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][TSGPU001]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/tsgpu.tgp`. Packaged apps do not need Node or Bun at runtime.
 
-## WebView protocol and bridge
+## Removed: WebView renderer
 
-[`webview.mjs`](../packages/cli/src/webview.mjs) collects local files into a versioned map; [`compiler.mjs`](../packages/cli/src/compiler.mjs) records the entry and map in the bundle. [`webview_main.rs`](../native/src/webview_main.rs) serves the entry and map through the `tsgpui` custom protocol and returns 404 for missing assets. It also supports legacy single-document bundles.
+The WebView renderer (Wry, WebView2/WKWebView/WebKitGTK) and all of its paths were deleted in the rewrite: the webview host binary and `webview-host` feature, the `gtk`/`tao`/`wry` dependencies, the webview compiler/packaging paths, the page bridge and custom protocol, CDP-based e2e, and the WebKitGTK Linux CI dependencies. The pre-rewrite implementation is preserved at branch `backup/webview-era` (commit `0fc860b`). Historical summaries of the removed protocol/bridge behavior live in [SUPPORTED_SYNTAX.md](SUPPORTED_SYNTAX.md) and [SAFETY.md](SAFETY.md).
 
-[`webview_bridge.rs`](../native/src/webview_bridge.rs) injects `window.tsgpui.invoke` and `on`. Its host operations include app information, granted filesystem operations, process spawning, HTTPS requests and external URL opening; clipboard and dialogs are implemented on Windows. Window operations run on the UI thread; other host requests run on one worker thread with a session, with results delivered back to the page. IPC send and invoke use the page dispatcher and require IPC permission.
+[`platform.rs`](../native/src/platform.rs) holds the operations the hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` answers the same way on the Rendrix and GPUI hosts.
 
-[`platform.rs`](../native/src/platform.rs) holds the operations both hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` in the GPUI host and `window.tsgpui` in the WebView host answer the same way.
+`tsgpu import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
 
-`tsgpui import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
-
-The Electron shims speak the WebView bridge protocol: `host(operation, args)` with named arguments and WebView-shaped results. In the native renderer the backend has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs).
+The Electron shims speak the host call protocol: `host(operation, args)` with named arguments and normalized results. In the renderer backend the shim has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs). (The webview-era page bridge that also spoke this protocol was removed with the WebView renderer.)
 
 ## Native host modules
 
-The GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`.
+The deprecated GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`. The Rendrix engine lives in `native/src/gpu/` (that directory is extracted into an independent open-source `rendrix` crate in Phase B).
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `tsgpui host build --renderer native` for GPUI or `tsgpui host build --renderer webview` for Wry. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpui build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `tsgpui all` package the same bundle for other supported targets, each with its own verified prebuilt host.
+Build a host when Rust host code changes. Use `tsgpu host build --renderer rendrix` for the Rendrix engine or `tsgpu host build --renderer native` for the deprecated GPUI host. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpu build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `tsgpu all` package the same bundle for other supported targets, each with its own verified prebuilt host.
 
-`tsgpui dev` watches the configured source files and rewrites the bundle. Both host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the WebView host stores state in `sessionStorage` and restores it after the page reloads (or in `localStorage` when `persist` is enabled). A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. Native `tsgpui preview` preserves state on reload; a WebView preview reloads the raw document and resets state.
+`tsgpu dev` watches the configured source files and rewrites the bundle. Host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the Rendrix host's reload behavior is part of the early beta and follows the same merge model as it matures. A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. The browser preview (`tsgpu preview`) preserves state on reload.
 
 ## Native controls and capabilities
 
@@ -43,7 +42,7 @@ The development overlay is host UI drawn above the document. `F12` or `Ctrl+Shif
 
 With `"persist": true`, a background task serializes backend state every 400 ms when it changes, caps it at 256 KiB, and writes it through a temporary file plus rename. Startup merges the saved values with the script's current defaults through the same compatibility rules as hot reload.
 
-The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet. The WebView path uses the platform browser accessibility behavior.
+The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet. The Rendrix roadmap adds an accesskit tree at M3; see [ACCESSIBILITY_PLAN.md](ACCESSIBILITY_PLAN.md).
 
 Clipboard actions run only after a button click. File reads and writes require the native file picker/save dialog, operate on the user-selected path, and are limited to 1 MiB. Network actions are user-initiated HTTPS requests to exact hosts listed in `permissions.network`; GET and POST are supported, callers can send a state value as JSON or text, redirects are disabled, requests time out after 15 seconds, and request and response bodies are limited to 1 MiB. Backend JavaScript does not receive a general filesystem or `fetch` API.
 
@@ -55,21 +54,21 @@ QuickJS memory and execution time are limited as described in the safety documen
 
 ## Versioned binary format
 
-On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPUI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The native host limits embedded payload reads to 16 MiB; the WebView host uses a 1 GiB limit. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
+On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPU001`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
 
 ## Remaining roadmap
 
 1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. Windows host build and interaction have also been exercised by hand; check workflow results separately.
 2. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
-3. Improve the native layout model: grid item placement, stacking contexts beyond sibling paint order, and more CSS layout properties. Fixed, automatic, and unequal `fr` column tracks now preserve their proportions through flex-based layout. CSS transitions, animations, and element transforms need a GPUI animation/drawing primitive that 0.2.2 does not expose, so the native renderer reports them as unsupported; use the WebView renderer for motion.
+3. Improve the Rendrix layout model: grid item placement, stacking contexts beyond sibling paint order, and more CSS layout properties. Fixed, automatic, and unequal `fr` column tracks now preserve their proportions through flex-based layout. CSS transitions, animations, and element transforms need the animation/drawing primitives on the Rendrix M3 ladder; no in-tree engine supports them today.
 4. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
 5. Add a native code editor or terminal component for apps that need one, and executable signing/update support.
 
 ## Alternatives considered
 
-- Rewriting GPUI in TypeScript would abandon the existing native renderer and require a complete GUI toolkit.
+- Rewriting the renderer in TypeScript would abandon the native engine and require a complete GUI toolkit.
 - Transpiling arbitrary TypeScript to Rust is not practical with broad JavaScript semantics.
-- A WebView cannot provide the native-rendering benefits of the GPUI path; it is available as an opt-in choice when browser fidelity matters more.
+- Keeping the WebView renderer as a compatibility path was rejected in the rewrite decision: two rendering stacks double the maintenance surface, and the Rendrix engine is the product's direction ([REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
 - Recompiling Rust for every developer edit is much slower than reusing one host executable.
 
-The default design keeps rendering native and iteration fast, with a documented browser subset and explicit host capabilities. The optional WebView path trades native rendering for browser-level layout and CSS support.
+The design keeps rendering native and iteration fast, with a documented HTML subset and explicit host capabilities. Rendrix replaces the GPUI renderer as the sole engine; the GPUI host stays deprecated in the tree until the Rendrix M1 gate.

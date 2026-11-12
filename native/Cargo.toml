@@ -1,30 +1,24 @@
 [package]
-name = "tsgpui-host"
+name = "tsgpu-host"
 version = "0.4.0"
 edition = "2024"
 license = "MIT"
-description = "Native GPUI and system WebView hosts for TSGPUI bundles"
+description = "Native GPUI (deprecated) and Rendrix hosts for TS-GPU bundles"
 
 [features]
 default = ["native-host"]
 native-host = ["dep:base64", "dep:futures", "dep:gpui", "dep:notify-rust", "dep:rquickjs", "dep:zed-reqwest", "dep:ureq", "dep:url"]
-webview-host = ["dep:gtk", "dep:tao", "dep:wry", "dep:ureq", "dep:url", "dep:notify-rust"]
-gpu-host = ["dep:winit", "dep:wgpu", "dep:taffy", "dep:cosmic-text", "dep:pollster", "dep:bytemuck", "dep:url", "dep:ureq"]
+rendrix = ["dep:winit", "dep:wgpu", "dep:taffy", "dep:cosmic-text", "dep:pollster", "dep:bytemuck", "dep:url", "dep:ureq"]
 
 [[bin]]
-name = "tsgpui-host"
+name = "tsgpu-gpui-host"
 path = "src/main.rs"
 required-features = ["native-host"]
 
 [[bin]]
-name = "tsgpui-webview-host"
-path = "src/webview_main.rs"
-required-features = ["webview-host"]
-
-[[bin]]
-name = "tsgpui-gpu-host"
+name = "rendrix-host"
 path = "src/gpu_main.rs"
-required-features = ["gpu-host"]
+required-features = ["rendrix"]
 
 [dependencies]
 base64 = { version = "=0.22.1", optional = true }
@@ -36,8 +30,6 @@ rquickjs = { version = "=0.14.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zed-reqwest = { version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
-tao = { version = "=0.37.1", optional = true }
-wry = { version = "=0.57.0", optional = true }
 ureq = { version = "2", optional = true }
 url = { version = "2", optional = true }
 sha2 = "0.10"
@@ -50,14 +42,13 @@ bytemuck = { version = "1", optional = true, features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = { version = "=0.18.2", optional = true }
 # The Linux tray is a StatusNotifierItem (ksni) and global shortcuts use X11 key grabs. Both are
 # optional at runtime: a session without a D-Bus watcher or X server reports an event instead of
 # stopping the app.
 ksni = { version = "=0.3.7", default-features = false, features = ["blocking", "async-io"] }
 x11rb = { version = "=0.13.2", default-features = false }
 
-# Native dialogs and clipboard for the WebView host on Windows (used only by webview_bridge.rs).
+# Native dialogs, clipboard and power-block support on Windows.
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "=0.15.4"
 windows-sys = { version = "=0.61.2", features = [

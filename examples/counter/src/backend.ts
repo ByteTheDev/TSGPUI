@@ -1,4 +1,4 @@
-import type { AppDefinition } from "tsgpui/types";
+﻿import type { AppDefinition } from "tsgpu/types";
 
 type CounterState = { count: number };
 

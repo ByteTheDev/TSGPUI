@@ -1,4 +1,4 @@
-import {test} from 'node:test';
+﻿import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp, mkdir, writeFile, readFile, rm} from 'node:fs/promises';
 import os from 'node:os';
@@ -11,7 +11,7 @@ import {importElectron} from '../src/import-electron.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const surface = JSON.parse(await readFile(path.join(here, '../src/electron-compat/surface/electron-33.json'), 'utf8'));
-const cli = path.join(here, '../bin/tsgpui.mjs');
+const cli = path.join(here, '../bin/tsgpu.mjs');
 const surfaceNames = Object.keys(surface.exports);
 
 test('every export of the Electron surface is classified in the coverage ledger', () => {
@@ -54,14 +54,14 @@ test('the import report names every partial or unsupported Electron API the app 
     "app.whenReady().then(() => new BrowserWindow({ width: 500, height: 400 }));\n");
   await writeFile(path.join(app, 'dist', 'index.html'), '<html><head></head><body>x</body></html>');
   await importElectron(app, {out});
-  const report = await readFile(path.join(out, 'TSGPUI_IMPORT_REPORT.md'), 'utf8');
+  const report = await readFile(path.join(out, 'TSGPU_IMPORT_REPORT.md'), 'utf8');
   assert.doesNotMatch(report, /electron\.screen is partial/);
   assert.doesNotMatch(report, /electron\.Tray is partial/);
   assert.doesNotMatch(report, /electron\.powerMonitor is partial/);
   assert.match(report, /electron\.notARealApi: it is not in the TSGPUI coverage ledger|Unknown Electron API electron\.notARealApi/);
   assert.doesNotMatch(report, /electron\.BrowserWindow is partial/);
   assert.doesNotMatch(report, /electron\.app is unsupported/);
-  const runtime = await readFile(path.join(out, 'src/tsgpui-runtime/electron-coverage.ts'), 'utf8');
+  const runtime = await readFile(path.join(out, 'src/tsgpu-runtime/electron-coverage.ts'), 'utf8');
   assert.doesNotMatch(runtime, /powerMonitor/);
 });
 
@@ -75,13 +75,13 @@ test('a cross-target build without a host explains how to get one when downloads
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-target-')); t.after(() => rm(tmp, {recursive: true, force: true}));
   const project = path.join(tmp, 'app');
   await mkdir(path.join(project, 'src'), {recursive: true});
-  await writeFile(path.join(project, 'tsgpui.config.json'), JSON.stringify({name: 'x', title: 'x', version: '1.0.0', renderer: 'webview', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts', window: {width: 400, height: 300}}));
+  await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify({name: 'x', title: 'x', version: '1.0.0', renderer: 'rendrix', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts', window: {width: 400, height: 300}}));
   await writeFile(path.join(project, 'src/index.html'), '<html><body>x</body></html>');
   await writeFile(path.join(project, 'src/styles.css'), '');
   await writeFile(path.join(project, 'src/backend.ts'), 'export default { state: {}, actions: {} };');
   const other = process.platform === 'win32' ? 'linux-x64' : 'win32-x64';
-  const result = spawnSync(process.execPath, [cli, 'build', '--project', project, '--target', other, '--renderer', 'webview'],
-    {encoding: 'utf8', env: {...process.env, TSGPUI_NO_DOWNLOAD: '1', TSGPUI_HOME: path.join(tmp, 'home')}});
+  const result = spawnSync(process.execPath, [cli, 'build', '--project', project, '--target', other, '--renderer', 'rendrix'],
+    {encoding: 'utf8', env: {...process.env, TSGPU_NO_DOWNLOAD: '1', TSGPU_HOME: path.join(tmp, 'home')}});
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /downloads are disabled|No webview host for/);
+  assert.match(result.stderr, /downloads are disabled|no prebuilt rendrix host/);
 });

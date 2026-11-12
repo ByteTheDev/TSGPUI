@@ -1,7 +1,7 @@
 // Prebuilt host executables: where they live, how they are downloaded, and whether they fit this CLI.
 //
 // A release publishes one host per renderer and target, plus a `hosts.json` manifest with the SHA-256
-// of each. `tsgpui host fetch` downloads one, checks the hash and the size, and stores it in the
+// of each. `tsgpu host fetch` downloads one, checks the hash and the size, and stores it in the
 // per-user cache next to a small `.json` record. That record is what the compatibility check reads.
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
@@ -9,24 +9,27 @@ import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const RENDERERS = ['native', 'webview'];
-export const BUNDLE_FORMAT = 'tsgpui-1';
+// "rendrix" is the Rendrix host (the engine). "native" is the deprecated GPUI host, kept until the
+// Rendrix M1 gate. The "webview" renderer was removed; assertRenderer rejects it with guidance.
+export const RENDERERS = ['rendrix', 'native'];
+export const BUNDLE_FORMAT = 'tsgpu-1';
 export const REPO_URL = 'https://github.com/ByteTheDev/TSGPUI';
 const MAX_HOST_BYTES = 512 * 1024 * 1024;
 
 export function currentTarget() {return `${process.platform}-${process.arch}`;}
 export function exeSuffix(target = currentTarget()) {return target.startsWith('win32-') ? '.exe' : '';}
-export function tsgpuiHome() {return process.env.TSGPUI_HOME || path.join(os.homedir(), '.tsgpui');}
-export function hostBinaryName(renderer = 'native') {return renderer === 'webview' ? 'tsgpui-webview-host' : 'tsgpui-host';}
-export function cachedHostPath(renderer = 'native', target = currentTarget()) {
-  return path.join(tsgpuiHome(), 'host', target, `${hostBinaryName(renderer)}${exeSuffix(target)}`);
+export function tsgpuHome() {return process.env.TSGPU_HOME || path.join(os.homedir(), '.tsgpu');}
+export function hostBinaryName(renderer = 'rendrix') {return renderer === 'native' ? 'tsgpu-gpui-host' : 'rendrix-host';}
+export function cachedHostPath(renderer = 'rendrix', target = currentTarget()) {
+  return path.join(tsgpuHome(), 'host', target, `${hostBinaryName(renderer)}${exeSuffix(target)}`);
 }
-// Release asset name, for example tsgpui-host-native-win32-x64.exe.
-export function assetName(renderer, target) {return `tsgpui-host-${renderer}-${target}${exeSuffix(target)}`;}
+// Release asset name, for example rendrix-host-win32-x64.exe.
+export function assetName(renderer, target) {return `${hostBinaryName(renderer)}-${target}${exeSuffix(target)}`;}
 function recordPath(hostFile) {return `${hostFile}.json`;}
 
 export function assertRenderer(renderer) {
-  if (!RENDERERS.includes(renderer)) throw new Error('renderer must be "native" or "webview"');
+  if (renderer === 'webview') throw new Error('The "webview" renderer was removed; TS-GPU renders natively with Rendrix. Remove the renderer key from tsgpu.config.json (it defaults to "rendrix"), or set it to "rendrix".');
+  if (!RENDERERS.includes(renderer)) throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated GPUI host), not ${JSON.stringify(renderer)}`);
 }
 export async function sha256File(file) {return createHash('sha256').update(await readFile(file)).digest('hex');}
 
@@ -44,7 +47,7 @@ export function sourceStamp(source, renderer) {
   walk(path.join(source, 'src'), 'src');
   const hash = createHash('sha256');
   const add = data => { const bytes = Buffer.from(data); hash.update(`${bytes.length}:`); hash.update(bytes); };
-  add('tsgpui-host-source-v1'); add(renderer);
+  add('tsgpu-host-source-v1'); add(renderer);
   for (const file of files.sort()) { add(file); add(fs.readFileSync(path.join(source, ...file.split('/')))); }
   return hash.digest('hex');
 }
@@ -108,12 +111,12 @@ export async function recordLocalBuild({renderer, version, sourceStamp: stamp}) 
 }
 
 export function releaseBaseUrl(version) {
-  return (process.env.TSGPUI_HOST_BASE_URL || `${REPO_URL}/releases/download/v${version}`).replace(/\/+$/, '');
+  return (process.env.TSGPU_HOST_BASE_URL || `${REPO_URL}/releases/download/v${version}`).replace(/\/+$/, '');
 }
-export function downloadsDisabled() {return process.env.TSGPUI_NO_DOWNLOAD === '1';}
+export function downloadsDisabled() {return process.env.TSGPU_NO_DOWNLOAD === '1';}
 
 export function validateManifest(manifest, version) {
-  if (!manifest || manifest.schema !== 1 || !Array.isArray(manifest.hosts)) throw new Error('hosts.json is not a recognised host manifest');
+  if (!manifest || manifest.schema !== 2 || !Array.isArray(manifest.hosts)) throw new Error('hosts.json is not a recognised host manifest (schema 2)');
   if (manifest.bundleFormat !== BUNDLE_FORMAT) throw new Error(`hosts.json is for bundle format ${manifest.bundleFormat}, this CLI writes ${BUNDLE_FORMAT}`);
   if (releaseSeries(manifest.version) !== releaseSeries(version)) throw new Error(`hosts.json is for release ${manifest.version}, this CLI is ${version}`);
   for (const host of manifest.hosts) {
@@ -155,7 +158,7 @@ export async function loadManifest({version, pkgRoot}) {
 
 // Downloads, verifies and installs the prebuilt host for this machine. Throws a message that says
 // what to do next when no prebuilt host fits.
-export const SUPPORTED_TARGETS = ['win32-x64', 'win32-arm64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'];
+export const SUPPORTED_TARGETS = ['win32-x64', 'win32-arm64', 'darwin-arm64', 'linux-x64', 'linux-arm64'];
 export function assertTarget(target) {
   if (!SUPPORTED_TARGETS.includes(target)) throw new Error(`Unsupported target ${target}. Use one of: ${SUPPORTED_TARGETS.join(', ')}`);
   return target;
@@ -163,7 +166,7 @@ export function assertTarget(target) {
 export async function fetchHost({renderer, version, pkgRoot, target = currentTarget(), log = console.log}) {
   assertRenderer(renderer);
   assertTarget(target);
-  if (downloadsDisabled()) throw new Error('downloads are disabled by TSGPUI_NO_DOWNLOAD=1');
+  if (downloadsDisabled()) throw new Error('downloads are disabled by TSGPU_NO_DOWNLOAD=1');
   const {manifest, origin} = await loadManifest({version, pkgRoot});
   const entry = manifest.hosts.find(host => host.renderer === renderer && host.target === target);
   if (!entry) {

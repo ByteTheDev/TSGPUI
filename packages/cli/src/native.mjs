@@ -1,6 +1,6 @@
 // Host operations for the browser preview. They mirror native/src/capabilities.rs: the same grants,
 // the same path rules and the same limits. The native host is the reference, so keep the two in step.
-// Only `tsgpui preview` serves these, and only to its own page (see the token check in preview.mjs).
+// Only `TS-GPU preview` serves these, and only to its own page (see the token check in preview.mjs).
 
 import fs from 'node:fs';
 import path from 'node:path';

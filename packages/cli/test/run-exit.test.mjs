@@ -6,9 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const cli = fileURLToPath(new URL('../bin/tsgpui.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../bin/tsgpu.mjs', import.meta.url));
 test('run returns an error when its host exits unsuccessfully', async t => {
-  const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-run-'));
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpu-run-'));
   t.after(() => rm(tmp, {recursive: true, force: true}));
   const project = path.join(tmp, 'app');
   const init = spawnSync(process.execPath, [cli, 'init', project], {encoding: 'utf8'});

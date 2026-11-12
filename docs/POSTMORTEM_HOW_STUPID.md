@@ -1,5 +1,12 @@
 # Post-Mortem: How I Got Everything Wrong
 
+> **Historical document.** This postmortem was written while the product was named TSGPUI,
+> before the 2026-11-11 rewrite decision ([REWRITE_RENDRIX.md](REWRITE_RENDRIX.md): TS-GPU
+> renames from TSGPUI; the WebView renderer removed; Rendrix sole engine). Names, paths, and
+> quoted conversations are left exactly as they were recorded; they are not renamed here
+> because this is a transcript, not documentation of current behavior. The WebView renderer
+> and the CDP e2e script it mentions no longer exist on `dev` — see `backup/webview-era`.
+
 **Author:** the assistant (DeepSeek V4.1 Flash, OpenCode harness)
 **Subject:** a complete accounting of my own stupidity during the TSGPUI v0.4.0 release session
 **Length target:** ~100,000 characters

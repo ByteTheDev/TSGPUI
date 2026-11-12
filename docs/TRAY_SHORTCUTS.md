@@ -1,15 +1,15 @@
 # Tray icons and global shortcuts
 
-TSGPUI backs Electron's `Tray` and `globalShortcut` with real OS objects instead of keeping them
+TS-GPU backs Electron's `Tray` and `globalShortcut` with real OS objects instead of keeping them
 in memory. The JS shims stay in
 `packages/cli/src/electron-compat/runtime/electron-tray.ts`; everything platform-specific lives in
-`native/src/tray.rs` and `native/src/hotkeys.rs`, so the native (GPUI) and WebView renderers share
+`native/src/tray.rs` and `native/src/hotkeys.rs`, so the Rendrix and GPUI hosts share
 the same implementation.
 
-Neither feature needs a permission grant. In the WebView renderer the bridge only accepts `tray.*`
-and `globalShortcut.*` from the page that runs the app backend (the hidden backend window when
-`backendWindow: "hidden"`, otherwise the primary page); renderer pages cannot watch keystrokes or
-add tray icons.
+Neither feature needs a permission grant. (Historical: the removed WebView renderer's bridge only
+accepted `tray.*` and `globalShortcut.*` from the page that ran the app backend (the hidden
+backend window when `backendWindow: "hidden"`, otherwise the primary page); renderer pages
+could not watch keystrokes or add tray icons.)
 
 ## Tray
 
@@ -179,14 +179,14 @@ change (`MappingNotify`).
 | `globalShortcut.unregisterAll` | — | `null` |
 | `globalShortcut.isRegistered` | `{ accelerator }` or the string | boolean |
 
-The native renderer exposes them as `api.native.tray.*` and `api.native.globalShortcut.*`; the
-WebView renderer uses `window.tsgpui.invoke`. Both are wired in
+The hosts expose them as `api.native.tray.*` and `api.native.globalShortcut.*`.
+Both are wired in
 `packages/cli/src/electron-compat/runtime/host.ts`.
 
 Host events are delivered through one hook,
-`globalThis.__tsgpui_host_event(channel, payload)`. The native runtime evaluates it as a task in the
-backend VM (`native/src/runtime.rs`); the WebView host evaluates it on the backend page
-(`native/src/webview_main.rs`).
+`globalThis.__tsgpu_host_event(channel, payload)`. The native runtime evaluates it as a task in the
+backend VM (`native/src/runtime.rs`). (Historical: the removed WebView renderer evaluated it on
+the backend page in `native/src/webview_main.rs`.)
 
 ## Code map
 
@@ -195,8 +195,8 @@ backend VM (`native/src/runtime.rs`); the WebView host evaluates it on the backe
 * `native/src/tray.rs` — tray model and the Windows/macOS/Linux implementations.
 * `native/src/hotkeys.rs` — accelerator parser and the Windows/macOS/Linux hotkey services.
 * `native/src/image_store.rs` — decoded tray images and handles.
-* `native/src/capabilities.rs`, `native/src/webview_bridge.rs` — operation routing.
-* `native/src/runtime.rs`, `native/src/webview_main.rs` — native event delivery.
+* `native/src/capabilities.rs` — operation routing (`native/src/webview_bridge.rs` was removed with the WebView renderer).
+* `native/src/runtime.rs` — native event delivery (`native/src/webview_main.rs` was removed with the WebView renderer).
 
 ## Troubleshooting
 

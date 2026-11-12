@@ -1,20 +1,25 @@
 # Roadmap to 1.0 (out of experimental)
 
-Tracking work to graduate TSGPUI from experimental. Each track is independently shippable.
+Tracking work to graduate TS-GPU from experimental. Each track is independently shippable.
 Status is checked against the code and docs as of 2026-11-11.
 
-## Native renderer strategy (decided 2026-11-11)
+## Native renderer strategy (decided 2026-11-11, superseded 2026-11-11)
 
-GPUI stays. We do **not** build our own renderer or fork GPUI. The native path is treated as an
-upgradeable dependency: check GPUI upstream quarterly for the primitives we lack (element
-transforms, accessibility APIs, per-display scale factors, multi-view layout) and adopt when
-they land. Until then, WebView is the renderer for anything GPUI 0.2.2 cannot do (motion,
-screen readers, video, multi-window). Re-evaluate the "assemble winit + vello + parley +
-taffy + accesskit" route only if GPUI upstream goes quiet — not before. The compiler's
-renderer-agnostic IR is the asset; the renderer is a commodity.
+**Superseded by [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md):** Rendrix (winit + wgpu + taffy +
+cosmic-text, per [RENDERER_TSGPU.md](RENDERER_TSGPU.md)) is now the sole rendering engine; the
+WebView renderer was removed the same day; the GPUI host is deprecated and is removed at the
+Rendrix M1 gate. The original decision is kept below as history:
 
-Standing item (recurring): check GPUI upstream releases for element transforms, accessibility
-APIs, per-display scale factors, and multi-view layout; update Track 2/3 notes when any land.
+> GPUI stays. We do **not** build our own renderer or fork GPUI. The native path is treated as an
+> upgradeable dependency: check GPUI upstream quarterly for the primitives we lack (element
+> transforms, accessibility APIs, per-display scale factors, multi-view layout) and adopt when
+> they land. Until then, WebView is the renderer for anything GPUI 0.2.2 cannot do (motion,
+> screen readers, video, multi-window). Re-evaluate the "assemble winit + vello + parley +
+> taffy + accesskit" route only if GPUI upstream goes quiet — not before. The compiler's
+> renderer-agnostic IR is the asset; the renderer is a commodity.
+
+Standing item (recurring): track the Rendrix M1–M3 ladder in [RENDERER_TSGPU.md](RENDERER_TSGPU.md);
+update Track 2/3 notes as it lands.
 
 - **2026-11-11 check:** Zed's `gpui` crate is still frozen at 0.2.2 (last publish 2025-10-22,
   nothing newer in a year). However, **[GPUI-CE](https://github.com/gpui-ce/gpui-ce)** — an
@@ -28,21 +33,21 @@ APIs, per-display scale factors, and multi-view layout; update Track 2/3 notes w
 
 ## Track 1 — Platform verification (GUI-level) — OPEN (the 1.0 blocker)
 - [x] Cross-platform CI: hosts build and unit-test on Windows/macOS/Linux (`.github/workflows/platform-validation.yml`).
-- [x] Imported Electron sample e2e runs on Windows in CI (`scripts/e2e-windows.mjs`, page-timeout fixed).
+- [x] Imported Electron sample e2e ran on Windows in CI (`scripts/e2e-windows.mjs`, page-timeout fixed). **Note:** that CDP-based webview-era script was deleted with the WebView renderer; the renderer-agnostic `scripts/smoke-packaged.*` replaces the coverage.
 - [ ] Run the imported Electron sample e2e on macOS/Linux (currently Windows only).
 - [ ] Add a smoke test that launches the packaged counter and asserts a rendered frame.
 - [ ] Verify macOS/Linux hosts actually run (not just build).
 
 ## Track 2 — Native motion — DECIDED, documented
-- [x] Decision: CSS transitions/animations/transforms stay WebView-only; see [NATIVE_MOTION.md](NATIVE_MOTION.md) (GPUI 0.2.2 has no element transform primitive).
-- [x] Warnings are explicit and actionable (unsupported → use WebView renderer).
+- [x] Decision: CSS transitions/animations/transforms stay unsupported in-tree; see [NATIVE_MOTION.md](NATIVE_MOTION.md) (GPUI 0.2.2 has no element transform primitive; the webview-era workaround was removed with the WebView renderer; Rendrix M3 plans rAF-driven animation).
+- [x] Warnings are explicit and actionable (unsupported → points at the Rendrix animation plan).
 
 ## Track 3 — Accessibility — DECIDED, documented
-- [x] Decision documented in [ACCESSIBILITY_PLAN.md](ACCESSIBILITY_PLAN.md): no OS accessibility tree in the native (GPUI 0.2.2) renderer; `aria-*`/`role` metadata is preserved and `aria-label` is used as a visible fallback; WebView renderer recommended for screen readers.
+- [x] Decision documented in [ACCESSIBILITY_PLAN.md](ACCESSIBILITY_PLAN.md): no OS accessibility tree in the native (GPUI 0.2.2) renderer; `aria-*`/`role` metadata is preserved and `aria-label` is used as a visible fallback. (Historical: the plan recommended the WebView renderer for screen readers; that renderer was removed. Rendrix M3 adds an accesskit tree.)
 
 ## Track 4 — Native input — IMPLEMENTED
 - [x] Multi-line `<textarea>`, mouse/keyboard selection, clipboard integration, undo/redo, IME composition, word-wise navigation (see ARCHITECTURE.md).
-- Remaining polish (optional for 1.0): closer editing parity with WebView edge cases.
+- Remaining polish (optional for 1.0): closer text-editing edge cases (the webview-era browser comparison baseline is gone).
 
 ## Track 5 — Media — DECIDED, documented
 - [x] Decision documented in [SUPPORTED_SYNTAX.md](SUPPORTED_SYNTAX.md): `<video>`, `<audio>`, `<iframe>` and `<canvas>` are unsupported and fail compilation on both renderers (`Unsupported HTML element <video>`); media playback goes through the system browser or an external player. Native media decoding is out of scope for 1.0.
@@ -53,7 +58,7 @@ APIs, per-display scale factors, and multi-view layout; update Track 2/3 notes w
 - Remaining items that need GPUI/platform upgrades are documented with reasons in [ELECTRON_COMPAT_CLOSURE.md](ELECTRON_COMPAT_CLOSURE.md) section (b); permanently unsupported APIs with reasons in section (c).
 
 ## Track 7 — Signing & distribution — DONE (with a documented 1.x descope)
-- [x] Built-in cross-platform signing: `tsgpui sign` (Windows signtool auto-detect, macOS codesign/notarize, Linux gpg).
+- [x] Built-in cross-platform signing: `tsgpu sign` (Windows signtool auto-detect, macOS codesign/notarize, Linux gpg).
 - [x] In-app update client: configured feed check, `update-available`/`update-not-available`/`update-downloaded` events, host-side download with SHA-256 verification into `userData/updates`, and a real install on `quitAndInstall` — the host renames the running executable to `<exe>.old`, copies the staged artifact over it, and relaunches when asked (`native/src/updater.rs`).
 - Descope decision (2026-11-11, same pattern as Tracks 2/3/5): `download-progress`, cancellation, retries, and signed update manifests are **1.x work**, not 1.0 gates. Reasons: the update artifact is already hash-verified end to end by the host, the swap is confined to `userData/updates`, and progress/cancel are UX polish rather than correctness. The descope is recorded in [ELECTRON_COMPAT_CLOSURE.md](ELECTRON_COMPAT_CLOSURE.md) and the coverage ledger.
 
@@ -90,8 +95,7 @@ is true, every platform we name is verified, and the version says 1.0.0.
 Exit: no ledger/doc claim that the code contradicts; smoke test green in CI on Windows.
 
 ### Sprint 2 — Platform truth (the unknown-risk sprint)
-1. Add macOS and Linux legs to the e2e: run the imported sample through the webview host
-   (macOS GUI runner, Linux with `xvfb-run`). Budget this sprint for fixing what surfaces —
+1. Add macOS and Linux legs to the e2e: run the imported sample through the renderer-agnostic smoke script (`scripts/smoke-packaged.*`; the webview host is removed) on a macOS GUI runner and Linux with `xvfb-run`. Budget this sprint for fixing what surfaces —
    the macOS fix history suggests runtime surprises live here.
 2. macOS/Linux packaged runs recorded in VERIFICATION.md with dates and runner versions.
 3. Update CHANGELOG "Known limits" to match reality (stale since beta.2).

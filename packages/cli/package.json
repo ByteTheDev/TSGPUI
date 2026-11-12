@@ -1,17 +1,17 @@
 {
-  "name": "@bytethedeveloper/tsgpui",
+  "name": "@bytethedeveloper/tsgpu",
   "version": "0.4.0",
-  "description": "Compile HTML/CSS and TypeScript applications for GPUI or a system WebView",
+  "description": "Compile HTML/CSS and TypeScript applications into native windows rendered by Rendrix",
   "type": "module",
   "license": "MIT",
   "keywords": [
+    "rendrix",
     "gpui",
     "native",
     "html",
     "css",
     "typescript",
     "quickjs",
-    "webview",
     "cli"
   ],
   "repository": {
@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/ByteTheDev/TSGPUI#readme",
   "bin": {
-    "tsgpui": "dist/tsgpui.mjs"
+    "tsgpu": "dist/tsgpu.mjs"
   },
   "exports": {
     "./types": "./types/app.d.ts"
@@ -36,7 +36,7 @@
     "hosts.json"
   ],
   "scripts": {
-    "build": "bun build bin/tsgpui.mjs --target=node --outfile=dist/tsgpui.mjs",
+    "build": "bun build bin/tsgpu.mjs --target=node --outfile=dist/tsgpu.mjs",
     "prepack": "node scripts/pack-native.mjs copy && bun run build",
     "postpack": "node scripts/pack-native.mjs clean",
     "release:archive": "node scripts/pack-release.mjs",
@@ -53,4 +53,3 @@
     "access": "public"
   }
 }
-

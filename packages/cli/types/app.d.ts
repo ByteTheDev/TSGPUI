@@ -68,7 +68,7 @@ export interface NativeBridge {
     show(options: { title: string; body?: string }): Promise<void>;
   };
   /** Needs `permissions.ipc`. Messages go to other local processes, and to this app's own listeners.
-   * A child process started with `process.spawn` gets `TSGPUI_IPC_ADDR` and `TSGPUI_IPC_TOKEN`
+   * A child process started with `process.spawn` gets `TSGPU_IPC_ADDR` and `TSGPU_IPC_TOKEN`
    * (the wire format is in docs/SUPPORTED_SYNTAX.md, under `api.native`). */
   ipc: {
     send<T>(channel: string, payload: T): Promise<void>;

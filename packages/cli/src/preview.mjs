@@ -35,17 +35,17 @@ function mergePreserved(fresh, seed, current) {
 
 function previewRuntime() {
   const doc = document;
-  const bundle = JSON.parse(doc.getElementById('tsgpui-bundle').textContent);
-  const SESSION_KEY = 'tsgpui-preview:' + bundle.name;
+  const bundle = JSON.parse(doc.getElementById('tsgpu-bundle').textContent);
+  const SESSION_KEY = 'tsgpu-preview:' + bundle.name;
   const has = (object, key) => object !== null && typeof object === 'object' && Object.prototype.hasOwnProperty.call(object, key);
   const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   const asText = value => value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
-  const report = error => console.error('TSGPUI: ' + ((error && error.message) || error));
+  const report = error => console.error('tsgpu: ' + ((error && error.message) || error));
 
   // The backend runs with the browser's network and storage globals hidden, the way QuickJS has none.
   const hidden = ['fetch', 'XMLHttpRequest', 'WebSocket', 'localStorage', 'sessionStorage', 'indexedDB', 'Worker', 'require', 'process', 'Bun'];
   new Function(...hidden, bundle.backend_js)(...hidden.map(() => undefined));
-  const app = globalThis.__tsgpui_app;
+  const app = globalThis.__tsgpu_app;
   const seed = JSON.parse(JSON.stringify(app.state));
   // A live reload stores the state before it reloads the page. The new script's seed is merged with it.
   let saved = null;
@@ -95,18 +95,18 @@ function previewRuntime() {
   };
 
   // Host operations for `api.native`. The page cannot reach files or processes itself, so file and
-  // process calls go to `tsgpui preview`, which checks each one against the bundle's grants. The
+  // process calls go to `tsgpu preview`, which checks each one against the bundle's grants. The
   // token and the Host header are checked there, so another website cannot make these calls.
   const grant = (flag, name) => {
     if (!bundle.permissions || !bundle.permissions[flag]) throw new Error(`${name} is not granted: set permissions.${flag} to true`);
   };
   const hostCall = async (operation, args) => {
-    if (!bundle.nativeToken) throw new Error('Native operations need tsgpui preview; a saved preview file has no host');
+    if (!bundle.nativeToken) throw new Error('Native operations need tsgpu preview; a saved preview file has no host');
     let response;
     try {
-      response = await fetch('/__tsgpui/native', {
+      response = await fetch('/__tsgpu/native', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-tsgpui-token': bundle.nativeToken },
+        headers: { 'content-type': 'application/json', 'x-tsgpu-token': bundle.nativeToken },
         body: JSON.stringify({ operation, args }),
       });
     } catch (error) {
@@ -131,7 +131,7 @@ function previewRuntime() {
     (async () => { for (const listener of listeners) await listener(payload); })().then(() => finish(null), finish);
   });
 
-  const hostOnly = operation => async () => { throw new Error(`${operation} is available only in the native and WebView hosts, not the browser preview`); };
+  const hostOnly = operation => async () => { throw new Error(`${operation} is available only in the host, not the browser preview`); };
   const native = Object.freeze({
     window: Object.freeze({
       minimize: async () => { grant('window', 'Window control'); throw new Error('Window minimize is available only in the native host'); },
@@ -304,7 +304,7 @@ function previewRuntime() {
       const resolved = resolveBinding(arrayPath, ctx);
       const items = lookup(app.state, resolved);
       const wrapper = doc.createElement('div');
-      wrapper.className = 'tsgpui';
+      wrapper.className = 'tsgpu';
       // A data-virtual list scrolls, and its rows have the fixed height the host lays them out with.
       // The browser builds every row, so this only mirrors the layout.
       const rowHeight = node.attrs['data-virtual'];
@@ -337,7 +337,7 @@ function previewRuntime() {
 
   // Gives the element its class, so the base sheet applies, and its key, so the node's styles apply.
   const styled = (element, node, ctx) => {
-    element.classList.add('tsgpui');
+    element.classList.add('tsgpu');
     element.setAttribute('data-k', String(node.key));
     if (ctx.suffix) element.setAttribute('data-r', ctx.suffix);
     return element;
@@ -444,9 +444,9 @@ function previewRuntime() {
       const menu = findMenu(bundle.root);
       if (menu) element.addEventListener('contextmenu', event => {
         event.preventDefault();
-        element.querySelector('[data-tsgpui-context-menu]')?.remove();
+        element.querySelector('[data-tsgpu-context-menu]')?.remove();
         const popup = doc.createElement('div');
-        popup.setAttribute('data-tsgpui-context-menu', '');
+        popup.setAttribute('data-tsgpu-context-menu', '');
         popup.style.cssText = `position:absolute;z-index:9999;left:${event.offsetX}px;top:${event.offsetY}px;min-width:190px;padding:4px;background:#252525;color:#f3f3f3;border:1px solid #555;border-radius:6px;box-shadow:0 8px 24px #0008`;
         const menuItems = menu.children.filter(child => child.tag === 'menuitem' || child.tag === 'hr');
         for (const item of menuItems) {
@@ -563,7 +563,7 @@ function previewRuntime() {
     const context = { locals: {}, paths: {}, suffix: '' };
     if (root.tag === 'body') {
       doc.body.replaceChildren(...renderChildren(root, context));
-      doc.body.className = 'tsgpui';
+      doc.body.className = 'tsgpu';
       doc.body.setAttribute('data-k', String(root.key));
     } else {
       doc.body.replaceChildren(...renderNodes(root, context, false));
@@ -606,7 +606,7 @@ function previewRuntime() {
 const BASE_CSS = `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%}
 body{display:flex;flex-direction:column;overflow:hidden;font-family:system-ui,"Segoe UI",sans-serif}
-.tsgpui{display:flex;flex-direction:column;flex-shrink:1}
+.tsgpu{display:flex;flex-direction:column;flex-shrink:1}
 button,input,textarea,select{appearance:none;-webkit-appearance:none;background:none;border:0;border-radius:0;color:inherit;font:inherit;text-align:inherit;outline:none}
 textarea{resize:none;white-space:pre-wrap;overflow:auto}
 img{display:block}`;
@@ -654,14 +654,6 @@ function escapeHtml(text) {
 // A standalone page. `live` is the version to poll, or null for a page with no server behind it.
 // `nativeToken` lets the page call the preview server's host operations. It is null for a saved file.
 export function renderPreviewHTML(bundle, { live = null, nativeToken = null } = {}) {
-  if (bundle.renderer === 'webview') {
-    if (typeof bundle.webview_html !== 'string') throw new Error('WebView bundle is missing webview_html');
-    if (live === null || live === undefined) return bundle.webview_html;
-    const watcher = `<script>(()=>{let known=${JSON.stringify(live)};setInterval(()=>fetch('/version',{cache:'no-store'}).then(response=>response.json()).then(payload=>{if(payload.version!==known){known=payload.version;location.reload();}}).catch(()=>{}),700);})();</script>`;
-    return /<\/body\s*>/i.test(bundle.webview_html)
-      ? bundle.webview_html.replace(/<\/body\s*>/i,`${watcher}</body>`)
-      : `${bundle.webview_html}${watcher}`;
-  }
   const { fonts, ...rest } = bundle;
   const payload = { ...rest, live, nativeToken };
   // 'self' keeps the live-reload poll working; data-fetch hosts are the same allowlist the native host uses.
@@ -679,7 +671,7 @@ ${previewCss(bundle)}
 </style>
 </head>
 <body></body>
-<script type="application/json" id="tsgpui-bundle">${scriptJson(payload)}</script>
+<script type="application/json" id="tsgpu-bundle">${scriptJson(payload)}</script>
 <script>${mergePreserved.toString()}
 (${previewRuntime.toString()})();</script>
 </html>
@@ -732,7 +724,7 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
     };
     if (request.method !== 'POST') return send(405, { ok: false, error: 'Method not allowed' });
     const expectedHost = `127.0.0.1:${server.address().port}`;
-    if (request.headers.host !== expectedHost || request.headers['x-tsgpui-token'] !== nativeToken || grants === null) {
+    if (request.headers.host !== expectedHost || request.headers['x-tsgpu-token'] !== nativeToken || grants === null) {
       return send(403, { ok: false, error: 'Forbidden' });
     }
     try {
@@ -757,7 +749,7 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
     } else if (url.pathname === '/version') {
       response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       response.end(JSON.stringify({ version }));
-    } else if (url.pathname === '/__tsgpui/native') {
+    } else if (url.pathname === '/__tsgpu/native') {
       void handleNative(request, response);
     } else {
       response.writeHead(404, { 'content-type': 'text/plain' });
@@ -770,7 +762,7 @@ export async function startPreview({ projectRoot, port = 4173, open = false, wat
   });
   const address = server.address();
   const url = `http://127.0.0.1:${address.port}/`;
-  log(`TSGPUI preview: ${url}`);
+  log(`tsgpu preview: ${url}`);
   let watcher = null;
   if (watch) {
     const ignored = name => /^(dist|node_modules|\.git)(\/|\\|$)/.test(name);

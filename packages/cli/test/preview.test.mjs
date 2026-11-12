@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,7 +83,7 @@ test('startPreview serves the page and a version that changes only on rebuild', 
   const dir = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-preview-'));
   try {
     await mkdir(path.join(dir, 'src'), { recursive: true });
-    await writeFile(path.join(dir, 'tsgpui.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', renderer: 'native', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
+    await writeFile(path.join(dir, 'tsgpu.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', renderer: 'native', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
     await writeFile(path.join(dir, 'src/index.html'), '<body><p>Hello</p></body>');
     await writeFile(path.join(dir, 'src/styles.css'), 'p { color: #ff0000; }');
     await writeFile(path.join(dir, 'src/backend.ts'), backend);

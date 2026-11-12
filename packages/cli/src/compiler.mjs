@@ -5,18 +5,28 @@ import { parseComponentLibrary, parseHTML } from './html.mjs';
 import { compileStylesheet, styleTree } from './css.mjs';
 import { compileBackend, bundleBackend } from './backend.mjs';
 import { COMPONENT_LIBRARY_CSS, COMPONENT_LIBRARY_HTML } from './library.mjs';
-import { prepareWebviewHtml, collectWebviewFiles } from './webview.mjs';
 
 const COMPONENT_LIBRARY = parseComponentLibrary(COMPONENT_LIBRARY_HTML);
 const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const HOST_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i;
+// Renderer key semantics (Project Rendrix charter): "rendrix" is the engine and the default (an
+// absent key selects it). "native" is the deprecated GPUI host, accepted with a warning until the
+// Rendrix M1 gate. "gpu" is the old name of the engine, accepted with the same warning. "webview"
+// is a hard error with migration guidance.
+function rendererKey(raw) {
+  if (raw === undefined || raw === null || raw === 'rendrix') return 'rendrix';
+  if (raw === 'gpu') return 'rendrix';
+  if (raw === 'native') return 'native';
+  if (raw === 'webview') throw new Error('renderer "webview" was removed; TS-GPU renders natively with Rendrix. Remove the renderer key from tsgpu.config.json (it defaults to "rendrix"), or set it to "rendrix", and write the app UI in src/index.html + styles.css.');
+  throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated GPUI host), not ${JSON.stringify(raw)}`);
+}
 export function validateConfig(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('tsgpui.config.json must be an object');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('tsgpu.config.json must be an object');
   for (const key of ['name','html','css','backend']) if (typeof raw[key] !== 'string' || !raw[key]) throw new Error(`Missing string config property: ${key}`);
   if (!NAME_RE.test(raw.name)) throw new Error('Invalid name; use letters, digits, _ or -');
   const version = raw.version ?? '1.0.0';
   if (typeof version !== 'string' || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)) throw new Error('version must be a three-part numeric version, e.g. 1.2.3');
-  const bundleId = raw.bundleId ?? `dev.tsgpui.${raw.name.replaceAll('_','-')}`;
+  const bundleId = raw.bundleId ?? `dev.tsgpu.${raw.name.replaceAll('_','-')}`;
   if (typeof bundleId !== 'string' || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) throw new Error('bundleId must be a reverse-DNS identifier');
   if (raw.icon !== undefined && (typeof raw.icon !== 'string' || !raw.icon.endsWith('.icns'))) throw new Error('icon must be a project-relative .icns file');
   const width = raw.window?.width ?? 900;
@@ -93,14 +103,18 @@ export function validateConfig(raw) {
   if (raw.strictCss !== undefined && typeof raw.strictCss !== 'boolean') throw new Error('strictCss must be true or false');
   // Opt-in persistence of the backend state across app restarts.
   if (raw.persist !== undefined && typeof raw.persist !== 'boolean') throw new Error('persist must be true or false');
-  // Where the backend runs. "hidden" runs it in an invisible window, so the primary window can close while others stay open.
+  // Where the backend runs. The WebView renderer ran it in an invisible second window ("hidden");
+  // that option was removed with the WebView renderer.
   const backendWindow = raw.backendWindow ?? 'primary';
-  if (!['primary','hidden'].includes(backendWindow)) throw new Error('backendWindow must be "primary" or "hidden"');
-  const renderer = raw.renderer ?? 'webview';
-  if (!['native','webview'].includes(renderer)) throw new Error('renderer must be "native" or "webview"');
-  if (backendWindow === 'hidden' && renderer !== 'webview') throw new Error('backendWindow "hidden" requires the webview renderer');
-  const webviewPages = raw.webviewPages ?? [];
-  if (!Array.isArray(webviewPages) || webviewPages.some(page => typeof page !== 'string' || !page || path.isAbsolute(page) || page.split(/[\\/]+/).includes('..'))) throw new Error('webviewPages must contain project-relative file paths');
+  if (!['primary'].includes(backendWindow)) {
+    if (backendWindow === 'hidden') throw new Error('backendWindow "hidden" was removed with the WebView renderer; use "primary"');
+    throw new Error('backendWindow must be "primary"');
+  }
+  const renderer = rendererKey(raw.renderer);
+  const rendererWarnings = [];
+  if (raw.renderer === 'native') rendererWarnings.push('renderer "native" selects the deprecated GPUI host; migrate to "rendrix" (the default) before the Rendrix M1 gate');
+  if (raw.renderer === 'gpu') rendererWarnings.push('renderer "gpu" is the old name of the Rendrix renderer; rename it to "rendrix" or remove the key');
+  if (raw.webviewPages !== undefined) throw new Error('webviewPages was removed with the WebView renderer; delete the key from tsgpu.config.json');
   const maxBundleSize = raw.maxBundleSize ?? 256 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBundleSize) || maxBundleSize <= 0) throw new Error('maxBundleSize must be a positive integer in bytes');
   // Custom in-page schemes allowlisted for packaged assets (derived by the Electron importer).
@@ -114,7 +128,7 @@ export function validateConfig(raw) {
   if (!['system','unified'].includes(titlebar)) throw new Error('window.titlebar must be "system" or "unified"');
   if (!['opaque','blur'].includes(backdrop)) throw new Error('window.backdrop must be "opaque" or "blur"');
   const normalizeRoots = roots => [...new Set(roots.map(root => path.posix.normalize(root.replaceAll('\\', '/')).replace(/^\.\//, '')))];
-  return {name:raw.name,title:raw.title || raw.name,version,bundleId,icon:raw.icon,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,backendWindow,webviewPages,protocolSchemes,maxBundleSize,fontFiles,permissionWarnings,permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow,networkMethods,processArgs},window:{titlebar,backdrop}};
+  return {name:raw.name,title:raw.title || raw.name,version,bundleId,icon:raw.icon,width,height,html:raw.html,css:raw.css,backend:raw.backend,outDir:raw.outDir || 'dist',strictCss:raw.strictCss === true,persist:raw.persist === true,renderer,backendWindow,protocolSchemes,maxBundleSize,fontFiles,permissionWarnings:[...permissionWarnings,...rendererWarnings],permissions:{networkHosts,filesystem:{read:normalizeRoots(readRoots),write:normalizeRoots(writeRoots)},processes:[...new Set(processes)],notifications,ipc,window:nativeWindow,networkMethods,processArgs},window:{titlebar,backdrop}};
 }
 function inProject(root, relative) {
   if (path.isAbsolute(relative)) throw new Error(`Absolute file path forbidden in project config: ${relative}`);
@@ -175,8 +189,19 @@ function collectImagePaths(node, paths = new Set()) {
 }
 export async function readProject(projectPath) {
   const projectRoot = path.resolve(projectPath);
-  const configFile = path.join(projectRoot,'tsgpui.config.json');
-  await assertRealInside(projectRoot,configFile,'tsgpui.config.json');
+  // tsgpu.config.json is the canonical name since the TS-GPU rename; the old
+  // tsgpu.config.json still loads with a deprecation warning for one transition.
+  const newFile = path.join(projectRoot,'tsgpu.config.json');
+  const legacyFile = path.join(projectRoot,'tsgpu.config.json');
+  const legacyExists = await readFile(legacyFile,'utf8').then(() => true,() => false);
+  const newExists = await readFile(newFile,'utf8').then(() => true,() => false);
+  if (!newExists && legacyExists) {
+    console.error('Warning: this project uses tsgpu.config.json; rename it to tsgpu.config.json (the old name is deprecated by the TS-GPU rename).');
+  }
+  const configFile = newExists ? newFile : legacyFile;
+  const label = newExists ? 'tsgpu.config.json' : 'tsgpu.config.json';
+  if (!newExists && !legacyExists) throw new Error('No tsgpu.config.json found in the project root');
+  await assertRealInside(projectRoot,configFile,label);
   const config = validateConfig(JSON.parse(await readFile(configFile,'utf8')));
   const paths = {
     html:inProject(projectRoot,config.html), css:inProject(projectRoot,config.css),
@@ -188,73 +213,85 @@ export async function readProject(projectPath) {
   return {projectRoot,config,configFile,paths};
 }
 // `warnings` collects messages for CSS declarations that were skipped. They are not part of the bundle.
-export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend}) {
+// The host re-serializes the parsed document tree through its Rust `Node` struct to verify the
+// bundle's integrity hash. That serialization always emits every field in struct declaration order
+// (tag, key, text, attrs, props, style, states, responsive, children) and sorts object-map keys,
+// because serde's maps are sorted. Emit the tree in exactly that shape so the hash computed here
+// byte-matches the host's recomputation.
+function canonicalNode(node) {
+  const sortedMap = value => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const out = {};
+      for (const key of Object.keys(value).sort()) out[key] = value[key];
+      return out;
+    }
+    return value;
+  };
+  const walk = node => ({
+    tag: node.tag,
+    key: node.key,
+    text: node.text ?? '',
+    attrs: sortedMap(node.attrs ?? {}),
+    props: sortedMap(node.props ?? {}),
+    style: sortedMap(node.style ?? {}),
+    states: Object.fromEntries(Object.keys(node.states ?? {}).sort().map(name => [name, sortedMap(node.states[name])])),
+    responsive: (node.responsive ?? []).map(rule => ({
+      media: rule.media,
+      specificity: rule.specificity,
+      order: rule.order,
+      declarations: sortedMap(rule.declarations ?? {}),
+    })),
+    children: (node.children ?? []).map(walk),
+  });
+  return walk(node);
+}
+export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],compiledBackend}) {
   for (const w of (config.permissionWarnings ?? [])) warnings.push(w);
   let root;
-  if (config.renderer === 'webview') {
-    root = {tag:'body',key:0,text:'',attrs:{},props:{},style:{},states:{},responsive:[],children:[]};
-    try {
-      const allowedHosts = new Set(config.permissions?.networkHosts ?? []);
-      for (const match of html.matchAll(/\bdata-fetch\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
-        const url = new URL(match[1] ?? match[2] ?? match[3]);
+  try { root = compiledTree ?? parseHTML(html, {library: COMPONENT_LIBRARY}); }
+  catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
+  try {
+    const allowedHosts = new Set(config.permissions?.networkHosts ?? []);
+    const checkNetwork = node => {
+      if (node.attrs['data-fetch']) {
+        const url = new URL(node.attrs['data-fetch']);
         if (url.protocol !== 'https:' || url.username || url.password || url.port && url.port !== '443' || url.hash) {
           throw new Error('data-fetch requires an HTTPS URL on the default port with no credentials or fragment');
         }
         if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error(`Network host is not listed in permissions.network: ${url.hostname}`);
       }
-    } catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
-  } else {
-    try { root = compiledTree ?? parseHTML(html, {library: COMPONENT_LIBRARY}); }
-    catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
-    try {
-      const allowedHosts = new Set(config.permissions?.networkHosts ?? []);
-      const checkNetwork = node => {
-        if (node.attrs['data-fetch']) {
-          const url = new URL(node.attrs['data-fetch']);
-          if (url.protocol !== 'https:' || url.username || url.password || url.port && url.port !== '443' || url.hash) {
-            throw new Error('data-fetch requires an HTTPS URL on the default port with no credentials or fragment');
-          }
-          if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error(`Network host is not listed in permissions.network: ${url.hostname}`);
-        }
-        for (const child of node.children) checkNetwork(child);
-      };
-      checkNetwork(root);
-    } catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
-  }
+      for (const child of node.children) checkNetwork(child);
+    };
+    checkNetwork(root);
+  } catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
   const windowChrome = {titlebar:config.window?.titlebar ?? 'system', backdrop:config.window?.backdrop ?? 'opaque'};
   const hasAttribute = (node, name) => node.attrs[name] !== undefined || node.children.some(child => hasAttribute(child, name));
-  if (config.renderer !== 'webview' && windowChrome.titlebar === 'unified' && !hasAttribute(root, 'data-window-drag')) {
+  if (windowChrome.titlebar === 'unified' && !hasAttribute(root, 'data-window-drag')) {
     warnings.push(`${sourceFiles.html ?? 'HTML'}: window.titlebar is "unified" but no element has data-window-drag, so the window cannot be moved`);
   }
-  if (config.renderer !== 'webview' && windowChrome.titlebar !== 'unified' && hasAttribute(root, 'data-window-control')) {
+  if (windowChrome.titlebar !== 'unified' && hasAttribute(root, 'data-window-control')) {
     warnings.push(`${sourceFiles.html ?? 'HTML'}: data-window-control has no effect unless window.titlebar is "unified"`);
   }
   let rules;
-  if (config.renderer !== 'webview') {
-    try {
-      const stylesheet = compileStylesheet(css, {strict:config.strictCss === true, prelude:COMPONENT_LIBRARY_CSS});
-      rules = stylesheet.rules;
-      for (const warning of stylesheet.warnings) warnings.push(`${sourceFiles.css ?? 'CSS'}: ${warning}`);
-    } catch (error) { throw new Error(`${sourceFiles.css ?? 'CSS'}: ${error.message}`, {cause:error}); }
-    root = styleTree(root,rules);
-  }
+  try {
+    const stylesheet = compileStylesheet(css, {strict:config.strictCss === true, prelude:COMPONENT_LIBRARY_CSS});
+    rules = stylesheet.rules;
+    for (const warning of stylesheet.warnings) warnings.push(`${sourceFiles.css ?? 'CSS'}: ${warning}`);
+  } catch (error) { throw new Error(`${sourceFiles.css ?? 'CSS'}: ${error.message}`, {cause:error}); }
+  root = styleTree(root,rules);
   let backend_js;
   try { backend_js = compiledBackend ?? compileBackend(backend); }
   catch (error) { throw new Error(`${sourceFiles.backend ?? 'backend.ts'}: ${error.message}`, {cause:error}); }
-  if (config.renderer === 'webview' && (typeof webviewHtml !== 'string' || !webviewHtml)) {
-    throw new Error('WebView renderer requires a prepared webviewHtml document');
-  }
+  root = canonicalNode(root);
   return {
-    format:'tsgpui-1',
-    renderer:config.renderer ?? 'webview',
-    name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.tsgpui.${config.name.replaceAll("_", "-")}`,
+    format:'tsgpu-1',
+    renderer:config.renderer ?? 'rendrix',
+    name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.tsgpu.${config.name.replaceAll("_", "-")}`,
     width:config.width,height:config.height,
     root,backend_js,assets,fonts:config.fonts ?? {},
     persist:config.persist === true,
     dev:config.dev === true,
     diagnostics:config.dev === true ? [...warnings] : [],
-    ...(config.renderer === 'webview' ? {webview_html:webviewHtml ?? '', webview_format_version:2, webview_files:webviewFiles ?? {}, webview_entry:webviewEntry ?? '/index.html'} : {}),
-    ...(config.backendWindow === 'hidden' ? {backend_window:'hidden', webview_main_html:webviewMainHtml ?? ''} : {}),
     protocol_schemes: config.protocolSchemes ?? [],
     permissions:{network_hosts:config.permissions?.networkHosts ?? [],network_methods:config.permissions?.networkMethods ?? {},filesystem:config.permissions?.filesystem ?? {read:[],write:[]},processes:config.permissions?.processes ?? [],process_args:config.permissions?.processArgs ?? {},notifications:config.permissions?.notifications ?? false,ipc:config.permissions?.ipc ?? false,window:config.permissions?.window ?? false},
     window:windowChrome
@@ -272,41 +309,14 @@ export async function buildPackage(projectPath, options = {}) {
   }
   const bundledBackend = await bundleBackend(project.paths.backend, project.projectRoot, assertRealInside);
   let root;
-  if (project.config.renderer !== 'webview') {
-    try { root = parseHTML(html, {library: COMPONENT_LIBRARY}); }
-    catch (error) { throw new Error(`${project.config.html}: ${error.message}`, {cause:error}); }
-  }
-  const imagePaths = project.config.renderer === 'webview' ? new Set() : collectImagePaths(root);
+  try { root = parseHTML(html, {library: COMPONENT_LIBRARY}); }
+  catch (error) { throw new Error(`${project.config.html}: ${error.message}`, {cause:error}); }
+  const imagePaths = collectImagePaths(root);
   const assets = Object.fromEntries(await Promise.all([...imagePaths].map(async source=>[source,await readAsset(project.projectRoot,source)])));
   const fonts = Object.fromEntries(await Promise.all((project.config.fontFiles ?? []).map(font=>readFont(project.projectRoot,font))));
   const watchAssets = new Set([...imagePaths,...(project.config.fontFiles ?? []).map(font=>font.src),...bundledBackend.files.map(file=>path.relative(project.projectRoot,file))]);
   const warnings = [];
-  let webviewHtml, webviewFiles, webviewEntry, webviewMainHtml;
-  // With backendWindow "hidden" the backend runs in its own document, and every renderer page only renders.
-  const hidden = project.config.backendWindow === 'hidden';
-  if (project.config.renderer === 'webview') {
-    const backendJs = bundledBackend.js;
-    webviewEntry = '/' + path.relative(project.projectRoot, project.paths.html).split(path.sep).join('/');
-    webviewFiles = await collectWebviewFiles(html,css,{projectRoot:project.projectRoot,htmlFile:project.paths.html,cssFile:project.paths.css,watchedAssets:watchAssets,extraHtmlFiles:project.config.webviewPages.map(page=>inProject(project.projectRoot,page))});
-    const webviewFonts = Object.fromEntries((project.config.fontFiles ?? []).map(font => [font.family.trim(),{
-      data:fonts[font.family.trim()],mime:path.extname(font.src).toLowerCase() === '.otf' ? 'font/otf' : 'font/ttf'
-    }]));
-    webviewHtml = await prepareWebviewHtml(html,css,{
-      backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,fonts:webviewFonts,
-      persist:project.config.persist === true, preserveUrls:true, omitBackend:hidden,
-      projectRoot:project.projectRoot,htmlFile:project.paths.html,cssFile:project.paths.css,watchedAssets:watchAssets
-    });
-    if (hidden) webviewMainHtml = await prepareWebviewHtml('<!doctype html><html><head></head><body></body></html>', '', {backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,persist:project.config.persist === true,preserveUrls:true,projectRoot:project.projectRoot,htmlFile:project.paths.html,watchedAssets:watchAssets});
-    // Additional windows need the same CSP and bridge setup, without inheriting the first page's CSS.
-    for (const page of project.config.webviewPages) {
-      const file = inProject(project.projectRoot,page);
-      const key = '/' + path.relative(project.projectRoot,file).split(path.sep).join('/');
-      const source = await readFile(file, 'utf8');
-      const prepared = await prepareWebviewHtml(source, '', {backendJs,title:project.config.title,networkHosts:project.config.permissions.networkHosts,persist:project.config.persist === true,preserveUrls:true,omitBackend:hidden,projectRoot:project.projectRoot,htmlFile:file,watchedAssets:watchAssets});
-      webviewFiles[key] = {mime:'text/html',data:Buffer.from(prepared).toString('base64')};
-    }
-  }
-  const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,webviewHtml,webviewMainHtml,webviewFiles,webviewEntry,compiledBackend:bundledBackend.js,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
+  const built = compileProject({html,css,backend,config:{...project.config,fonts,dev:options.dev === true},assets,compiledTree:root,warnings,compiledBackend:bundledBackend.js,sourceFiles:{html:project.config.html,css:project.config.css,backend:project.config.backend}});
   const {createHash} = await import('node:crypto');
   built.integrity = createHash('sha256').update(built.backend_js + JSON.stringify(built.root)).digest('hex');
   const json = JSON.stringify(built);

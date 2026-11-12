@@ -1,14 +1,15 @@
 name: Release prebuilt hosts
-# Builds the native and WebView hosts for every supported target and attaches them, with hosts.json
-# (names, sizes and SHA-256 hashes), to the GitHub release the CLI downloads from.
-# Run it by pushing a tag such as v0.3.0, or manually with the tag as input.
+# Builds the Rendrix host (and the deprecated GPUI host) for every supported target and
+# attaches them, with hosts.json (names, sizes and SHA-256 hashes), to the GitHub release
+# the CLI downloads from. No WebView host is built: the WebView renderer is removed.
+# Run it by pushing a tag such as v0.4.0, or manually with the tag as input.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to attach the hosts to (for example v0.3.0)
+        description: Release tag to attach the hosts to (for example v0.4.0)
         required: true
 permissions:
   contents: write
@@ -36,21 +37,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      # WebKitGTK/GTK are gone with the WebView host; these are the deprecated GPUI host's
+      # Linux system libraries. NOTE: hosts published for Linux are compile-verified only —
+      # GUI smoke on Linux runners is pending physical verification.
       - name: Install Linux system libraries
         if: startsWith(matrix.target, 'linux-')
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libssl-dev libasound2-dev libfontconfig-dev libvulkan-dev
-      - name: Build native host
-        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpui-host
-      - name: Build WebView host
-        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features webview-host --bin tsgpui-webview-host
+          sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libssl-dev libasound2-dev libfontconfig-dev libvulkan-dev
+      - name: Build Rendrix host
+        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features rendrix --bin rendrix-host
+      - name: Build deprecated GPUI host
+        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpu-gpui-host
       - name: Stage release assets
         shell: bash
         run: |
           mkdir stage
-          cp "native/target/release/tsgpui-host${{ matrix.ext }}" "stage/tsgpui-host-native-${{ matrix.target }}${{ matrix.ext }}"
-          cp "native/target/release/tsgpui-webview-host${{ matrix.ext }}" "stage/tsgpui-host-webview-${{ matrix.target }}${{ matrix.ext }}"
+          cp "native/target/release/rendrix-host${{ matrix.ext }}" "stage/rendrix-host-${{ matrix.target }}${{ matrix.ext }}"
+          cp "native/target/release/tsgpu-gpui-host${{ matrix.ext }}" "stage/tsgpu-gpui-host-${{ matrix.target }}${{ matrix.ext }}"
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: stage/*
@@ -71,6 +75,9 @@ jobs:
           pattern: hosts-*
           path: hosts
           merge-multiple: true
+      # hosts.json v2: one rendrix-host-<target> entry per target, plus tsgpu-gpui-host-<target>
+      # while the GPUI host is deprecated. make-host-manifest.mjs (packages/cli/scripts) must
+      # accept the new asset pattern — Agent J's rename.
       - name: Write hosts.json
         run: node packages/cli/scripts/make-host-manifest.mjs hosts "${TAG#v}"
       - name: Attach to the release

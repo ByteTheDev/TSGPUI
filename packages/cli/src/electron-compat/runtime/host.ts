@@ -128,7 +128,7 @@ const nativeRoutes: Record<string, Route> = {
 };
 function nativeHost(op: string, args: any): Promise<any> {
   const route = nativeRoutes[op];
-  if (!route) return Promise.reject(new Error(`${op} is not available in the native renderer. Pages, extra windows and page messages need renderer: "webview" in tsgpui.config.json.`));
+  if (!route) return Promise.reject(new Error(`${op} is not available in this host. Pages, extra windows and page messages are not supported by the Rendrix host yet; run on the deprecated GPUI host or restructure the app.`));
   try { return Promise.resolve(route((globalThis as any).__tsgpui_native, args ?? {})); } catch (error) { return Promise.reject(error); }
 }
 export function host(op: string, args: any = {}): Promise<any> {

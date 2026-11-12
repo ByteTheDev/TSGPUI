@@ -1,4 +1,4 @@
-﻿import { host } from './host';
+import { host } from './host';
 import { EventEmitter } from './events';
 
 function target(input: any): {url: string, method: string, headers: any} {

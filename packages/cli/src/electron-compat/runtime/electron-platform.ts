@@ -88,7 +88,7 @@ class SystemPreferences extends EventEmitter {
     void this.refresh();
   }
 
-  /** TSGPUI addition: re-read the host's system preference values. */
+  /** TS-GPU addition: re-read the host's system preference values. */
   async refresh(): Promise<void> {
     try {
       const values = await host('systemPreferences.info');

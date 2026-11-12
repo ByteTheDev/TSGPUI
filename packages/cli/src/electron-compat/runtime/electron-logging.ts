@@ -5,7 +5,7 @@ import path from './path';
 import { info, infoReady } from './os';
 
 // netLog: Electron exposes a network log file for traffic captured by the browser process.
-// TSGPUI records the `net.request` traffic its shim sees and writes a JSON log file. Chromium's
+// TS-GPU records the `net.request` traffic its shim sees and writes a JSON log file. Chromium's
 // internal sockets, DNS and QUIC events are not available in the embedded engines.
 let netLogCurrentlyLogging = false;
 let netLogFilePath = '';
@@ -31,13 +31,13 @@ export function recordNetLog(entry: any): void {
 function netLogText(state: string): string {
   const payload: any = {
     version: 1,
-    source: 'tsgpui',
+    source: 'tsgpu',
     state,
     startedAt: new Date(netLogStartedAt || Date.now()).toISOString(),
     entries: netLogEntries,
   };
   if (netLogStoppedAt) payload.stoppedAt = new Date(netLogStoppedAt).toISOString();
-  try { return JSON.stringify(payload, null, 2); } catch { return JSON.stringify({version: 1, source: 'tsgpui', state}); }
+  try { return JSON.stringify(payload, null, 2); } catch { return JSON.stringify({version: 1, source: 'tsgpu', state}); }
 }
 
 async function writeNetLog(state: string): Promise<void> {
@@ -123,7 +123,7 @@ function applyHostPowerState(state: any): void {
   }
 }
 
-/** TSGPUI addition: re-read the host's power state. */
+/** TS-GPU addition: re-read the host's power state. */
 export function refreshPowerState(): Promise<void> {
   return host('power.state').then(applyHostPowerState, () => undefined);
 }
@@ -176,7 +176,7 @@ export class PowerMonitor extends EventEmitter {
   isOnBatteryPower(): boolean {
     return powerOnBatteryState;
   }
-  /** TSGPUI addition: re-read the host's power state. */
+  /** TS-GPU addition: re-read the host's power state. */
   refresh(): Promise<void> {
     return refreshPowerState();
   }

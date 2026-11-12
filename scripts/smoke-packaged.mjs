@@ -27,9 +27,9 @@ try {
     ...(screenshot ? ['-ScreenshotPath', screenshot] : []),
     '-ReportPath', join(raw, 'report.json'),
   ], { encoding: 'utf8', timeout: 180000 });
-  report = JSON.parse(readFileSync(join(raw, 'report.json'), 'utf8'));
+  report = JSON.parse(readFileSync(join(raw, 'report.json'), 'utf8').replace(/^\uFEFF/, ''));
 } catch (error) {
-  try { report = JSON.parse(readFileSync(join(raw, 'report.json'), 'utf8')); } catch {
+  try { report = JSON.parse(readFileSync(join(raw, 'report.json'), 'utf8').replace(/^\uFEFF/, '')); } catch {
     const stdout = String(error.stdout || '');
     try { report = JSON.parse(stdout.slice(stdout.indexOf('{'))); } catch { report = { exe, runs: 1, error: String(error) }; }
   }

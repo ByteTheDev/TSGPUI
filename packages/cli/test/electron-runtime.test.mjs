@@ -9,9 +9,9 @@ const dir = fileURLToPath(new URL('../src/electron-compat/runtime/', import.meta
 function runtime(page = false) {
   const calls = [], subscriptions = new Map(), files = new Map();
   const info = {name:'Example', version:'1.2', platform:'linux', paths:{home:'/home', temp:'/tmp', appFolder:'/app', userData:'/data'}, roots:[{name:'userData',path:'/data',access:'write'}]};
-  const host = async (op, args = {}) => { calls.push([op,args]); switch(op) { case 'app.info': return info; case 'filesystem.writeText': files.set(args.path,args.text); return {}; case 'filesystem.readText': return {text:files.get(args.path)}; case 'filesystem.writeBytes': files.set(args.path,args.base64); return {}; case 'filesystem.readBytes': return {base64:files.get(args.path)}; case 'filesystem.list': return {entries:['a']}; case 'filesystem.stat': return {type:'file',size:3}; case 'process.spawn': return {status:0,stdout:'ok',stderr:''}; case 'dialog.openFile': return {canceled:false,paths:['/data/a']}; case 'dialog.saveFile': return {canceled:false,path:'/data/a'}; case 'dialog.message': return {response:1}; case 'clipboard.readText': return {text:'clip'}; case 'ipc.invoke': return context.__tsgpui_ipc_dispatch('invoke',args.channel,args.payload); case 'ipc.send': return context.__tsgpui_ipc_dispatch('send',args.channel,args.payload); default: return {}; } };
-  const context = vm.createContext({console, Uint8Array, Promise, Map, setTimeout, URL, TextEncoder, TextDecoder, __tsgpui_host:host});
-  context.__tsgpui_emit = (channel,payload) => { for (const fn of subscriptions.get(channel) || []) fn(payload); };
+  const host = async (op, args = {}) => { calls.push([op,args]); switch(op) { case 'app.info': return info; case 'filesystem.writeText': files.set(args.path,args.text); return {}; case 'filesystem.readText': return {text:files.get(args.path)}; case 'filesystem.writeBytes': files.set(args.path,args.base64); return {}; case 'filesystem.readBytes': return {base64:files.get(args.path)}; case 'filesystem.list': return {entries:['a']}; case 'filesystem.stat': return {type:'file',size:3}; case 'process.spawn': return {status:0,stdout:'ok',stderr:''}; case 'dialog.openFile': return {canceled:false,paths:['/data/a']}; case 'dialog.saveFile': return {canceled:false,path:'/data/a'}; case 'dialog.message': return {response:1}; case 'clipboard.readText': return {text:'clip'}; case 'ipc.invoke': return context.__tsgpu_ipc_dispatch('invoke',args.channel,args.payload); case 'ipc.send': return context.__tsgpu_ipc_dispatch('send',args.channel,args.payload); default: return {}; } };
+  const context = vm.createContext({console, Uint8Array, Promise, Map, setTimeout, URL, TextEncoder, TextDecoder, __tsgpu_host:host});
+  context.__tsgpu_emit = (channel,payload) => { for (const fn of subscriptions.get(channel) || []) fn(payload); };
   if (page) context.window = {tsgpui:{invoke:host,on(channel,fn) { const a = subscriptions.get(channel) || []; a.push(fn); subscriptions.set(channel,a); return () => { const i = a.indexOf(fn); if (i >= 0) a.splice(i,1); }; }}, matchMedia:() => ({matches:true})};
   const cache = new Map();
   function load(name) { name = name.replace(/^\.\//,'').replace(/\.ts$/,''); if(cache.has(name)) return cache.get(name).exports; const mod = {exports:{}}; cache.set(name,mod); const source = fs.readFileSync(path.join(dir,name+'.ts'),'utf8'); const js = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText; const fn = vm.runInContext(`(function(require,module,exports){${js}\n})`,context); fn(load,mod,mod.exports); return mod.exports; }
@@ -24,7 +24,7 @@ test('unsupported process event registration fails explicitly', () => {
 });
 test('process exposes host architecture after initialization', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async () => ({platform:'linux', arch:'x64', paths:{}});
+  context.__tsgpu_host = async () => ({platform:'linux', arch:'x64', paths:{}});
   const process = load('process');
   await load('os').infoReady;
   await Promise.resolve();
@@ -45,7 +45,7 @@ test('node shims copy bytes and reject unsupported process operations', async ()
 });
 test('https accepts URL plus request options and rejects binary bodies', async () => {
   const {load, context, calls} = runtime();
-  context.__tsgpui_host = async (op, args) => { calls.push([op, args]); return {status:200, headers:{}, body:'ok'}; };
+  context.__tsgpu_host = async (op, args) => { calls.push([op, args]); return {status:200, headers:{}, body:'ok'}; };
   const https = load('https');
   await new Promise((resolve, reject) => {
     const req = https.request('https://example.com/', {method:'POST', headers:{x:'y'}}, res => res.on('end', resolve));
@@ -59,13 +59,13 @@ test('https accepts URL plus request options and rejects binary bodies', async (
 test('IPC dispatch replies to the originating secondary window', async () => {
   const {load,context,calls} = runtime(); const e = load('electron');
   e.ipcMain.handle('ping', (event, value) => { event.sender.send('notice', value); return value + 1; });
-  assert.equal(await context.__tsgpui_ipc_dispatch('invoke','ping',41,2),42);
+  assert.equal(await context.__tsgpu_ipc_dispatch('invoke','ping',41,2),42);
   const sent = calls.find(([op]) => op === 'window.send');
   assert.equal(sent[1].windowId,2); assert.equal(sent[1].channel,'notice'); assert.equal(sent[1].payload,41);
 });
 test('failed secondary window creation does not leave a phantom window', async () => {
   const {load,context} = runtime(); const e = load('electron');
-  context.__tsgpui_host = async (op) => { if (op === 'window.create') throw new Error('creation failed'); return {}; };
+  context.__tsgpu_host = async (op) => { if (op === 'window.create') throw new Error('creation failed'); return {}; };
   const first = new e.BrowserWindow(); const second = new e.BrowserWindow();
   await assert.rejects(second.loadFile('dist/dialog.html'), /creation failed/);
   await Promise.resolve(); assert.equal(second.isDestroyed(), true); assert.deepEqual(Array.from(e.BrowserWindow.getAllWindows()), [first]);
@@ -109,7 +109,7 @@ test('nativeImage preserves PNG bytes and reports dimensions without host image 
 });
 test('nativeImage uses host pixels for encoding, resizing and cropping', async () => {
   const {load,context,calls} = runtime();
-  context.__tsgpui_host = async (op, args = {}) => {
+  context.__tsgpu_host = async (op, args = {}) => {
     calls.push([op,args]);
     switch (op) {
       case 'app.info': return {name:'Example', version:'1.2', platform:'linux', paths:{}, roots:[{name:'data',path:'/data',access:'read'}]};
@@ -159,7 +159,7 @@ test('app, IPC, dialogs, windows and warnings', async () => { const {load,contex
 test('os, process and child process', async () => { const {load} = runtime(); const os = load('os'); await os.infoReady; assert.equal(os.platform(),'linux'); assert.equal(os.homedir(),'/home'); const proc = load('process'); assert.equal(proc.default.cwd(),'/app'); assert.throws(() => proc.exit(),/not supported/); let tick = false; proc.nextTick(() => tick = true); await Promise.resolve(); assert.equal(tick,true); const cp = load('child_process'); const result = await new Promise((resolve,reject) => cp.execFile('allowed',['arg'],(err,out) => err ? reject(err) : resolve(out))); assert.equal(result,'ok'); });
 test('https forwards requests and emits responses and errors', async () => {
   const {load,context,calls} = runtime();
-  context.__tsgpui_host = async (op,args) => { calls.push([op,args]); if (args.url.includes('bad')) throw new Error('denied'); return {status:201,headers:{'content-type':'text/plain'},body:'hello'}; };
+  context.__tsgpu_host = async (op,args) => { calls.push([op,args]); if (args.url.includes('bad')) throw new Error('denied'); return {status:201,headers:{'content-type':'text/plain'},body:'hello'}; };
   const https = load('https');
   const result = await new Promise((resolve,reject) => { const req = https.request({hostname:'example.com',path:'/x',method:'POST',headers:{x:'y'}}, res => { let body=''; res.on('data', chunk => body+=chunk); res.on('end', () => resolve([res.statusCode,res.headers['content-type'],body])); }); req.on('error',reject); req.write('abc'); req.end('d'); });
   assert.deepEqual(result,[201,'text/plain','hello']);
@@ -168,7 +168,7 @@ test('https forwards requests and emits responses and errors', async () => {
 });
 test('electron net.request sends text and headers through the permission-checked host', async () => {
   const {load,context,calls} = runtime();
-  context.__tsgpui_host = async (op,args) => { calls.push([op,args]); return {status:201,headers:{'x-result':'ok'},body:'reply'}; };
+  context.__tsgpu_host = async (op,args) => { calls.push([op,args]); return {status:201,headers:{'x-result':'ok'},body:'reply'}; };
   const e = load('electron');
   const req = e.net.request({url:'https://example.com/resource',method:'POST'});
   req.setHeader('X-Token','one'); req.setHeader('x-token','two');
@@ -194,7 +194,7 @@ test('userData root maps app paths to filesystem operations', async () => {
 test('dialog roots map only the selected paths', async () => {
   const {load,context,calls} = runtime();
   const roots = [{name:'read-selection',path:'/picked/input.txt',access:'read',exact:true},{name:'write-selection',path:'/picked/output.txt',access:'write',exact:true}];
-  context.__tsgpui_host = async (op,args) => { calls.push([op,args]); if (op==='app.info') return {paths:{},roots}; if (op==='filesystem.readText') return {text:'selected'}; return {}; };
+  context.__tsgpu_host = async (op,args) => { calls.push([op,args]); if (op==='app.info') return {paths:{},roots}; if (op==='filesystem.readText') return {text:'selected'}; return {}; };
   const fs=load('fs'); assert.equal(await fs.promises.readFile('/picked/input.txt','utf8'),'selected');
   await fs.promises.writeFile('/picked/output.txt','saved');
   assert.equal(calls.find(([op]) => op==='filesystem.writeText')[1].root,'write-selection');
@@ -207,7 +207,7 @@ test('standard paths use only host-provided values', async () => {
   const {load,context} = runtime();
   const names = ['home','appData','userData','temp','desktop','documents','downloads','music','pictures','videos','logs','exe','module','sessionData'];
   const paths = Object.fromEntries(names.map(name => [name, '/host/' + name]));
-  context.__tsgpui_host = async op => op === 'app.info' ? {paths} : {};
+  context.__tsgpu_host = async op => op === 'app.info' ? {paths} : {};
   const app = load('electron').app; await app.whenReady();
   for (const name of names) assert.equal(app.getPath(name), paths[name]);
   delete paths.music;
@@ -221,7 +221,7 @@ test('sync filesystem calls explain the asynchronous alternative', () => {
 });
 test('spawn emits collected output before closing', async () => {
   const {load,context,calls} = runtime();
-  context.__tsgpui_host = async (op,args) => { calls.push([op,args]); return {status:7,stdout:'out',stderr:'err'}; };
+  context.__tsgpu_host = async (op,args) => { calls.push([op,args]); return {status:7,stdout:'out',stderr:'err'}; };
   const child = load('child_process').spawn('command',['arg']);
   const events = [];
   child.stdout.on('data', data => events.push(['stdout',data]));
@@ -247,10 +247,10 @@ test('a user close request reaches close listeners, which can prevent it', async
   let prevent = true; child.on('close', event => { if (prevent) event.preventDefault(); });
   await flush();
   assert.ok(calls.some(([op,args]) => op === 'window.watchClose' && args.windowId === child.id));
-  context.__tsgpui_window_event(child.id, 'close-requested'); await flush();
+  context.__tsgpu_window_event(child.id, 'close-requested'); await flush();
   assert.equal(child.isDestroyed(), false);
   assert.equal(calls.some(([op]) => op === 'window.close'), false);
-  prevent = false; context.__tsgpui_window_event(child.id, 'close-requested'); await flush();
+  prevent = false; context.__tsgpu_window_event(child.id, 'close-requested'); await flush();
   assert.equal(child.isDestroyed(), true);
   assert.ok(calls.some(([op,args]) => op === 'window.close' && args.windowId === child.id));
 });
@@ -272,9 +272,9 @@ test('native lifecycle events reach BrowserWindow listeners', () => {
   const w = new e.BrowserWindow(); const seen = [];
   const names = ['focus','blur','move','resize','minimize','maximize','restore'];
   for (const name of names) w.on(name, () => seen.push(name));
-  for (const name of names) context.__tsgpui_window_event(w.id, name);
+  for (const name of names) context.__tsgpu_window_event(w.id, name);
   assert.deepEqual(seen, names);
-  w.close(); context.__tsgpui_window_event(w.id, 'focus'); assert.deepEqual(seen, names);
+  w.close(); context.__tsgpu_window_event(w.id, 'focus'); assert.deepEqual(seen, names);
 });
 test('closing the last window quits unless the app handles window-all-closed', async () => {
   const quits = runtime(); const first = quits.load('electron');
@@ -307,7 +307,7 @@ test('webContents exposes each window by id', () => {
 
 test('screen reports cached host displays with Electron-style lookups', async () => {
   const {load,context} = runtime();
-  context.__tsgpui_host = async (op) => op === 'screen.displays' ? {displays:[{x:0,y:0,width:1920,height:1080,scaleFactor:1.5,primary:true},{x:1920,y:0,width:1280,height:720,scaleFactor:1,primary:false}]} : {};
+  context.__tsgpu_host = async (op) => op === 'screen.displays' ? {displays:[{x:0,y:0,width:1920,height:1080,scaleFactor:1.5,primary:true},{x:1920,y:0,width:1280,height:720,scaleFactor:1,primary:false}]} : {};
   const e = load('electron');
   assert.throws(() => e.screen.getPrimaryDisplay(), /still loading/);
   await e.screen.refresh();
@@ -355,7 +355,7 @@ test('MessageChannelMain delivers cloned messages between ports', async () => {
 
 test('powerSaveBlocker tracks blockers and sends the active set to the host', async () => {
   const {load,context,calls} = runtime();
-  context.__tsgpui_host = async (op, args) => { calls.push([op, args]); return {}; };
+  context.__tsgpu_host = async (op, args) => { calls.push([op, args]); return {}; };
   const e = load('electron');
   const id = e.powerSaveBlocker.start('prevent-display-sleep');
   assert.equal(e.powerSaveBlocker.isStarted(id), true);
@@ -583,7 +583,7 @@ test('autoUpdater reports an available update from the feed', async () => {
   const {load, context} = runtime();
   context.TextEncoder = TextEncoder;
   context.TextDecoder = TextDecoder;
-  context.__tsgpui_host = async (op) => {
+  context.__tsgpu_host = async (op) => {
     if (op === 'app.info') return {name: 'Example', version: '1.2'};
     if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/app.exe'})};
     return {};
@@ -602,7 +602,7 @@ test('autoUpdater reports no update when the feed version is older', async () =>
   const {load, context} = runtime();
   context.TextEncoder = TextEncoder;
   context.TextDecoder = TextDecoder;
-  context.__tsgpui_host = async (op) => {
+  context.__tsgpu_host = async (op) => {
     if (op === 'app.info') return {name: 'Example', version: '1.2'};
     if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '1.0.0', url: 'https://example.com/app.exe'})};
     return {};
@@ -619,7 +619,7 @@ test('autoUpdater reports no update when the feed version is older', async () =>
 
 test('autoUpdater stages the artifact on the host and swaps it in on quitAndInstall', async () => {
   const {load, context, calls} = runtime();
-  context.__tsgpui_host = async (op, args) => {
+  context.__tsgpu_host = async (op, args) => {
     calls.push([op, args]);
     if (op === 'app.info') return {name: 'Example', version: '1.2'};
     if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/downloads/my app.exe', sha256: 'abc'})};
@@ -647,7 +647,7 @@ test('autoUpdater stages the artifact on the host and swaps it in on quitAndInst
 
 test('autoUpdater falls back to an in-memory download and browser install when the host cannot stage', async () => {
   const {load, context, calls} = runtime();
-  context.__tsgpui_host = async (op, args) => {
+  context.__tsgpu_host = async (op, args) => {
     calls.push([op, args]);
     if (op === 'app.info') return {name: 'Example', version: '1.2'};
     if (op === 'net.request') return {status: 200, body: JSON.stringify({version: '2.0.0', url: 'https://example.com/downloads/app.exe'})};
@@ -710,7 +710,7 @@ test('protocol callback handlers and file protocols work, and unregister removes
   assert.equal(p.isProtocolRegistered('cb'), false);
   await assert.rejects(protocolModule.dispatchRequest('cb://localhost/value'), /no handler registered/);
   p.registerFileProtocol('assets');
-  assert.equal(await protocolModule.dispatchRequest('assets://localhost/dir/index.html'), 'tsgpui://localhost/dir/index.html');
+  assert.equal(await protocolModule.dispatchRequest('assets://localhost/dir/index.html'), 'tsgpu://localhost/dir/index.html');
   p.unregisterProtocol('assets');
   assert.equal(p.isProtocolRegistered('assets'), false);
   p.registerStringProtocol('text', () => '<p>hello</p>');
@@ -737,7 +737,7 @@ test('protocol callback handlers and file protocols work, and unregister removes
 
 test('protocol proxies remote responses through the permission-checked net transport', async () => {
   const {load, context, calls} = runtime();
-  context.__tsgpui_host = async (op, args) => {
+  context.__tsgpu_host = async (op, args) => {
     calls.push([op, args]);
     if (op === 'net.request') return {status: 201, headers: {'content-type': 'text/plain', 'x-result': 'ok'}, body: 'remote'};
     return {};
@@ -765,7 +765,7 @@ test('protocol proxies remote responses through the permission-checked net trans
 test('persistent session cookies round-trip through userData', async () => {
   const {load, context, calls} = runtime();
   const files = new Map();
-  context.__tsgpui_host = async (op, args) => {
+  context.__tsgpu_host = async (op, args) => {
     calls.push([op, args]);
     if (op === 'session.cookies') throw new Error('session cookies are not hosted');
     if (op === 'filesystem.writeText') { files.set(args.path, args.text); return {}; }
@@ -806,7 +806,7 @@ test('session cookies fall back to memory when the host returns an empty answer'
 
 test('session clearStorageData and clearData filter storage types', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
+  context.__tsgpu_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
   const cleared = [];
   context.localStorage = {clear() { cleared.push('local'); }};
   context.sessionStorage = {clear() { cleared.push('session'); }};
@@ -821,7 +821,7 @@ test('session clearStorageData and clearData filter storage types', async () => 
 
 test('session permission handlers and user agent are invocable', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
+  context.__tsgpu_host = async (op) => { if (op.startsWith('session.')) throw new Error('not hosted'); return {}; };
   const navigatorValue = {userAgent: 'old-agent'};
   context.navigator = navigatorValue;
   const session = load('electron').session.defaultSession;
@@ -839,7 +839,7 @@ test('session permission handlers and user agent are invocable', async () => {
 
 test('session webRequest listeners and download item stubs are inspectable', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => {
+  context.__tsgpu_host = async (op) => {
     if (op === 'session.downloadURL') return {savePath: '/tmp/file.bin', receivedBytes: 3};
     throw new Error('not hosted');
   };
@@ -873,7 +873,7 @@ test('session webRequest listeners and download item stubs are inspectable', asy
 
 test('webContents tracks navigation state, load events, zoom and findInPage', async () => {
   const {load, context, calls} = runtime();
-  context.__tsgpui_host = async (op, args) => { calls.push([op, args]); return {}; };
+  context.__tsgpu_host = async (op, args) => { calls.push([op, args]); return {}; };
   context.document = {title: '', documentElement: {style: {}}};
   const e = load('electron');
   const primary = new e.BrowserWindow({title: 'Primary'});
@@ -923,7 +923,7 @@ test('webContents stop cancels loading and suppresses a late did-finish-load', a
   const child = new e.BrowserWindow();
   await flush();
   let release;
-  context.__tsgpui_host = async (op, args) => {
+  context.__tsgpu_host = async (op, args) => {
     calls.push([op, args]);
     if (op === 'window.load') return new Promise(resolve => { release = resolve; });
     return {};
@@ -951,7 +951,7 @@ test('webContents emits did-fail-load when the host rejects a load', async () =>
   new e.BrowserWindow();
   const child = new e.BrowserWindow();
   await flush();
-  context.__tsgpui_host = async (op) => {
+  context.__tsgpu_host = async (op) => {
     if (op === 'window.load') throw new Error('missing page');
     return {};
   };
@@ -966,7 +966,7 @@ test('webContents emits did-fail-load when the host rejects a load', async () =>
 
 test('powerMonitor seeds state from the host and re-emits host events', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => op === 'power.state'
+  context.__tsgpu_host = async (op) => op === 'power.state'
     ? {onBattery: true, idleTime: 42, thermalState: 'fair', locked: false}
     : {};
   const e = load('electron');
@@ -978,8 +978,8 @@ test('powerMonitor seeds state from the host and re-emits host events', async ()
   const seen = [];
   monitor.on('on-ac', () => seen.push('on-ac'));
   monitor.on('lock-screen', () => seen.push('lock'));
-  context.__tsgpui_power_event('on-ac');
-  context.__tsgpui_power_event('lock-screen');
+  context.__tsgpu_power_event('on-ac');
+  context.__tsgpu_power_event('lock-screen');
   assert.deepEqual(seen, ['on-ac', 'lock']);
   assert.equal(monitor.isOnBatteryPower(), false);
   assert.equal(monitor.getSystemIdleState(10), 'locked');
@@ -987,7 +987,7 @@ test('powerMonitor seeds state from the host and re-emits host events', async ()
 
 test('systemPreferences reads host appearance, colors and motion', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => op === 'systemPreferences.info'
+  context.__tsgpu_host = async (op) => op === 'systemPreferences.info'
     ? {darkMode: true, accentColor: '0078d7', colors: {window: '#123456'}, reduceMotion: true, invertedColors: true}
     : {};
   const e = load('electron');
@@ -1003,14 +1003,14 @@ test('systemPreferences reads host appearance, colors and motion', async () => {
 
 test('screen normalizes host display events and refreshes its cache', async () => {
   const {load, context} = runtime();
-  context.__tsgpui_host = async (op) => op === 'screen.displays'
+  context.__tsgpu_host = async (op) => op === 'screen.displays'
     ? {displays: [{id: 7, x: 0, y: 0, width: 800, height: 600, scaleFactor: 1, primary: true}]}
     : {};
   const e = load('electron');
   await e.screen.refresh();
   const added = [];
   e.screen.on('display-added', (_event, display) => added.push(display));
-  context.__tsgpui_display_event('display-added', {id: 8, x: 800, y: 0, width: 400, height: 300, scaleFactor: 2, primary: false});
+  context.__tsgpu_display_event('display-added', {id: 8, x: 800, y: 0, width: 400, height: 300, scaleFactor: 2, primary: false});
   assert.equal(added.length, 1);
   assert.equal(added[0].id, 8);
   assert.equal(added[0].bounds.x, 800);
@@ -1078,7 +1078,7 @@ test('webFrameMain send and postMessage reach the page', () => {
   const {load, context} = runtime();
   const e = load('electron');
   const messages = [];
-  context.__tsgpui_emit = (channel, payload) => messages.push([channel, payload]);
+  context.__tsgpu_emit = (channel, payload) => messages.push([channel, payload]);
   const frame = new e.webFrameMain(1, 1);
   frame.send('notice', 41);
   frame.postMessage('port', {n: 2});

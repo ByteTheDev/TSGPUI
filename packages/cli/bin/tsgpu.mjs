@@ -12,7 +12,7 @@ import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
 import {signArtifact,resolveSignCommand,notarizeArtifact,writeManifest,findSigntool,findCodesign,findGpg,findNotarytool} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
-import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuiHome,verifyCachedHost} from '../src/hosts.mjs';
+import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuHome,verifyCachedHost} from '../src/hosts.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,7 @@ function projectDir() {return path.resolve(flag('project',process.cwd()));}
 function rustAvailable() {return spawnSync('cargo',['--version'],{stdio:'ignore'}).status === 0;}
 
 const suffix = exeSuffix();
-function cachedHost(renderer='native') {return cachedHostPath(renderer);}
+function cachedHost(renderer='rendrix') {return cachedHostPath(renderer);}
 
 // Rust sources: shipped inside the package, or next to it in a monorepo checkout.
 function nativeSource() {
@@ -34,17 +34,15 @@ function nativeSource() {
   }
   return null;
 }
-function explicitHost(renderer='native') {
-  // TSGPUI_HOST names the native host only; a WebView project must not pick it up.
-  const override = renderer==='webview' ? process.env.TSGPUI_WEBVIEW_HOST : process.env.TSGPUI_HOST;
-  return [flag('host',null), override].filter(Boolean);
+function explicitHost(renderer='rendrix') {
+  return [flag('host',null), process.env.TSGPU_HOST].filter(Boolean);
 }
-function sourceBuilds(renderer='native') {
+function sourceBuilds(renderer='rendrix') {
   const source = nativeSource();
   return source ? ['release','debug'].map(profile=>path.join(source,'target',profile,`${hostBinaryName(renderer)}${suffix}`)) : [];
 }
 // Explicit overrides are deliberate; cached hosts must match the available sources.
-async function hostPath(autoBuild = false, renderer='native') {
+async function hostPath(autoBuild = false, renderer='rendrix') {
   for(const candidate of explicitHost(renderer)) if (fs.existsSync(candidate)) return path.resolve(candidate);
   const cached = inspectCachedHost(renderer,VERSION);
   const source = nativeSource();
@@ -54,22 +52,22 @@ async function hostPath(autoBuild = false, renderer='native') {
   if (checkoutSource) {
     const stamp = sourceStamp(source, renderer);
     if (cached.state === 'ok' && installedSourceStamp(cached.file) === stamp && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-    if (!autoBuild || !rustAvailable()) throw new Error(`The installed ${renderer} host is missing or does not match the current source. Install Rust, then run \`tsgpui host build --renderer ${renderer}\`.`);
+    if (!autoBuild || !rustAvailable()) throw new Error(`The installed ${renderer} host is missing or does not match the current source. Install Rust, then run \`tsgpu host build --renderer ${renderer}\`.`);
     console.log(`Building the ${renderer} host to match the current source...`);
     await buildHost(renderer);
     return path.resolve(cachedHost(renderer));
   }
   if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-  if (!autoBuild || downloadsDisabled()) throw new Error(`No verified ${renderer} host is installed. Run \`tsgpui host fetch --renderer ${renderer}\` or install one with \`tsgpui host install\`.`);
+  if (!autoBuild || downloadsDisabled()) throw new Error(`No verified ${renderer} host is installed. Run \`tsgpu host fetch --renderer ${renderer}\` or install one with \`tsgpu host install\`.`);
   return path.resolve(await fetchHost({renderer,version:VERSION,pkgRoot}));
 }
 // Host for a target. The current platform may build from source; other targets use a verified prebuilt host.
-async function hostPathFor(autoBuild = false, renderer='native', target=currentTarget()) {
+async function hostPathFor(autoBuild = false, renderer='rendrix', target=currentTarget()) {
   if (target === currentTarget()) return hostPath(autoBuild, renderer);
   for(const candidate of explicitHost(renderer)) if (fs.existsSync(candidate)) return path.resolve(candidate);
   const cached = inspectCachedHost(renderer, VERSION, target);
   if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-  if (downloadsDisabled()) throw new Error(`No ${renderer} host for ${target} is installed, and downloads are disabled. Copy one in with \`tsgpui host install --renderer ${renderer} --target ${target}\`.`);
+  if (downloadsDisabled()) throw new Error(`No ${renderer} host for ${target} is installed, and downloads are disabled. Copy one in with \`tsgpu host install --renderer ${renderer} --target ${target}\`.`);
   await fetchHost({renderer, version: VERSION, pkgRoot, target});
   return path.resolve(cachedHostPath(renderer, target));
 }
@@ -99,12 +97,12 @@ function requestedTargets() {
 // One target builds directly. Several targets build in turn; a failure is reported and the rest still build.
 async function buildTargets(dir, targets) {
   if (targets.length === 1) return buildApp(dir, targets[0], args.includes('--target'));
-  if (explicitHost('native').length || explicitHost('webview').length) throw new Error('A host override cannot be used for multiple targets; install a matching host for each target.');
+  if (explicitHost('rendrix').length || explicitHost('native').length) throw new Error('A host override cannot be used for multiple targets; install a matching host for each target.');
   const failed = [];
   for (const target of targets) {
     console.log(`\n== ${target}`);
     try { await buildApp(dir, target, true); }
-    catch (error) { failed.push({target, message: error.message}); console.error(`TSGPUI: ${target} failed: ${error.message}`); }
+    catch (error) { failed.push({target, message: error.message}); console.error(`tsgpu: ${target} failed: ${error.message}`); }
   }
   console.log(`\nBuilt ${targets.length - failed.length} of ${targets.length} targets.`);
   for (const {target, message} of failed) console.log(`  ${target}: ${message}`);
@@ -112,9 +110,10 @@ async function buildTargets(dir, targets) {
 }
 // Prepare Electron projects in a fresh directory so the original project is never rewritten.
 async function prepareProject(input) {
-  if (fs.existsSync(path.join(input, 'tsgpui.config.json'))) return input;
-  if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No tsgpui.config.json or Electron package.json found in ${input}`);
-  const temp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-project-'));
+  if (fs.existsSync(path.join(input, 'tsgpu.config.json'))) return input;
+  if (fs.existsSync(path.join(input, 'tsgpu.config.json'))) return input; // pre-rename name; readProject warns
+  if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No tsgpu.config.json or Electron package.json found in ${input}`);
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'tsgpu-project-'));
   const options = {out: path.join(temp, 'app')};
   let imported;
   try {
@@ -125,7 +124,7 @@ async function prepareProject(input) {
     console.log('No built renderer found; running the project build script first.');
     imported = await importElectron(input, {...options, build: true});
   }
-  console.log(`Electron compatibility is incomplete. Review ${path.join(imported.out, 'TSGPUI_IMPORT_REPORT.md')} for limitations.`);
+  console.log(`Electron compatibility is incomplete. Review ${path.join(imported.out, 'TSGPU_IMPORT_REPORT.md')} for limitations.`);
   return imported.out;
 }
 
@@ -139,18 +138,18 @@ async function runProject() {
   child.once('close', (code, signal) => { if (code !== 0 || signal) process.exitCode = code || 1; });
 }
 
-async function buildHost(renderer='native') {
+async function buildHost(renderer='rendrix') {
   const source = nativeSource();
-  if (!source) throw new Error('Native host sources not found in this installation. Run `tsgpui host fetch` for a prebuilt host, or use a checkout of the TSGPUI repository.');
+  if (!source) throw new Error('Host sources not found in this installation. Run `tsgpu host fetch` for a prebuilt host, or use a checkout of the TS-GPU repository.');
   assertRenderer(renderer);
-  if (!rustAvailable()) throw new Error(`Rust/Cargo is required to compile the ${renderer} host. Install it from https://rustup.rs, or run \`tsgpui host fetch --renderer ${renderer}\` for a prebuilt host.`);
-  const targetDir = path.join(tsgpuiHome(),'build');
+  if (!rustAvailable()) throw new Error(`Rust/Cargo is required to compile the ${renderer} host. Install it from https://rustup.rs, or run \`tsgpu host fetch --renderer ${renderer}\` for a prebuilt host.`);
+  const targetDir = path.join(tsgpuHome(),'build');
   const stamp = sourceStamp(source, renderer);
   const cargoArgs = ['build','--manifest-path',path.join(source,'Cargo.toml'),'--release','--target-dir',targetDir];
-  if (renderer==='webview') cargoArgs.push('--no-default-features','--features','webview-host','--bin','tsgpui-webview-host');
-  else cargoArgs.push('--features','native-host','--bin','tsgpui-host');
+  if (renderer==='native') cargoArgs.push('--features','native-host','--bin','tsgpu-gpui-host');
+  else cargoArgs.push('--no-default-features','--features','rendrix','--bin','rendrix-host');
   const res = spawnSync('cargo',cargoArgs,{stdio:'inherit'});
-  if (res.status !== 0) throw new Error(`Native host build failed (code ${res.status})`);
+  if (res.status !== 0) throw new Error(`Host build failed (code ${res.status})`);
   if (sourceStamp(source, renderer) !== stamp) throw new Error('Host source changed during compilation; run the host build again.');
   const destination = cachedHost(renderer);
   await mkdir(path.dirname(destination),{recursive:true});
@@ -160,7 +159,7 @@ async function buildHost(renderer='native') {
 }
 async function fetchHosts() {
   const requested = flag('renderer',null);
-  const renderers = requested ? [requested] : ['native','webview'];
+  const renderers = requested ? [requested] : ['rendrix','native'];
   let failed = false;
   for (const renderer of renderers) {
     assertRenderer(renderer);
@@ -175,16 +174,16 @@ async function fetchHosts() {
   }
   if (failed) process.exitCode = 1;
 }
-async function installHost(renderer='native') {
+async function installHost(renderer='rendrix') {
   const file=flag('file',null), expected=flag('sha256',null);
-  if (!file || !expected || !/^[a-fA-F0-9]{64}$/.test(expected)) throw new Error('Use `tsgpui host install --file PATH --sha256 HASH [--renderer native|webview]` with a checksum from a trusted source.');
+  if (!file || !expected || !/^[a-fA-F0-9]{64}$/.test(expected)) throw new Error('Use `tsgpu host install --file PATH --sha256 HASH [--renderer rendrix|native]` with a checksum from a trusted source.');
   const result=await installHostFile({renderer,file,sha256:expected,version:VERSION,target:flag('target',currentTarget())});
   console.log(`${renderer} host installed: ${result.file} (SHA-256 ${result.sha256})`);
 }
 // Deterministic SHA-256 manifest of a file or directory, for publishing beside a release artifact.
 async function releaseManifest() {
   const target = flag('file',null);
-  if (!target) throw new Error('Use `tsgpui release manifest --file PATH`.');
+  if (!target) throw new Error('Use `tsgpu release manifest --file PATH`.');
   const root = path.resolve(target);
   const files = [];
   async function visit(absolute, relative) {
@@ -202,19 +201,19 @@ async function releaseManifest() {
   console.log(JSON.stringify({schema:1,files},null,2));
 }
 async function init() {
-  const folder = args.find(x => !x.startsWith('--')) ?? 'my-tsgpui-app';
+  const folder = args.find(x => !x.startsWith('--')) ?? 'my-tsgpu-app';
   const destination = path.resolve(folder);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error('Project destination is not empty');
   await mkdir(path.join(destination,'src'),{recursive:true});
   const template = path.join(pkgRoot,'templates/basic');
-  for(const file of ['tsgpui.config.json','src/index.html','src/styles.css','src/backend.ts']) {
+  for(const file of ['tsgpu.config.json','src/index.html','src/styles.css','src/backend.ts']) {
     const input = await readFile(path.join(template,file),'utf8');
-    await writeFile(path.join(destination,file),file === 'tsgpui.config.json' ? input.replace(/tsgpui-counter/g, path.basename(destination)) : input);
+    await writeFile(path.join(destination,file),file === 'tsgpu.config.json' ? input.replace(/tsgpu-counter/g, path.basename(destination)) : input);
   }
   const pkg = {
     name: path.basename(destination),private:true,type:'module',
-    scripts:{gpui:'tsgpui build','gpui:dev':'tsgpui dev','gpui:build':'tsgpui build','gpui:compile':'tsgpui compile'},
-    devDependencies:{tsgpui:`^${VERSION}`}
+    scripts:{dev:'tsgpu dev',build:'tsgpu build',compile:'tsgpu compile'},
+    devDependencies:{tsgpu:`^${VERSION}`}
   };
   await writeFile(path.join(destination,'package.json'),JSON.stringify(pkg,null,2)+'\n');
   const relative = path.relative(process.cwd(),destination) || '.';
@@ -223,10 +222,10 @@ async function init() {
   console.log(`Created ${destination}
 
 Next:
-  ${cd}tsgpui dev      # opens the app and reloads on every save
-  tsgpui build    # packages a single executable into dist/
+  ${cd}tsgpu dev      # opens the app and reloads on every save
+  tsgpu build   # packages a single executable into dist/
 
-The first run downloads a verified prebuilt host (no Rust needed). \`tsgpui doctor\` checks your setup.`);
+The first run downloads a verified prebuilt host (no Rust needed). \`tsgpu doctor\` checks your setup.`);
 }
 // Skipped CSS declarations are reported, not silent. With strictCss in the config they are errors instead.
 function printWarnings(warnings=[]) {
@@ -234,7 +233,7 @@ function printWarnings(warnings=[]) {
 }
 function runHost(host,bundleFile) {
   const child=spawn(host,['--bundle',bundleFile],{stdio:'inherit',windowsHide:false});
-  child.on('error',e => console.error(`TSGPUI host failed: ${e.message}`));
+  child.on('error',e => console.error(`TS-GPU host failed: ${e.message}`));
   return child;
 }
 // A failed compile cannot replace the bundle, so leave a sidecar that the running host watches.
@@ -369,19 +368,11 @@ async function preview() {
 // Only a problem that stops the app from running makes the exit code non-zero.
 function systemLibraryCheck(renderer) {
   if (process.platform==='linux') {
-    const wanted = renderer==='webview' ? ['webkit2gtk-4.1','gtk+-3.0'] : ['xkbcommon','wayland-client','xcb'];
+    const wanted = ['xkbcommon','wayland-client','xcb'];
     if (spawnSync('pkg-config',['--version'],{stdio:'ignore'}).status !== 0) return {level:'warn',text:'pkg-config is not installed, so system libraries could not be checked',fix:'sudo apt install pkg-config'};
     const missing = wanted.filter(lib=>spawnSync('pkg-config',['--exists',lib],{stdio:'ignore'}).status !== 0);
     if (!missing.length) return {level:'ok',text:`system libraries present (${wanted.join(', ')})`};
-    const apt = renderer==='webview' ? 'libwebkit2gtk-4.1-dev libgtk-3-dev' : 'libxkbcommon-dev libwayland-dev libxcb1-dev';
-    return {level:'fail',text:`missing system libraries: ${missing.join(', ')}`,fix:`sudo apt install ${apt}   (or your distribution's equivalent)`};
-  }
-  if (process.platform==='win32' && renderer==='webview') {
-    const clients='Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
-    const keys=[`HKLM\\SOFTWARE\\WOW6432Node\\${clients}`,`HKLM\\SOFTWARE\\${clients}`,`HKCU\\Software\\${clients}`];
-    const found = keys.some(key=>spawnSync('reg',['query',key,'/v','pv'],{stdio:'ignore'}).status === 0);
-    return found ? {level:'ok',text:'WebView2 runtime installed'}
-      : {level:'warn',text:'WebView2 runtime not detected',fix:'install it from https://developer.microsoft.com/microsoft-edge/webview2/ (Windows 11 includes it)'};
+    return {level:'fail',text:`missing system libraries: ${missing.join(', ')}`,fix:'sudo apt install libxkbcommon-dev libwayland-dev libxcb1-dev   (or your distribution\'s equivalent)'};
   }
   return null;
 }
@@ -394,7 +385,7 @@ async function doctor() {
     if (fix) lines.push(`         fix: ${fix}`);
     if (level==='fail') blocking++;
   };
-  console.log(`tsgpui ${VERSION} | Node ${process.version} | ${target}`);
+  console.log(`tsgpu ${VERSION} | Node ${process.version} | ${target}`);
   const nodeMajor = Number(process.versions.node.split('.')[0]);
   if (nodeMajor < 20) report('fail',`Node ${process.version} is too old (20 or newer is needed)`,'install Node 20+ from https://nodejs.org');
   else report('ok',`Node ${process.version}`);
@@ -405,7 +396,7 @@ async function doctor() {
   // Which renderers matter: the current project's, when there is one, otherwise both.
   let projectRenderer = null;
   try {projectRenderer = (await readProject(projectDir())).config.renderer;} catch(_error) {}
-  const renderers = flag('renderer',null) ? [flag('renderer')] : ['native','webview'];
+  const renderers = flag('renderer',null) ? [flag('renderer')] : ['rendrix','native'];
   if (projectRenderer) lines.push(`Project renderer: ${projectRenderer}`);
   let missingHosts = 0;
   for (const renderer of renderers) {
@@ -419,21 +410,21 @@ async function doctor() {
     lines.push(`  installed source stamp: ${installedStamp || 'missing'}`);
     lines.push(`  current source stamp: ${currentStamp || 'unavailable'}`);
     lines.push(`  source stamps match: ${currentStamp && installedStamp === currentStamp && fs.existsSync(cached.file) ? 'yes' : 'no'}`);
-    if (currentStamp && installedStamp !== currentStamp) report('warn', `installed ${renderer} host does not match the current source`, `tsgpui host build --renderer ${renderer}`);
+    if (currentStamp && installedStamp !== currentStamp) report('warn', `installed ${renderer} host does not match the current source`, `tsgpu host build --renderer ${renderer}`);
     if (explicit) report('ok',`host from --host/environment: ${path.resolve(explicit)} (not checked for compatibility)`);
     else if (cached.state==='ok') {
       const intact = await verifyCachedHost(cached);
-      if (intact===false) report('fail',`cached host fails its SHA-256 check: ${cached.file}`,`tsgpui host fetch --renderer ${renderer} --force`);
+      if (intact===false) report('fail',`cached host fails its SHA-256 check: ${cached.file}`,`tsgpu host fetch --renderer ${renderer} --force`);
       else report('ok',`host ${cached.record.version} (${cached.record.source==='local cargo build'?'built locally':'checksum verified'}): ${cached.file}`);
     }
-    else if (cached.state==='unverified') report('warn',`host present but ${cached.reason}: ${cached.file}`,`tsgpui host fetch --renderer ${renderer} --force   (replaces it with a verified one)`);
-    else if (cached.state==='incompatible') report('fail',`cached host does not fit this CLI: ${cached.reason}`,`tsgpui host fetch --renderer ${renderer} --force`);
+    else if (cached.state==='unverified') report('warn',`host present but ${cached.reason}: ${cached.file}`,`tsgpu host fetch --renderer ${renderer} --force   (replaces it with a verified one)`);
+    else if (cached.state==='incompatible') report('fail',`cached host does not fit this CLI: ${cached.reason}`,`tsgpu host fetch --renderer ${renderer} --force`);
     else {
       const built = sourceBuilds(renderer).find(file=>fs.existsSync(file));
       if (built) report('ok',`host from a repository build: ${built}`);
       else {
         missingHosts++;
-        report('warn',`no host installed yet; \`tsgpui dev\` and \`tsgpui build\` will fetch one on first use`,`tsgpui host fetch --renderer ${renderer}`);
+        report('warn',`no host installed yet; \`tsgpu dev\` and \`tsgpu build\` will fetch one on first use`,`tsgpu host fetch --renderer ${renderer}`);
       }
     }
     const libs = systemLibraryCheck(renderer);
@@ -442,25 +433,25 @@ async function doctor() {
   console.log(lines.join('\n'));
   const rust = rustAvailable();
   console.log(`Rust: ${rust ? 'available' : 'not installed'} (only needed to compile a host yourself${rust||nativeSource()?'':'; this installation also has no Rust sources'})`);
-  if (missingHosts && downloadsDisabled()) console.log('Note: TSGPUI_NO_DOWNLOAD=1 is set, so hosts will not be downloaded.');
+  if (missingHosts && downloadsDisabled()) console.log('Note: TSGPU_NO_DOWNLOAD=1 is set, so hosts will not be downloaded.');
   console.log(blocking ? `\n${blocking} problem${blocking>1?'s':''} to fix before the app can run.` : '\nNo blocking problems.');
   if (blocking) process.exitCode = 1;
 }
-// tsgpui package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]
+// tsgpu package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]
 // Builds the Windows executable, optionally signs it, builds an NSIS installer, and writes a SHA-256 manifest.
-// Signing uses TSGPUI_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
-// The manifest is signed with an Ed25519 key from --manifest-key or TSGPUI_MANIFEST_KEY.
+// Signing uses TSGPU_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
+// The manifest is signed with an Ed25519 key from --manifest-key or TSGPU_MANIFEST_KEY.
 // Publishing is manual: upload the artifacts and manifest to publishUrl (from packaging.publishUrl or --publish-url).
-// In-app updates use autoUpdater against the published installer plus .manifest.json; TSGPUI provides the runtime shim and release artifacts.
+// In-app updates use autoUpdater against the published installer plus .manifest.json; TS-GPU provides the runtime shim and release artifacts.
 async function packageApp() {
   const installer = flag('installer', '');
   if (installer && installer !== 'nsis') throw new Error(`Unsupported installer: ${installer} (supported: nsis)`);
-  if (process.platform !== 'win32') throw new Error('tsgpui package currently supports Windows only; build macOS apps with tsgpui build');
+  if (process.platform !== 'win32') throw new Error('tsgpu package currently supports Windows only; build macOS apps with tsgpu build');
   const sign = args.includes('--sign');
   const result = await buildPackage(projectDir());
   printWarnings(result.warnings);
   let packaging = {};
-  try { packaging = JSON.parse(fs.readFileSync(path.join(projectDir(), 'tsgpui.config.json'), 'utf8')).packaging ?? {}; } catch {}
+  try { packaging = JSON.parse(fs.readFileSync(path.join(projectDir(), 'tsgpu.config.json'), 'utf8')).packaging ?? {}; } catch {}
   const publishUrl = flag('publish-url', packaging.publishUrl || '');
   const certificateSubjectName = packaging.certificateSubjectName || '';
   const host = await hostPath(true, result.bundle.renderer);
@@ -468,8 +459,8 @@ async function packageApp() {
   const info = await packageExecutable(host, result.bundleFile, output);
   console.log(`Built native application: ${info.file}`);
   if (sign) await signArtifact(info.file);
-  if (sign && !resolveSignCommand()) console.log('Signing skipped: set TSGPUI_SIGN_COMMAND=<your sign command>, or TSGPUI_CERT_FILE (+TSGPUI_CERT_PASSWORD) on Windows / TSGPUI_CODESIGN_IDENTITY on macOS (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpui package --installer nsis --sign`.');
-  if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set TSGPUI_SIGN_COMMAND to sign with that certificate.`);
+  if (sign && !resolveSignCommand()) console.log('Signing skipped: set TSGPU_SIGN_COMMAND=<your sign command>, or TSGPU_CERT_FILE (+TSGPU_CERT_PASSWORD) on Windows / TSGPU_CODESIGN_IDENTITY on macOS (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpu package --installer nsis --sign`.');
+  if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set TSGPU_SIGN_COMMAND to sign with that certificate.`);
   const artifacts = [info.file];
   if (installer === 'nsis') {
     const script = path.join(result.paths.outDir, `${result.config.name}.nsi`);
@@ -480,16 +471,16 @@ async function packageApp() {
     artifacts.push(installerFile);
   }
   const manifest = path.join(result.paths.outDir, `${result.config.name}.manifest.json`);
-  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPUI_MANIFEST_KEY || ''), result.config.version);
+  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPU_MANIFEST_KEY || ''), result.config.version);
   console.log(`Wrote manifest: ${manifest}`);
   if (publishUrl) console.log(`Publish (manual): upload ${[...artifacts, manifest, ...(fs.existsSync(manifest + '.sig') ? [manifest + '.sig'] : [])].map(file => path.basename(file)).join(', ')} to publishUrl ${publishUrl}. Configure the app's autoUpdater feed URL to this publishUrl (plus the manifest) so installed apps can update in place.`);
-  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: configure autoUpdater.setFeedURL(...) to the published manifest URL; TSGPUI downloads, verifies and installs the update on quitAndInstall().');
+  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: configure autoUpdater.setFeedURL(...) to the published manifest URL; TS-GPU downloads, verifies and installs the update on quitAndInstall().');
 }
 
 // Sign (and optionally notarize) an arbitrary artifact on any platform.
 async function signCommand() {
   const file = flag('file', null);
-  if (!file) throw new Error('Use `tsgpui sign --file PATH [--notarize]`.');
+  if (!file) throw new Error('Use `tsgpu sign --file PATH [--notarize]`.');
   const target = path.resolve(file);
   if (!fs.existsSync(target)) throw new Error(`File not found: ${target}`);
   const signed = await signArtifact(target);
@@ -497,23 +488,23 @@ async function signCommand() {
   if (args.includes('--notarize')) await notarizeArtifact(target);
 }
 function help() {
-  console.log(`tsgpui ${VERSION}
+  console.log(`tsgpu ${VERSION}
   init [dir]                   Create a starter project
   import electron <dir> [--out DIR] [--build] [--force] [--fix]  Import an Electron app
-  run [--project PATH]         Run a TSGPUI or Electron project (default)
+  run [--project PATH]         Run a TS-GPU or Electron project (default)
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
   dev [--project PATH]         Build, launch the selected host, rebuild on change
   preview [--project PATH]     Live preview in a browser (--out FILE writes one HTML file)
-  build [--project PATH] [--target T]  Package for T: a target, a comma list, or "all" (win32-x64, win32-arm64, darwin-x64, darwin-arm64, linux-x64, linux-arm64; default: this machine)
+  build [--project PATH] [--target T]  Package for T: a target, a comma list, or "all" (win32-x64, win32-arm64, darwin-arm64, linux-x64, linux-arm64; default: this machine)
   <target>|all [--project PATH]  Shortcut for build --target (windows-* and macos-* aliases accepted)
   host fetch [--renderer MODE] [--force]  Download and verify the prebuilt host (no Rust needed)
   host build [--renderer MODE] Compile the host from source instead (needs Rust)
   host install --file PATH --sha256 HASH [--renderer MODE]  Install a verified prebuilt host
   release manifest --file PATH Write a deterministic SHA-256 manifest to stdout
   package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]  Build the exe, sign it, make an installer and manifest (Windows)
-  sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via TSGPUI_SIGN_COMMAND or platform env vars)
+  sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via TSGPU_SIGN_COMMAND or platform env vars)
   doctor [--renderer MODE]     Check the setup and print the exact fix for anything missing
-Options: renderer is "native" (default) or "webview"; --host PATH overrides the selected host.`);
+Options: renderer is "rendrix" (default) or "native" (deprecated GPUI host); "webview" was removed; --host PATH overrides the selected host.`);
 }
 async function main() {
   if (command === 'all' || /^(win32|windows|darwin|macos|linux)-(x64|arm64)$/.test(command)) {
@@ -525,7 +516,7 @@ async function main() {
   if(command==='--version' || command==='-v') return console.log(VERSION);
   if(command==='init') return init();
   if(command==='import') {
-    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: tsgpui import electron <dir> [--out <dir>] [--build] [--force] [--fix]');
+    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: tsgpu import electron <dir> [--out <dir>] [--build] [--force] [--fix]');
     const options = args.slice(2);
     for(let i=0;i<options.length;i++) {
       if(options[i] === '--out') { if(!options[++i] || options[i].startsWith('--')) throw new Error('--out requires a directory'); }
@@ -533,23 +524,23 @@ async function main() {
     }
     if(args.includes('--fix')) {
       const input = args[1];
-      const out = flag('out') || path.resolve(input) + '-tsgpui';
+      const out = flag('out') || path.resolve(input) + '-tsgpu';
       const force = args.includes('--force');
-      console.log(`--fix (dry-run): would apply fixes from TSGPUI_IMPORT_REPORT.md in ${out}.`);
+      console.log(`--fix (dry-run): would apply fixes from TSGPU_IMPORT_REPORT.md in ${out}.`);
       try {
         const pkg = JSON.parse(fs.readFileSync(path.join(path.resolve(input), 'package.json'), 'utf8'));
-        if (pkg.build?.appId) console.log(`--fix: add "bundleId": "${pkg.build.appId}" to tsgpui.config.json`);
-        if (pkg.build?.directories?.output) console.log(`--fix: set "outDir" to "${pkg.build.directories.output}" in tsgpui.config.json`);
-        if (pkg.build?.productName) console.log(`--fix: set "title" to "${pkg.build.productName}" in tsgpui.config.json`);
-        if (pkg.build?.win?.target) console.log(`--fix: run \`tsgpui package --installer nsis\` for win.target ${pkg.build.win.target}`);
-        if (pkg.build?.win?.certificateFile) console.log(`--fix: win.certificateFile "${pkg.build.win.certificateFile}" maps to TSGPUI_SIGN_COMMAND=<your sign command>; run \`tsgpui package --installer nsis --sign\` (keep the certificate and password outside the repo)`);
-        if (pkg.build?.win?.certificateSubjectName) console.log(`--fix: certificateSubjectName "${pkg.build.win.certificateSubjectName}" maps to TSGPUI_SIGN_COMMAND=<your sign command>; run \`tsgpui package --installer nsis --sign\``);
-        if (pkg.build?.publish) console.log(`--fix: publish maps to packaging.publishUrl; upload signed artifacts and .manifest.json to the publish URL by hand (TSGPUI has no auto-publish), after \`tsgpui package --installer nsis --sign\` with TSGPUI_MANIFEST_KEY=<path to Ed25519 key>`);
-        if (pkg.build?.win?.target && !pkg.build?.win?.certificateFile && !pkg.build?.win?.certificateSubjectName) console.log('--fix: signing is manual: set TSGPUI_SIGN_COMMAND=<your sign command> and TSGPUI_MANIFEST_KEY=<path to Ed25519 key>, then run `tsgpui package --installer nsis --sign`');
-        if (pkg.build?.win?.target) console.log('--fix: autoUpdater is unsupported in TSGPUI; ship updates via the TSGPUI release process (docs/BUILDING.md signing/auto-update subsection)');
+        if (pkg.build?.appId) console.log(`--fix: add "bundleId": "${pkg.build.appId}" to tsgpu.config.json`);
+        if (pkg.build?.directories?.output) console.log(`--fix: set "outDir" to "${pkg.build.directories.output}" in tsgpu.config.json`);
+        if (pkg.build?.productName) console.log(`--fix: set "title" to "${pkg.build.productName}" in tsgpu.config.json`);
+        if (pkg.build?.win?.target) console.log(`--fix: run \`tsgpu package --installer nsis\` for win.target ${pkg.build.win.target}`);
+        if (pkg.build?.win?.certificateFile) console.log(`--fix: win.certificateFile "${pkg.build.win.certificateFile}" maps to TSGPU_SIGN_COMMAND=<your sign command>; run \`tsgpu package --installer nsis --sign\` (keep the certificate and password outside the repo)`);
+        if (pkg.build?.win?.certificateSubjectName) console.log(`--fix: certificateSubjectName "${pkg.build.win.certificateSubjectName}" maps to TSGPU_SIGN_COMMAND=<your sign command>; run \`tsgpu package --installer nsis --sign\``);
+        if (pkg.build?.publish) console.log(`--fix: publish maps to packaging.publishUrl; upload signed artifacts and .manifest.json to the publish URL by hand (TS-GPU has no auto-publish), after \`tsgpu package --installer nsis --sign\` with TSGPU_MANIFEST_KEY=<path to Ed25519 key>`);
+        if (pkg.build?.win?.target && !pkg.build?.win?.certificateFile && !pkg.build?.win?.certificateSubjectName) console.log('--fix: signing is manual: set TSGPU_SIGN_COMMAND=<your sign command> and TSGPU_MANIFEST_KEY=<path to Ed25519 key>, then run `tsgpu package --installer nsis --sign`');
+        if (pkg.build?.win?.target) console.log('--fix: autoUpdater is unsupported in TS-GPU; ship updates via the TS-GPU release process (docs/BUILDING.md signing/auto-update subsection)');
       } catch {}
-      console.log('--fix: edit permissions (network/filesystem/processes) in tsgpui.config.json, then run `tsgpui build` in ' + out + '.');
-      console.log('--fix: review TSGPUI_IMPORT_REPORT.md for file:line Fix: commands.');
+      console.log('--fix: edit permissions (network/filesystem/processes) in tsgpu.config.json, then run `tsgpu build` in ' + out + '.');
+      console.log('--fix: review TSGPU_IMPORT_REPORT.md for file:line Fix: commands.');
       if (!force) {
         console.log('--fix: no files written. Add --force to allow overwriting an existing output directory.');
         return;
@@ -561,8 +552,8 @@ async function main() {
   if(command==='doctor') return doctor();
   if(command==='release' && args[0]==='manifest') return releaseManifest();
   if(command==='host' && args[0]==='fetch') return fetchHosts();
-  if(command==='host' && args[0]==='install') return installHost(flag('renderer','webview'));
-  if(command==='host' && args[0]==='build') return buildHost(flag('renderer','webview'));
+  if(command==='host' && args[0]==='install') return installHost(flag('renderer','rendrix'));
+  if(command==='host' && args[0]==='build') return buildHost(flag('renderer','rendrix'));
   if(command==='run') return runProject();
   if(command==='compile') {
     const result=await buildPackage(projectDir());
@@ -578,6 +569,6 @@ async function main() {
   if(command==='sign') return signCommand();
   if(command==='dev') return dev();
   if(command==='preview') return preview();
-  throw new Error(`Unknown command: ${command}. Run \`tsgpui help\`.`);
+  throw new Error(`Unknown command: ${command}. Run \`tsgpu help\`.`);
 }
-main().catch(error=>{console.error(`TSGPUI: ${error.message}`);process.exitCode=1;});
+main().catch(error=>{console.error(`tsgpu: ${error.message}`);process.exitCode=1;});

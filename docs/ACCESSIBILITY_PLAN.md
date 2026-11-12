@@ -2,14 +2,15 @@
 
 ## Status
 
-**Unsupported in the native (GPUI 0.2.2) renderer.** TSGPUI preserves HTML
+**Unsupported in the native (GPUI 0.2.2) renderer.** TS-GPU preserves HTML
 `aria-*` and `role` metadata and uses `aria-label` as a visible fallback for
 unlabeled controls, but it does **not** expose an OS accessibility tree. Screen
 readers cannot see native-rendered UI.
 
-**Recommended for assistive-technology support today: use the WebView renderer**
-(`tsgpui-webview-host`), which keeps the platform browser's accessibility
-behavior.
+**Assistive-technology support:** the removed WebView renderer used to provide the platform
+browser's accessibility behavior (`tsgpu-webview-host`); it is gone, so there is no AT path
+today. The Rendrix roadmap (M3) adds an accesskit tree — see
+[RENDERER_TSGPU.md](RENDERER_TSGPU.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md).
 
 ## Audit findings
 
@@ -87,7 +88,9 @@ wired).
 ## Future work (ordered)
 
 1. **Short term (done):** keep metadata + visible fallback labels; document
-   limitation; recommend WebView for AT.
+   limitation. (Historical: this plan recommended the WebView renderer for AT;
+   that renderer was removed on 2026-11-11, so today no engine exposes an OS
+   accessibility tree.)
 2. **Medium term:** prototype on `gpui-pre` 0.3.x in a separate branch/worktree:
    map `AriaMetadata`/`implicit_role` to `Role`/`aria_*` in `accessibility.rs`,
    implement `apply()` to mutate the element builder, and add accessible actions

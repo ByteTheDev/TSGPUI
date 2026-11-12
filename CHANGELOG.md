@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — the Rendrix rewrite
+
+**TS-GPU renames from TSGPUI; WebView renderer removed; Rendrix is the sole rendering engine.**
+Owner-authorized decision of 2026-11-11; the full contract is
+[docs/REWRITE_RENDRIX.md](docs/REWRITE_RENDRIX.md). The pre-rewrite implementation is preserved
+at branch `backup/webview-era` (tag `webview-era-checkpoint`, commit `0fc860b`).
+
+- **Rename.** Product TS-GPU (was TSGPUI); CLI package/command `tsgpu`; bundle magic `TSGPU001`;
+  home env var `TSGPU_HOME`; renderer config key `"rendrix"` (the default). Entries below the
+  Unreleased section describe releases as they shipped under the old name and are left as
+  written.
+- **WebView renderer removed.** `renderer: "webview"` is a hard error with migration guidance;
+  the webview host binary, `webview-host` feature, `gtk`/`tao`/`wry` dependencies, page bridge,
+  custom protocol, CDP e2e, and WebKitGTK CI dependencies are deleted. The Rendrix engine
+  (`rendrix-host`, feature `rendrix`) is the only rendering engine. It is in **early beta**:
+  feature coverage is limited and a long way from stable; state-driven re-render, hover/active/
+  focus, scrolling, images, text editing, accessibility, and animations are on the M1–M3 ladder.
+- **Deprecated GPUI host.** `tsgpu-gpui-host` (renderer key `"native"`) still works with a
+  deprecation warning and is scheduled for removal at the Rendrix M1 gate.
+- **Preserved.** The Electron-compat runtime, the updater (host-side download/verify/install),
+  the QuickJS backend + permissions model, and the renderer-agnostic smoke/benchmark scripts
+  all continue to work; they never depended on the WebView renderer.
+
 ## 0.4.0
 
 First stable release of the 0.4.0 series, graduating the beta.4 work (full Electron compatibility coverage, native UI/menus, host builds). See the beta.2 notes below for the feature set.

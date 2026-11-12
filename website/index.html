@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TSGPUI · Web markup. Native pixels.</title>
+    <title>TS-GPU · Web markup. Native pixels.</title>
     <meta
       name="description"
-      content="TSGPUI renders HTML and CSS with native GPUI by default, with an optional system WebView renderer for browser layout and CSS fidelity."
+      content="TS-GPU compiles a strict subset of HTML and CSS into a native desktop executable rendered by the Rendrix engine, with TypeScript actions running in embedded QuickJS."
     />
     <meta name="theme-color" content="#0b0a09" />
-    <link rel="icon" type="image/png" href="assets/tsgpui-logo.png" />
+    <link rel="icon" type="image/png" href="assets/tsgpu-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -23,9 +23,9 @@
 
     <header class="site-nav">
       <div class="nav-inner">
-        <a class="brand" href="#top" aria-label="TSGPUI home">
-          <img class="brand-mark" src="assets/tsgpui-logo.png" alt="" aria-hidden="true" />
-          <span>TSGPUI</span>
+        <a class="brand" href="#top" aria-label="TS-GPU home">
+          <img class="brand-mark" src="assets/tsgpu-logo.png" alt="" aria-hidden="true" />
+          <span>TS-GPU</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
           <a href="#demo">Demo</a>
@@ -34,7 +34,7 @@
           <a href="#docs">Docs</a>
           <a href="#status">Status</a>
         </nav>
-        <a class="nav-github" href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">GitHub</a>
+        <a class="nav-github" href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">GitHub</a>
         <a class="btn btn-primary btn-small" href="#quick-start">Quick start</a>
       </div>
     </header>
@@ -47,9 +47,9 @@
             Web markup<br />Native pixels.
           </h1>
           <p class="lede reveal" style="--d: 1">
-            TSGPUI compiles a strict subset of HTML and CSS into one native Windows
-            executable. GPUI draws the window, and no browser or Node runtime ships
-            with the app. It is an experimental prototype.
+            TS-GPU compiles a strict subset of HTML and CSS into one native Windows
+            executable. The Rendrix engine draws the window, and no browser or Node runtime ships
+            with the app. It is an experimental prototype, and Rendrix is in early beta.
           </p>
           <div class="actions reveal" style="--d: 2">
             <a class="btn btn-primary" href="#quick-start">
@@ -57,7 +57,7 @@
               <span class="arrow" aria-hidden="true">→</span>
             </a>
             <a class="btn btn-ghost" href="#demo">See the demo</a>
-            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/tsgpui" target="_blank" rel="noopener">Install from npm</a>
+            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/tsgpu" target="_blank" rel="noopener">Install from npm</a>
           </div>
 
           <dl class="compare reveal" style="--d: 3">
@@ -66,8 +66,8 @@
               <dd>Ships Chromium and Node.js with every app.</dd>
             </div>
             <div>
-              <dt>TSGPUI</dt>
-              <dd>GPUI is the default renderer. Choose WebView when browser layout matters.</dd>
+              <dt>TS-GPU</dt>
+              <dd>The Rendrix engine is the only renderer. No browser engine ships with the app.</dd>
             </div>
           </dl>
         </div>
@@ -76,13 +76,13 @@
           <div class="app app-hero" data-counter data-ui>
             <div class="app-titlebar">
               <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span>TSGPUI · Native counter</span>
+              <span>TS-GPU · Native counter</span>
             </div>
             <div class="app-body">
               <div class="app-card">
-                <span class="app-badge">GPUI native rendering</span>
-                <h3 class="app-title">TSGPUI</h3>
-                <p class="app-sub">HTML + CSS + TypeScript. Native GPUI rendering.</p>
+                <span class="app-badge">Rendrix rendering · beta</span>
+                <h3 class="app-title">TS-GPU</h3>
+                <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
                 <div class="app-panel">
                                     <span class="app-count" data-count aria-live="polite">0</span>
                   <span class="app-hint">Click below to update native UI state.</span>
@@ -98,7 +98,7 @@
           </div>
           <p class="visual-caption">
             Simulated preview of <code>examples/counter</code>. Its buttons run in the browser
-            and do not use the TSGPUI runtime.
+            and do not use the TS-GPU runtime.
           </p>
         </div>
       </section>
@@ -130,9 +130,9 @@
   &lt;body&gt;
     &lt;main class="shell"&gt;
       &lt;section class="card"&gt;
-        &lt;div class="badge"&gt;GPUI NATIVE RENDERING&lt;/div&gt;
-        &lt;h1&gt;TSGPUI&lt;/h1&gt;
-        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. Native GPUI rendering.&lt;/p&gt;
+        &lt;div class="badge"&gt;RENDRIX RENDERING (BETA)&lt;/div&gt;
+        &lt;h1&gt;TS-GPU&lt;/h1&gt;
+        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. Native Rendrix rendering (beta).&lt;/p&gt;
         &lt;div class="counter-panel"&gt;
           &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt; <!-- taste-skill-ignore -->
           &lt;span class="count" data-bind="count"&gt;0&lt;/span&gt;
@@ -170,11 +170,11 @@ button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; 
             </div>
 
             <div role="tabpanel" id="panel-ts" aria-labelledby="tab-ts" class="panel" hidden>
-              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "tsgpui/types";
+              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "tsgpu/types";
 
 type CounterState = { count: number };
 
-// Runs in QuickJS inside the native GPUI process, not in a browser.
+// Runs in QuickJS inside the native host process, not in a browser.
 const app: AppDefinition&lt;CounterState&gt; = {
   state: { count: 0 },
   actions: {
@@ -198,13 +198,13 @@ export default app;</code></pre>
             <div class="app app-demo" data-counter data-ui>
               <div class="app-titlebar">
                 <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span>TSGPUI · Native counter · 900 × 600</span>
+                <span>TS-GPU · Native counter · 900 × 600</span>
               </div>
               <div class="app-body">
                 <div class="app-card">
-                  <span class="app-badge">GPUI native rendering</span>
-                  <h3 class="app-title">TSGPUI</h3>
-                  <p class="app-sub">HTML + CSS + TypeScript. Native GPUI rendering.</p>
+                  <span class="app-badge">Rendrix rendering · beta</span>
+                  <h3 class="app-title">TS-GPU</h3>
+                  <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
                   <div class="app-panel">
                                         <span class="app-count" data-count aria-live="polite">0</span>
                     <span class="app-hint">Click below to update native UI state.</span>
@@ -220,7 +220,7 @@ export default app;</code></pre>
             </div>
             <p class="visual-caption">
               Interactive simulation of the counter's layout and colours. The real
-              window is drawn by the GPUI host from the compiled <code>.tgp</code>.
+              window is drawn by the Rendrix host from the compiled <code>.tgp</code>.
             </p>
           </div>
         </div>
@@ -234,7 +234,7 @@ export default app;</code></pre>
               <h2>Three parts, one job each.</h2>
               <p class="section-lede">
                 Markup is compiled ahead of time, logic runs in a small sandbox, and the
-                pixels come from a native GPUI host. Nothing in the shipped app asks for
+                pixels come from the Rendrix engine. Nothing in the shipped app asks for
                 a browser or a JavaScript runtime.
               </p>
             </header>
@@ -261,7 +261,7 @@ export default app;</code></pre>
               <article class="row reveal">
                 <h3>One executable</h3>
                 <p>
-                  Packaging copies a prebuilt GPUI host and appends the app bundle to it.
+                  Packaging copies a prebuilt Rendrix host and appends the app bundle to it.
                   The result is a single <code>.exe</code> that runs without Bun, Node or
                   Rust on the machine.
                 </p>
@@ -288,22 +288,22 @@ export default app;</code></pre>
               <li><code>src/index.html</code></li>
               <li><code>src/styles.css</code></li>
               <li><code>src/backend.ts</code></li>
-              <li><code>tsgpui.config.json</code></li>
+              <li><code>tsgpu.config.json</code></li>
             </ul>
           </div>
 
           <div class="link" aria-hidden="true"><span></span></div>
 
           <div class="stage" style="--s: 1">
-            <h3><code>tsgpui compile</code></h3>
+            <h3><code>tsgpu compile</code></h3>
             <p>
               Parses the HTML subset, resolves CSS, transpiles the backend and writes a
               <code>.tgp</code> document.
             </p>
             <pre class="tgp" aria-label="Excerpt of the compiled counter bundle"><code>{
-  "format": "tsgpui-1",
-  "name": "tsgpui-counter",
-  "title": "TSGPUI • Native Counter",
+  "format": "tsgpu-1",
+  "name": "tsgpu-counter",
+  "title": "TS-GPU • Native Counter",
   "width": 900,
   "height": 600,
   "root": { "tag": "body", … },
@@ -314,19 +314,19 @@ export default app;</code></pre>
           <div class="link" aria-hidden="true"><span></span></div>
 
           <div class="stage" style="--s: 2">
-            <h3><code>tsgpui build</code></h3>
+            <h3><code>tsgpu build</code></h3>
             <p>Copies the prebuilt host and appends the bundle, then the host reads it back at startup.</p>
             <div class="layout-bar" aria-label="Executable layout: host, bundle, length, marker">
               <span class="seg seg-host">host</span>
               <span class="seg seg-bundle">bundle</span>
               <span class="seg seg-len">len</span>
-              <span class="seg seg-magic">TSGPUI01</span>
+              <span class="seg seg-magic">TSGPU001</span>
             </div>
             <p class="layout-caption">
               Host executable, then the bundle JSON, an 8-byte little-endian length and
-              the <code>TSGPUI01</code> marker.
+              the <code>TSGPU001</code> marker.
             </p>
-            <p class="stage-result">→ <code>dist/tsgpui-counter.exe</code></p>
+            <p class="stage-result">→ <code>dist/tsgpu-counter.exe</code></p>
           </div>
         </div>
       </section>
@@ -356,7 +356,7 @@ export default app;</code></pre>
           </li>
           <li class="reveal">
             <span class="layer-name">Render</span>
-            <p>The GPUI host opens a GPU-accelerated window and draws the tree. Media queries are evaluated at compile time.</p>
+            <p>The Rendrix host opens a GPU-accelerated window and draws the tree. Media queries are evaluated at compile time.</p>
           </li>
           <li class="reveal">
             <span class="layer-name">Run</span>
@@ -366,8 +366,8 @@ export default app;</code></pre>
 
         <div class="facts">
           <div class="fact reveal">
-            <h3>Two renderer paths</h3>
-            <p>GPUI is the default. Select a system WebView when your interface depends on browser layout or CSS.</p>
+            <h3>One rendering engine</h3>
+            <p>Rendrix is the only engine, in early beta; the deprecated GPUI host stays available until the Rendrix M1 gate.</p>
           </div>
           <div class="fact reveal">
             <h3>No Node or Bun at runtime</h3>
@@ -411,13 +411,13 @@ export default app;</code></pre>
 bun run test
 bun run gpui:compile</code></pre>
             </div>
-            <p>Writes <code>examples/counter/dist/tsgpui-counter.tgp</code>.</p>
+            <p>Writes <code>examples/counter/dist/tsgpu-counter.tgp</code>.</p>
           </div>
 
           <div class="step reveal">
             <h3>Get a native host, once per machine</h3>
             <p>
-              Either point <code>TSGPUI_HOST</code> at a host you trust, or compile one
+              Either point <code>TSGPU_HOST</code> at a host you trust, or compile one
               with the Rust toolchain. On Windows that also needs the MSVC build tools.
             </p>
             <div class="codeblock">
@@ -432,36 +432,36 @@ bun run gpui:compile</code></pre>
               <button type="button" class="copy" data-copy-text="bun run gpui" aria-label="Copy package command">Copy</button>
               <pre><code>bun run gpui</code></pre>
             </div>
-            <p>Writes <code>examples/counter/dist/tsgpui-counter.exe</code>.</p>
+            <p>Writes <code>examples/counter/dist/tsgpu-counter.exe</code>.</p>
           </div>
 
           <div class="step reveal">
             <h3>Or install the CLI from npm</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/tsgpui&#10;tsgpui --version" aria-label="Copy install command">Copy</button>
-              <pre><code>bun install -g @bytethedeveloper/tsgpui
-tsgpui --version</code></pre>
+              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/tsgpu&#10;tsgpu --version" aria-label="Copy install command">Copy</button>
+              <pre><code>bun install -g @bytethedeveloper/tsgpu
+tsgpu --version</code></pre>
             </div>
             <p>
-              <code>-g</code> installs <code>tsgpui</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
-              npm works too: <code>npm install -g @bytethedeveloper/tsgpui</code>.
-              <a href="https://www.npmjs.com/package/@bytethedeveloper/tsgpui" target="_blank" rel="noopener">View the package on npm</a>.
+              <code>-g</code> installs <code>tsgpu</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
+              npm works too: <code>npm install -g @bytethedeveloper/tsgpu</code>.
+              <a href="https://www.npmjs.com/package/@bytethedeveloper/tsgpu" target="_blank" rel="noopener">View the package on npm</a>.
             </p>
           </div>
 
           <div class="step reveal">
             <h3>Or start a new project with the CLI</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="tsgpui init my-app&#10;cd my-app&#10;tsgpui dev" aria-label="Copy CLI commands">Copy</button>
-              <pre><code>tsgpui init my-app
+              <button type="button" class="copy" data-copy-text="tsgpu init my-app&#10;cd my-app&#10;tsgpu dev" aria-label="Copy CLI commands">Copy</button>
+              <pre><code>tsgpu init my-app
 cd my-app
-tsgpui dev</code></pre>
+tsgpu dev</code></pre>
             </div>
             <p>
-              <code>tsgpui dev</code> rebuilds and restarts the host on save. It is a fast
+              <code>tsgpu dev</code> rebuilds and restarts the host on save. It is a fast
               reload, not state-preserving hot module replacement.
-              <code>tsgpui build</code> writes the single executable, and <code>tsgpui build --target linux-x64</code> or <code>tsgpui all</code> packages the other platforms.
-              <code>tsgpui run</code> also opens an Electron project directory, converting it first.
+              <code>tsgpu build</code> writes the single executable, and <code>tsgpu build --target linux-x64</code> or <code>tsgpu all</code> packages the other platforms.
+              <code>tsgpu run</code> also opens an Electron project directory, converting it first.
             </p>
           </div>
         </div>
@@ -469,9 +469,9 @@ tsgpui dev</code></pre>
         <p class="docs-links reveal">
           Read the
           <a href="#docs">full docs</a> below, the
-          <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
+          <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
           and the
-          <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">repository</a>.
+          <a href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">repository</a>.
         </p>
       </section>
 
@@ -501,8 +501,10 @@ tsgpui dev</code></pre>
         <header class="section-head reveal">
           <h2>Status: an experimental prototype, stated plainly.</h2>
           <p class="section-lede">
-            TSGPUI is not a production-ready GUI SDK. The supported subset is small on
-            purpose, and the list below is what the project currently documents.
+            TS-GPU is not a production-ready GUI SDK. The Rendrix engine is the sole
+            renderer and is in <strong>early beta</strong>: feature coverage is limited and a long way
+            from stable. The list below reflects what the deprecated GPUI host (available until
+            the Rendrix M1 gate) documents today.
           </p>
         </header>
 
@@ -521,12 +523,13 @@ tsgpui dev</code></pre>
               <li>Compile-time <code>&lt;template&gt;</code> components</li>
               <li>Single-executable packaging with the appended bundle, plus an optional NSIS installer on Windows</li>
               <li>Cross-target builds for Windows, macOS and Linux on x64 and arm64, using verified prebuilt hosts</li>
-              <li>Electron project conversion into a WebView project, with a report that lists what needs review</li>
+              <li>Electron project conversion into a TS-GPU project, with a report that lists what needs review</li>
             </ul>
           </div>
           <div class="status-col reveal" style="--d: 1">
             <h3>Not yet</h3>
             <ul>
+              <li>Rendrix feature coverage: state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility and animations are on the M1–M3 ladder</li>
               <li>General-purpose native dialogs beyond confirmation and file picker prompts</li>
               <li>Unequal sizing for pure <code>fr</code> grid tracks and explicit grid placement</li>
               <li>Sandbox isolation for untrusted backend code; execution time and heap limits are not a sandbox</li>
@@ -556,7 +559,7 @@ tsgpui dev</code></pre>
             </p>
             <div class="actions">
               <a class="btn btn-primary" href="#quick-start">Read the quick start</a>
-              <a class="btn btn-ghost" href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">View on GitHub</a>
+              <a class="btn btn-ghost" href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">View on GitHub</a>
             </div>
           </div>
         </div>
@@ -565,14 +568,14 @@ tsgpui dev</code></pre>
 
     <footer class="site-footer">
       <div class="footer-inner">
-        <a class="footer-wordmark" href="#top" aria-label="Back to top">TSGPUI</a>
+        <a class="footer-wordmark" href="#top" aria-label="Back to top">TS-GPU</a>
         <div class="footer-row">
           <p class="footer-tagline">Web markup. Native pixels. An experimental framework.</p>
           <nav class="footer-links" aria-label="Project links">
-            <a href="https://github.com/ByteTheDev/TSGPUI" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">GitHub</a>
             <a href="#docs">Docs</a>
-            <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
-            <a href="https://github.com/ByteTheDev/TSGPUI/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+            <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
+            <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
           </nav>
         </div>
       </div>

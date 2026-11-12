@@ -1,4 +1,4 @@
-﻿import ts from 'typescript';
+import ts from 'typescript';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -21,7 +21,7 @@ const literal = n => n && (ts.isStringLiteralLike(n) || ts.isNoSubstitutionTempl
 const relImport = (from,to) => { let p = slash(path.relative(path.dirname(from),to)).replace(/\.ts$/, ''); return p.startsWith('.') ? p : './'+p; };
 
 export async function importElectron(input, {out, build = false, force = false} = {}) {
-  const root = await realpath(path.resolve(input)).catch(() => path.resolve(input)), dest = path.resolve(out || root + '-tsgpui');
+  const root = await realpath(path.resolve(input)).catch(() => path.resolve(input)), dest = path.resolve(out || root + '-tsgpu');
   if (inside(root,dest) || inside(dest,root)) throw new Error('Output and source directories must not contain one another');
   const pkg = JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   if (await exists(dest) && !force) throw new Error(`Output already exists: ${dest}; pass --force to reuse it`);
@@ -86,7 +86,7 @@ export async function importElectron(input, {out, build = false, force = false} 
     })(ast);
     for (const [name, node] of used) {
       const found = statusOf(name);
-      if (!found) warn(file,node,ast,`Unknown Electron API electron.${name}: it is not in the TSGPUI coverage ledger`);
+      if (!found) warn(file,node,ast,`Unknown Electron API electron.${name}: it is not in the TS-GPU coverage ledger`);
       else if (found.status !== 'implemented') warn(file,node,ast,`electron.${name} is ${found.status}: ${found.reason}`);
     }
   }
@@ -153,7 +153,7 @@ export async function importElectron(input, {out, build = false, force = false} 
                 warn(file,node,ast,`protocol.${method} for remote scheme '${normalized}:' requires manual migration; use permissions.network for HTTPS instead of a protocol handler`);
               } else {
                 protocolSchemes.add(normalized);
-                protocolNotes.push(`${where}: protocol.${method} scheme '${normalized}' allowlisted; mapped to packaged webviewPages assets (app/file-style in-page scheme)`);
+                protocolNotes.push(`${where}: protocol.${method} scheme '${normalized}' allowlisted; mapped to packaged app assets (app/file-style in-page scheme)`);
               }
             } else if (method === 'registerFileProtocol' && node.arguments[0] && literal(node.arguments[0]) === undefined) {
               warn(file,node,ast,'Dynamic protocol scheme in registerFileProtocol requires manual migration; literal schemes are allowlisted automatically');
@@ -207,7 +207,7 @@ export async function importElectron(input, {out, build = false, force = false} 
       if (ts.isCallExpression(node)) {
         const expr=node.expression.getText(ast), arg=literal(node.arguments[0]);
         if (/\.loadFile$/.test(expr)) { const value=node.arguments[0] && staticPath(node.arguments[0]); if(value) { const page=path.resolve(root,value); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); } } else warn(file,node,ast,'Dynamic loadFile target requires manual migration'); }
-        if (/\.loadURL$/.test(expr)) { if(arg?.startsWith('file:')) { try {const page=fileURLToPath(arg); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); }} catch {warn(file,node,ast,'Invalid loadURL file target');} } else if (arg && /^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^(?:https?|data|blob|javascript|mailto|tel):/i.test(arg)) { const scheme = arg.slice(0, arg.indexOf(':')).toLowerCase(); protocolSchemes.add(scheme); protocolNotes.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1}: loadURL target '${arg}' uses custom scheme '${scheme}' allowlisted for packaged webviewPages mapping`); } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
+        if (/\.loadURL$/.test(expr)) { if(arg?.startsWith('file:')) { try {const page=fileURLToPath(arg); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); }} catch {warn(file,node,ast,'Invalid loadURL file target');} } else if (arg && /^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^(?:https?|data|blob|javascript|mailto|tel):/i.test(arg)) { const scheme = arg.slice(0, arg.indexOf(':')).toLowerCase(); protocolSchemes.add(scheme); protocolNotes.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1}: loadURL target '${arg}' uses custom scheme '${scheme}' allowlisted for packaged app assets`); } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
         if (/^(?:fetch|axios(?:\.[\w]+)?|https\.(?:get|request))$/.test(expr)) {
           const addHost = (value, isUrl) => { try { const u = new URL(isUrl ? value : 'https://'+value); hosts.add(u.hostname.toLowerCase()); } catch { warn(file,node,ast,`Network value requires review: ${value}`); } };
           const first=node.arguments[0];
@@ -227,7 +227,7 @@ export async function importElectron(input, {out, build = false, force = false} 
           if (isUserData || isDialogPicked) {
             const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1;
             const kind = isUserData ? 'auto-granted (userData)' : 'auto-granted (dialog-selected file)';
-            filesystemPaths.push(`${slash(path.relative(root,file))}:${line} ${expr} — ${kind}. No permissions.filesystem entry needed.`);
+            filesystemPaths.push(`${slash(path.relative(root,file))}:${line} ${expr} â€” ${kind}. No permissions.filesystem entry needed.`);
           } else if(arg !== undefined && !path.isAbsolute(arg)) { usage.relativeFs=true; fsNeedsReview=true; warn(file,node,ast,`Literal relative filesystem path ${arg} requires review; granting ./data placeholder`); }
           else { fsNeedsReview=true; warn(file,node,ast,'Filesystem path requires review; userData and dialog-selected files are auto-granted'); }
         }
@@ -247,7 +247,7 @@ export async function importElectron(input, {out, build = false, force = false} 
       let target, kind=builtins.get(dep.spec);
       const owner = slash(path.relative(root,file));
       if (/\.node$/i.test(dep.spec) || ['bindings','node-gyp-build','node-pre-gyp','@mapbox/node-pre-gyp'].includes(dep.spec)) throw new Error(`Native addon '${dep.spec}' required by ${owner} is not supported`);
-      if (kind) {target=path.join(sourceDir,'tsgpui-runtime',kind+'.ts'); usedRuntime.add(kind); if(kind==='fs') usage.fs=true;}
+      if (kind) {target=path.join(sourceDir,'tsgpu-runtime',kind+'.ts'); usedRuntime.add(kind); if(kind==='fs') usage.fs=true;}
       else {
         let resolved = dep.spec.startsWith('.') ? await resolveLocal(file,dep.spec) : null;
         if (!resolved) { try { resolved = createRequire(file).resolve(dep.spec); if (resolved) { try { resolved = await realpath(resolved); } catch {} } } catch {} }
@@ -260,15 +260,15 @@ export async function importElectron(input, {out, build = false, force = false} 
       }
       if (!target) { target=path.join(sourceDir,`unsupported-${unsupported.size}.ts`); unsupported.set(target, dep.spec); }
       const replacement=relImport(targetFor(file),target);
-      rewrites.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(dep.node.getStart(ast)).line+1}: ${dep.spec} → ${replacement}`);
+      rewrites.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(dep.node.getStart(ast)).line+1}: ${dep.spec} â†’ ${replacement}`);
       if(dep.isRequire) {const alias=`__tsgpui_import_${imports.length}`; imports.push(`import * as ${alias} from ${JSON.stringify(replacement)};`); edits.push([dep.node.getStart(ast),dep.node.end,alias]);}
       else edits.push([dep.specNode.getStart(ast),dep.specNode.end,JSON.stringify(replacement)]);
     }
     let converted=source;
     for (const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) converted=converted.slice(0,start)+value+converted.slice(end);
-    // Node gives each module its own __dirname and __filename. The WebView backend has no file system
+    // Node gives each module its own __dirname and __filename. The TS-GPU backend has no file system
     // layout, so define them per module as virtual paths that mirror the original project layout.
-    // The backend also has no `process` global (it is hidden in the WebView and absent in QuickJS),
+    // The backend also has no `process` global (it is absent in QuickJS),
     // so a bare `process` reference gets the compatibility shim.
     const virtualFile='/'+slash(path.relative(root,file));
     const definitions=[];
@@ -278,11 +278,11 @@ export async function importElectron(input, {out, build = false, force = false} 
     const declaresProcess=/\b(?:var|let|const)\s+process\b|\bfunction\s+process\b|\bclass\s+process\b/.test(source);
     if(/\bprocess\b/.test(source) && !providesProcess && !declaresProcess) {
       usedRuntime.add('process');
-      const target=path.join(sourceDir,'tsgpui-runtime','process.ts');
+      const target=path.join(sourceDir,'tsgpu-runtime','process.ts');
       const replacement=relImport(targetFor(file),target);
       imports.push(`import * as __tsgpui_process from ${JSON.stringify(replacement)};`);
       definitions.push('const process = __tsgpui_process.default ?? __tsgpui_process;');
-      rewrites.push(`${slash(path.relative(root,file))}: process → ${replacement} (bare-global shim)`);
+      rewrites.push(`${slash(path.relative(root,file))}: process â†’ ${replacement} (bare-global shim)`);
     }
     modules.set(file,imports.join('\n')+'\n'+(definitions.length ? definitions.join('\n')+'\n' : '')+converted);
   }
@@ -323,17 +323,17 @@ export async function importElectron(input, {out, build = false, force = false} 
       const content=await readFile(p,'utf8');
       for(const match of content.matchAll(/\b(?:require\s*\(\s*['"](?:electron|(?:node:)?(?:fs|path|os|events|child_process|process))|from\s*['"](?:electron|(?:node:)?(?:fs|path|os|events|child_process|process)))/g)) {
         const line=content.slice(0,match.index).split('\n').length;
-        notes.push(`${slash(path.relative(root,p))}:${line}: Renderer Node/Electron import requires migration or bundling for the WebView.`);
+        notes.push(`${slash(path.relative(root,p))}:${line}: Renderer Node/Electron import requires migration or bundling for the TS-GPU renderer.`);
       }
     }
   }
   for (const directory of rendererRoots) await reviewRenderer(directory);
   for (const [file,code] of modules) {const target=targetFor(file); await mkdir(path.dirname(target),{recursive:true}); await writeFile(target,code);}
   for (const [file, spec] of unsupported) await writeFile(file, `throw new Error(${JSON.stringify(`Unsupported module: ${spec}`)});\nexport default {};\n`);
-  await mkdir(path.join(sourceDir,'tsgpui-runtime'),{recursive:true});
+  await mkdir(path.join(sourceDir,'tsgpu-runtime'),{recursive:true});
   const runtimeFiles=await readdir(runtimeDir).catch(()=>[]);
-  // Include any tsgpui-runtime specifiers introduced in the converted bundles.
-  for (const [, code] of modules) for (const m of code.matchAll(/tsgpui-runtime\/([\w-]+)/g)) usedRuntime.add(m[1]);
+  // Include any tsgpu-runtime specifiers introduced in the converted bundles.
+  for (const [, code] of modules) for (const m of code.matchAll(/tsgpu-runtime\/([\w-]+)/g)) usedRuntime.add(m[1]);
   // Expand to transitive runtime deps (e.g. electron -> host/os/events, fs -> host/os/path).
   let expanded = true;
   while (expanded) {
@@ -349,9 +349,9 @@ export async function importElectron(input, {out, build = false, force = false} 
   for (const file of runtimeFiles.filter(f=>f.endsWith('.ts'))) {
     const name = file.slice(0, -3);
     if (!usedRuntime.has(name)) continue;
-    await cp(path.join(runtimeDir,file),path.join(sourceDir,'tsgpui-runtime',file));
+    await cp(path.join(runtimeDir,file),path.join(sourceDir,'tsgpu-runtime',file));
   }
-  for (const name of usedRuntime) if(!runtimeFiles.includes(name + '.ts')) notes.push(`Compatibility runtime missing ${name}.ts; copy it into src/tsgpui-runtime before building.`);
+  for (const name of usedRuntime) if(!runtimeFiles.includes(name + '.ts')) notes.push(`Compatibility runtime missing ${name}.ts; copy it into src/tsgpu-runtime before building.`);
   await writeFile(path.join(sourceDir,'backend.ts'),`import ${JSON.stringify(relImport(path.join(sourceDir,'backend.ts'),targetFor(main)))};\nexport default { state: {}, actions: {} };\n`);
   const preloadNotes=[];
   for (const [page,preload] of pagePreloads) {
@@ -399,27 +399,29 @@ export async function importElectron(input, {out, build = false, force = false} 
     else if (typeof publishRaw.provider === 'string' && publishRaw.provider) publishUrl = `(${publishRaw.provider})`;
   }
   const autoUpdaterStatus = statusOf('autoUpdater') || {status: 'implemented', reason: 'checks a configured update feed, emits update-available or update-not-available, has the host download and SHA-256-verify the artifact into userData/updates, and swaps it over the running executable on quitAndInstall (relaunch on request)'};
-  const packaging = pkg.build ? {installer: 'nsis', signCmd: 'TSGPUI_SIGN_COMMAND', signCommandEnv: 'TSGPUI_SIGN_COMMAND', manifestKeyEnv: 'TSGPUI_MANIFEST_KEY', certificateSubjectName: certificateSubjectName ?? null, publishUrl: publishUrl ?? null} : undefined;
+  const packaging = pkg.build ? {installer: 'nsis', signCmd: 'TSGPU_SIGN_COMMAND', signCommandEnv: 'TSGPU_SIGN_COMMAND', manifestKeyEnv: 'TSGPU_MANIFEST_KEY', certificateSubjectName: certificateSubjectName ?? null, publishUrl: publishUrl ?? null} : undefined;
   for (const note of sessionNotes) notes.push(note);
-  if (sessionPersist) notes.push(`Session/partition detected: set "persist": true in tsgpui.config.json so backend state and cookies survive restarts (host 'session.cookies' falls back to an in-memory Map).`);
+  if (sessionPersist) notes.push(`Session/partition detected: set "persist": true in tsgpu.config.json so backend state and cookies survive restarts (host 'session.cookies' falls back to an in-memory Map).`);
   for (const note of protocolNotes) notes.push(note);
-  if (protocolSchemes.size) notes.push(`Custom protocols allowlisted (${[...protocolSchemes].sort().join(', ')}): rewritten to packaged webviewPages assets by the protocol shim; review handlers that compute paths dynamically.`);
-  const config={name,title:title || pkg.build?.productName || pkg.productName || pkg.name || name,version,...(bundleId ? {bundleId} : {}),...(outDir ? {outDir} : {}),...(packaging ? {packaging} : {}),...(sessionPersist ? {persist:true} : {}),...(protocolSchemes.size ? {protocolSchemes:[...protocolSchemes].sort()} : {}),renderer:'webview',backendWindow:'hidden',window:{width,height},html:'src/renderer/'+slash(path.relative(root,renderer)),webviewPages:[...renderers].filter(page=>page!==renderer).map(page=>'src/renderer/'+slash(path.relative(root,page))),css,backend:'src/backend.ts',permissions};
-  await writeFile(path.join(dest,'tsgpui.config.json'),JSON.stringify(config,null,2)+'\n');
+  if (protocolSchemes.size) notes.push(`Custom protocols allowlisted (${[...protocolSchemes].sort().join(', ')}): rewritten to packaged app assets by the protocol shim; review handlers that compute paths dynamically.`);
+  // Converted apps run on the Rendrix host: no renderer key (absent = "rendrix"), a primary backend
+  // window, and the first renderer page as the packaged entry. Extra windows remain a review item.
+  const config={name,title:title || pkg.build?.productName || pkg.productName || pkg.name || name,version,...(bundleId ? {bundleId} : {}),...(outDir ? {outDir} : {}),...(packaging ? {packaging} : {}),...(sessionPersist ? {persist:true} : {}),...(protocolSchemes.size ? {protocolSchemes:[...protocolSchemes].sort()} : {}),window:{width,height},html:'src/renderer/'+slash(path.relative(root,renderer)),css,backend:'src/backend.ts',permissions};
+  await writeFile(path.join(dest,'tsgpu.config.json'),JSON.stringify(config,null,2)+'\n');
   const fsSection = filesystemPaths.length ? `\n## Filesystem paths\n\n${filesystemPaths.map(x=>'- '+x).join('\n')}\n` : (usage.fs ? `\n## Filesystem paths\n\n- No auto-granted filesystem paths were detected; review filesystem call sites manually.\n` : '');
   const fsFooter = usage.relativeFs ? 'The ./data filesystem root is a placeholder for detected relative paths; review original paths and access.\n' : (usage.fs && !fsNeedsReview && filesystemPaths.length ? 'All detected filesystem paths are auto-granted (userData/dialog-selected); no explicit permissions.filesystem entry was added. Review other filesystem paths.\n' : (usage.fs ? 'No ./data root was granted; userData and dialog-selected files are auto-granted. Review other filesystem paths.\n' : ''));
   const webPrefsNote = `Original webPreferences: contextIsolation ${contextIsolation ?? '(not specified)'}, nodeIntegration ${nodeIntegration ?? '(not specified)'}, sandbox ${webviewSandbox ?? '(not specified)'}.`;
   const builderFixes = [];
-  if (pkg.build?.win?.target) builderFixes.push(`run \`tsgpui package --installer nsis\` for win.target ${pkg.build.win.target}`);
+  if (pkg.build?.win?.target) builderFixes.push(`run \`tsgpu package --installer nsis\` for win.target ${pkg.build.win.target}`);
   if (pkg.build) {
-    builderFixes.push(`run \`tsgpui package --installer nsis --sign\` with TSGPUI_SIGN_COMMAND=<your sign command> (win.certificateFile ${certificateFile ?? '(unset)'} and certificateSubjectName ${certificateSubjectName ?? '(unset)'} map to TSGPUI_SIGN_COMMAND; keep the certificate and password outside the repo) and TSGPUI_MANIFEST_KEY=<path to Ed25519 key>`);
-    builderFixes.push(`publish manually: upload the signed .exe, setup .exe and .manifest.json (plus .manifest.json.sig when signed) to publishUrl ${publishUrl ?? '(unset)'}; TSGPUI has no auto-publish`);
+    builderFixes.push(`run \`tsgpu package --installer nsis --sign\` with TSGPU_SIGN_COMMAND=<your sign command> (win.certificateFile ${certificateFile ?? '(unset)'} and certificateSubjectName ${certificateSubjectName ?? '(unset)'} map to TSGPU_SIGN_COMMAND; keep the certificate and password outside the repo) and TSGPU_MANIFEST_KEY=<path to Ed25519 key>`);
+    builderFixes.push(`publish manually: upload the signed .exe, setup .exe and .manifest.json (plus .manifest.json.sig when signed) to publishUrl ${publishUrl ?? '(unset)'}; TS-GPU has no auto-publish`);
     builderFixes.push(`autoUpdater is ${autoUpdaterStatus.status}: ${autoUpdaterStatus.reason}; configure its feed URL with autoUpdater.setFeedURL(...) and publish the signed installer plus .manifest.json to packaging.publishUrl`);
   }
-  const builderNote = pkg.build ? `Original electron-builder configuration: present (appId ${pkg.build.appId ?? '(unset)'}, productName ${pkg.build.productName ?? pkg.productName ?? '(unset)'}, directories.output ${pkg.build.directories?.output ?? '(unset)'}, win.target ${pkg.build.win?.target ?? '(unset)'}, win.certificateFile ${certificateFile ?? '(unset)'} -> TSGPUI_SIGN_COMMAND, certificateSubjectName ${certificateSubjectName ?? '(unset)'}, publishUrl ${publishUrl ?? '(unset)'}, autoUpdater ${autoUpdaterStatus.status} — ${autoUpdaterStatus.reason}) . Auto-mapped into tsgpui.config.json: appId -> bundleId (${bundleId ?? 'default'}), directories.output -> outDir (${outDir ?? 'default'}), productName -> title fallback, packaging section -> signCmd (TSGPUI_SIGN_COMMAND) / publishUrl (${publishUrl ?? '(unset)'}) / certificateSubjectName (${certificateSubjectName ?? '(unset)'}). Signing, publishing and auto-update require manual migration: produce the Windows installer with \`tsgpui package --installer nsis --sign\`, verify the .exe/manifest identity, and migrate signing/publishing/auto-update by hand. Manual steps: ${builderFixes.length ? builderFixes.join('; ') + '. ' : 'None. '}Re-run with \`tsgpui import electron ${root} --out ${dest} --fix\` to preview fixes (add \`--force\` to overwrite an existing output).` : `Original electron-builder configuration: not present. If you add one, map appId to "bundleId" in tsgpui.config.json and directories.output to "outDir"; preview with \`tsgpui import electron ${root} --out ${dest} --fix\`.`;
-  const forgeNote = pkg.config?.forge ? `Original Electron Forge configuration: present but not converted; translate makers/publishers to \`tsgpui build\`/\`tsgpui package\` by hand. Fix: run \`tsgpui import electron ${root} --out ${dest} --fix\` to preview fixes, then run \`tsgpui build\` in ${dest}.` : `Original Electron Forge configuration: not present. If you add one, translate makers/publishers to \`tsgpui build\`/\`tsgpui package\`; preview with \`tsgpui import electron ${root} --out ${dest} --fix\`.`;
-  const report=`# Electron import report\n\nSource: ${root}\n\n## Stylesheets\n\nConfig css: ${css}${stylesheets.length ? '' : ' (empty placeholder because no linked local stylesheet was found)'}.\n\nCopied linked stylesheets:\n${stylesheets.map(x=>'- '+x).join('\n') || '- None'}\n\n## Rewritten specifiers\n\n${rewrites.map(x=>'- '+x).join('\n') || '- None'}\n\n## Unsupported and review items\n\n${notes.map(x=>'- '+x).join('\n') || '- None detected; review dynamic code and Electron API usage.'}\n${fsSection}\n## Derived permissions — review every grant\n\n\`\`\`json\n${JSON.stringify(permissions,null,2)}\n\`\`\`\n\n${fsFooter}### Permission review checklist (all items required before \`tsgpui build\`)\n\nRe-run with \`tsgpui import electron ${root} --out ${dest} --fix\` to preview automatic fixes (add \`--force\` to overwrite an existing output). Edit tsgpui.config.json in ${dest}, then run \`tsgpui build\` in ${dest}.\n\n- [ ] \`permissions.network\` — every host is an exact hostname (no wildcard/subdomain/port/path). Derived hosts: ${permissions.network.length ? permissions.network.join(', ') : '(none)'}. Confirm each host against https.get/fetch/axios/data-fetch call sites and the WebView CSP; remove unneeded hosts and add any host the importer missed. Fix: edit "permissions.network" in ${dest}/tsgpui.config.json (e.g. ${JSON.stringify(permissions.network)}), then run \`tsgpui build\` in ${dest}. Preview fixes with \`tsgpui import electron ${root} --out ${dest} --fix\`.\n- [ ] \`permissions.notifications\` — is ${permissions.notifications}. Confirm a desktop notification is actually shown; note WebView notifications may currently reject as unsupported, so test at runtime. Fix: set "permissions.notifications" in ${dest}/tsgpui.config.json, then run \`tsgpui build\` in ${dest} to test.\n- [ ] \`permissions.window\` — is ${permissions.window}. Confirm window creation/management use; check titleBarStyle and hidden show/hide/fullscreen/window-move uses the partial shim does not support. Fix: set "permissions.window" in ${dest}/tsgpui.config.json, then run \`tsgpui build\` in ${dest}.\n- [ ] \`permissions.ipc\` — is ${permissions.ipc}. Grant is boolean (channels cannot be allowlisted); enumerate every ipcMain/ipcRenderer channel and confirm each has a preload bridge; remove dead channels if any. Fix: set "permissions.ipc" in ${dest}/tsgpui.config.json, then run \`tsgpui build\` in ${dest}.\n- [ ] \`permissions.filesystem\` — read ${JSON.stringify(permissions.filesystem.read)}, write ${JSON.stringify(permissions.filesystem.write)}. Empty is correct only if every file call is userData-based or dialog-selected (auto-granted, see Filesystem paths section); otherwise add the real relative root and re-run build. Fix: edit "permissions.filesystem" (or "filesystem.read"/"filesystem.write") in ${dest}/tsgpui.config.json, then run \`tsgpui build\` in ${dest}.\n- [ ] \`permissions.processes\` — derived executables: ${permissions.processes.length ? permissions.processes.join(', ') : '(none)'}. Confirm no executable is spawned, or list executable names only. Fix: edit "permissions.processes" in ${dest}/tsgpui.config.json, then run \`tsgpui build\` in ${dest}.\n- [ ] Final pass: search for calls the pattern-scan can miss (aliased fetch/https.get/spawn/fs/Notification/BrowserWindow/ipcMain) and compare against tsgpui.config.json permissions. Fix: run \`tsgpui import electron ${root} --out ${dest} --fix\` to preview fixes, then run \`tsgpui build\` in ${dest}.\n\n## Manual steps\n\n- ${preloadNote}\n- [ ] Preload isolation: the bundled preload runs in the WebView page JS realm before renderer scripts, not an isolated world. Confirm it only uses contextBridge/ipcRenderer and the exposed window.api surface — no direct DOM/page-global mutation and no reliance on isolated-world security or pre-DOM timing.\n- [ ] Preload Node/Electron APIs: verify no main-only APIs (ipcMain, app, BrowserWindow, dialog, fs, path, ...) are used in preload scope; move such logic to the backend.\n- [ ] Preload→backend channel contract: confirm every invoke/send channel in preload is still registered in the converted backend, and the page does not already define the exposed key.\n- [ ] ${webPrefsNote}\n- Review Electron APIs, renderer Node integration, dynamic paths, package dependencies, build/Forge settings, and permissions.\n- Original titleBarStyle: ${titleBarStyle || '(not specified)'}. Check any show/hide/fullscreen/window-move event use; BrowserWindow is partial and does not support show/hide/ready-to-show/fullscreen events or will-move/will-resize.\n- ${builderNote}\n- ${forgeNote}\n- Run \`tsgpui build\` in this directory. Fix: re-run \`tsgpui import electron ${root} --out ${dest} --fix\` for preview fixes, then \`tsgpui build\` in ${dest}.\n`;
-  await writeFile(path.join(dest,'TSGPUI_IMPORT_REPORT.md'),report);
-  console.log(`Imported Electron project to ${dest}. Review TSGPUI_IMPORT_REPORT.md.`);
+  const builderNote = pkg.build ? `Original electron-builder configuration: present (appId ${pkg.build.appId ?? '(unset)'}, productName ${pkg.build.productName ?? pkg.productName ?? '(unset)'}, directories.output ${pkg.build.directories?.output ?? '(unset)'}, win.target ${pkg.build.win?.target ?? '(unset)'}, win.certificateFile ${certificateFile ?? '(unset)'} -> TSGPU_SIGN_COMMAND, certificateSubjectName ${certificateSubjectName ?? '(unset)'}, publishUrl ${publishUrl ?? '(unset)'}, autoUpdater ${autoUpdaterStatus.status} â€” ${autoUpdaterStatus.reason}) . Auto-mapped into tsgpu.config.json: appId -> bundleId (${bundleId ?? 'default'}), directories.output -> outDir (${outDir ?? 'default'}), productName -> title fallback, packaging section -> signCmd (TSGPU_SIGN_COMMAND) / publishUrl (${publishUrl ?? '(unset)'}) / certificateSubjectName (${certificateSubjectName ?? '(unset)'}). Signing, publishing and auto-update require manual migration: produce the Windows installer with \`tsgpu package --installer nsis --sign\`, verify the .exe/manifest identity, and migrate signing/publishing/auto-update by hand. Manual steps: ${builderFixes.length ? builderFixes.join('; ') + '. ' : 'None. '}Re-run with \`tsgpu import electron ${root} --out ${dest} --fix\` to preview fixes (add \`--force\` to overwrite an existing output).` : `Original electron-builder configuration: not present. If you add one, map appId to "bundleId" in tsgpu.config.json and directories.output to "outDir"; preview with \`tsgpu import electron ${root} --out ${dest} --fix\`.`;
+  const forgeNote = pkg.config?.forge ? `Original Electron Forge configuration: present but not converted; translate makers/publishers to \`tsgpu build\`/\`tsgpu package\` by hand. Fix: run \`tsgpu import electron ${root} --out ${dest} --fix\` to preview fixes, then run \`tsgpu build\` in ${dest}.` : `Original Electron Forge configuration: not present. If you add one, translate makers/publishers to \`tsgpu build\`/\`tsgpu package\`; preview with \`tsgpu import electron ${root} --out ${dest} --fix\`.`;
+  const report=`# Electron import report\n\nSource: ${root}\n\n## Stylesheets\n\nConfig css: ${css}${stylesheets.length ? '' : ' (empty placeholder because no linked local stylesheet was found)'}.\n\nCopied linked stylesheets:\n${stylesheets.map(x=>'- '+x).join('\n') || '- None'}\n\n## Rewritten specifiers\n\n${rewrites.map(x=>'- '+x).join('\n') || '- None'}\n\n## Unsupported and review items\n\n${notes.map(x=>'- '+x).join('\n') || '- None detected; review dynamic code and Electron API usage.'}\n${fsSection}\n## Derived permissions â€” review every grant\n\n\`\`\`json\n${JSON.stringify(permissions,null,2)}\n\`\`\`\n\n${fsFooter}### Permission review checklist (all items required before \`tsgpu build\`)\n\nRe-run with \`tsgpu import electron ${root} --out ${dest} --fix\` to preview automatic fixes (add \`--force\` to overwrite an existing output). Edit tsgpu.config.json in ${dest}, then run \`tsgpu build\` in ${dest}.\n\n- [ ] \`permissions.network\` â€” every host is an exact hostname (no wildcard/subdomain/port/path). Derived hosts: ${permissions.network.length ? permissions.network.join(', ') : '(none)'}. Confirm each host against https.get/fetch/axios/data-fetch call sites and the renderer CSP; remove unneeded hosts and add any host the importer missed. Fix: edit "permissions.network" in ${dest}/tsgpu.config.json (e.g. ${JSON.stringify(permissions.network)}), then run \`tsgpu build\` in ${dest}. Preview fixes with \`tsgpu import electron ${root} --out ${dest} --fix\`.\n- [ ] \`permissions.notifications\` â€” is ${permissions.notifications}. Confirm a desktop notification is actually shown; the host may report notifications as unsupported, so test at runtime. Fix: set "permissions.notifications" in ${dest}/tsgpu.config.json, then run \`tsgpu build\` in ${dest} to test.\n- [ ] \`permissions.window\` â€” is ${permissions.window}. Confirm window creation/management use; check titleBarStyle and hidden show/hide/fullscreen/window-move uses the partial shim does not support. Fix: set "permissions.window" in ${dest}/tsgpu.config.json, then run \`tsgpu build\` in ${dest}.\n- [ ] \`permissions.ipc\` â€” is ${permissions.ipc}. Grant is boolean (channels cannot be allowlisted); enumerate every ipcMain/ipcRenderer channel and confirm each has a preload bridge; remove dead channels if any. Fix: set "permissions.ipc" in ${dest}/tsgpu.config.json, then run \`tsgpu build\` in ${dest}.\n- [ ] \`permissions.filesystem\` â€” read ${JSON.stringify(permissions.filesystem.read)}, write ${JSON.stringify(permissions.filesystem.write)}. Empty is correct only if every file call is userData-based or dialog-selected (auto-granted, see Filesystem paths section); otherwise add the real relative root and re-run build. Fix: edit "permissions.filesystem" (or "filesystem.read"/"filesystem.write") in ${dest}/tsgpu.config.json, then run \`tsgpu build\` in ${dest}.\n- [ ] \`permissions.processes\` â€” derived executables: ${permissions.processes.length ? permissions.processes.join(', ') : '(none)'}. Confirm no executable is spawned, or list executable names only. Fix: edit "permissions.processes" in ${dest}/tsgpu.config.json, then run \`tsgpu build\` in ${dest}.\n- [ ] Final pass: search for calls the pattern-scan can miss (aliased fetch/https.get/spawn/fs/Notification/BrowserWindow/ipcMain) and compare against tsgpu.config.json permissions. Fix: run \`tsgpu import electron ${root} --out ${dest} --fix\` to preview fixes, then run \`tsgpu build\` in ${dest}.\n\n## Manual steps\n\n- ${preloadNote}\n- [ ] Preload isolation: the bundled preload runs in the page JS realm before renderer scripts, not an isolated world. Confirm it only uses contextBridge/ipcRenderer and the exposed window.api surface â€” no direct DOM/page-global mutation and no reliance on isolated-world security or pre-DOM timing.\n- [ ] Preload Node/Electron APIs: verify no main-only APIs (ipcMain, app, BrowserWindow, dialog, fs, path, ...) are used in preload scope; move such logic to the backend.\n- [ ] Preloadâ†’backend channel contract: confirm every invoke/send channel in preload is still registered in the converted backend, and the page does not already define the exposed key.\n- [ ] ${webPrefsNote}\n- Review Electron APIs, renderer Node integration, dynamic paths, package dependencies, build/Forge settings, and permissions.\n- Original titleBarStyle: ${titleBarStyle || '(not specified)'}. Check any show/hide/fullscreen/window-move event use; BrowserWindow is partial and does not support show/hide/ready-to-show/fullscreen events or will-move/will-resize.\n- ${builderNote}\n- ${forgeNote}\n- Run \`tsgpu build\` in this directory. Fix: re-run \`tsgpu import electron ${root} --out ${dest} --fix\` for preview fixes, then \`tsgpu build\` in ${dest}.\n`;
+  await writeFile(path.join(dest,'TSGPU_IMPORT_REPORT.md'),report);
+  console.log(`Imported Electron project to ${dest}. Review TSGPU_IMPORT_REPORT.md.`);
   return {out:dest,config,report};
 }

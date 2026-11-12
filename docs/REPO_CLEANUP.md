@@ -1,5 +1,12 @@
 ﻿# Repository cleanup inventory
 
+> **Historical snapshot (2026-11-04).** File names and search results below use the pre-rename
+> spellings (`tsgpui-*`, `TSGPUI-*`, `check-webview.mjs`) because they quote real paths as they
+> existed then; they are not rebranded. Since this snapshot, the WebView renderer was removed
+> and the product renamed to TS-GPU (see [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)); the
+> `scripts/e2e-windows.mjs` and `scripts/webview-probe.mjs` candidates listed here were deleted
+> with the rewrite, and the `webview.mjs` references are historical.
+
 Snapshot: 2026-11-04. No files were deleted. These are candidates, not a claim that the list covers every generated file. A name search cannot rule out dynamic paths, external consumers, or unsaved work. `needs decision` means preserve until its owner decides; `keep` means the evidence shows a current purpose. Ignored build outputs are listed separately from tracked and untracked files.
 
 The inventory used `git status --short --untracked-files=all`, `git ls-files examples`, `git status --short --ignored examples`, and `Get-ChildItem examples -Recurse -File`. Reference searches below used `rg -n -F` from the nested repo root, excluding this inventory and `e2e-report.json` itself; default ripgrep ignores ignored build directories and binary files. Each quoted name is a search term; absence of a result means no text match in that search scope, not proof of no possible use.

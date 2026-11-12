@@ -1,18 +1,18 @@
-//! Document → layout → paint glue; owns the frame cache and re-layouts on state change.
+//! Document â†’ layout â†’ paint glue; owns the frame cache and re-layouts on state change.
 //! Owner: agent D.
 //!
 //! Contract (fixed):
 //! - `App::new(doc: crate::package::AppPackage) -> Self`
-//! - `App::frame(&mut self, scale: f32, size: (u32, u32)) -> types::PaintFrame` — full repaint:
+//! - `App::frame(&mut self, scale: f32, size: (u32, u32)) -> types::PaintFrame` â€” full repaint:
 //!   layout::measure on doc.root, text runs for visible text nodes, clips flattened down the tree.
-//! - `App::pointer(&mut self, event: input::PointerEvent)` — hit test via input::hit_test,
+//! - `App::pointer(&mut self, event: input::PointerEvent)` â€” hit test via input::hit_test,
 //!   hover/active state, dispatch `data-onclick` actions (M0: log to stdout is acceptable;
 //!   QuickJS backend wiring via the existing runtime bridge is M1)
 //! - `App::key(&mut self, event: input::KeyEvent)`
 //!
 //! M0 notes: `frame()` rebuilds the whole draw list on every call (surface repaints every vsync),
 //! so state changes are picked up without an explicit dirty flag. Hit testing uses a cached
-//! PRE-shaping copy of the last frame — shaping replaces `Text` ops with `Glyphs` batches that
+//! PRE-shaping copy of the last frame â€” shaping replaces `Text` ops with `Glyphs` batches that
 //! carry no node key.
 
 use crate::gpu::{input, layout, text, types};
@@ -34,9 +34,9 @@ const BASELINE_EM: f32 = 0.9;
 pub struct App {
     doc: crate::package::AppPackage,
     text: text::TextSystem,
-    /// Node key → tag, flattened at construction (the doc tree is immutable in M0).
+    /// Node key â†’ tag, flattened at construction (the doc tree is immutable in M0).
     tags: HashMap<u64, String>,
-    /// Node key → action name for `data-onclick`.
+    /// Node key â†’ action name for `data-onclick`.
     onclick: HashMap<u64, String>,
     // --- interaction state (M0) ---
     hovered: Option<u64>,
@@ -182,7 +182,7 @@ impl App {
         }
     }
 
-    /// Which interaction states currently apply — merged into styles during paint.
+    /// Which interaction states currently apply â€” merged into styles during paint.
     fn state_flags(&self) -> StateFlags<'_> {
         StateFlags {
             hovered: self.hovered,
@@ -473,7 +473,7 @@ fn parse_color(value: &str) -> Option<Color> {
                 s.parse::<f32>().ok().map(|v| (v / 255.0).clamp(0.0, 1.0))
             }
         };
-        // Alpha is 0–1 (or a percentage), never divided by 255.
+        // Alpha is 0â€“1 (or a percentage), never divided by 255.
         let alpha = |s: &str| -> Option<f32> {
             if let Some(pct) = s.strip_suffix('%') {
                 pct.parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0))
@@ -552,7 +552,7 @@ fn text_content(node: &Node, flags: &StateFlags) -> String {
         "checkbox" => {
             let base = node.text.clone();
             if flags.checked.get(&node.key).copied().unwrap_or(false) {
-                format!("✓ {base}")
+                format!("âœ“ {base}")
             } else {
                 base
             }
@@ -670,7 +670,7 @@ mod tests {
 
     fn doc(style: &str) -> AppPackage {
         let json = format!(
-            r#"{{"format":"tsgpui-1","name":"app","title":"App","width":400,"height":300,
+            r#"{{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,
                 "backend_js":"","root":{{"tag":"div","key":1,"style":{style}}}}}"#
         );
         serde_json::from_str(&json).unwrap()
@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn frame_emits_text_ops_from_layout_text_styles() {
         // A nested text node styled by the document; layout resolves its box and text style.
-        let json = r##"{"format":"tsgpui-1","name":"app","title":"App","width":400,"height":300,
+        let json = r##"{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,
             "backend_js":"",
             "root":{"tag":"div","key":1,"children":[
                 {"tag":"h1","key":2,"text":"TSGPUI","style":{"font-size":"48px","color":"#ffffff"}}

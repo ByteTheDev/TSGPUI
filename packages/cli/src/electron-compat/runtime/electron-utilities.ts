@@ -2,7 +2,7 @@ import { EventEmitter } from './events';
 import { compatWarnings } from './host';
 import { spawn as spawnChild } from './child_process';
 
-// utilityProcess in Electron runs a Node module in a separate utility process. TSGPUI has no Node
+// utilityProcess in Electron runs a Node module in a separate utility process. TS-GPU has no Node
 // module runtime, but it can start a normal child process (the same host operation
 // `child_process` uses) and relay its streams and lifecycle. The executable must be listed in
 // `permissions.processes`; it defaults to `node`, so grant `node` (or pass `options.execPath`).
@@ -75,7 +75,7 @@ export class UtilityProcess extends EventEmitter {
   }
   terminate(): boolean { return this.kill(); }
   postMessage(_message: any, _handle?: any): boolean {
-    compatWarnings.push('utilityProcess.postMessage has no message port in TSGPUI; the message was dropped');
+    compatWarnings.push('utilityProcess.postMessage has no message port in TS-GPU; the message was dropped');
     return false;
   }
   disconnect() { this.connected = false; }
@@ -104,7 +104,7 @@ export const webUtils = {
   },
 };
 
-// In-app update support. TSGPUI checks a configured update feed (JSON such as
+// In-app update support. TS-GPU checks a configured update feed (JSON such as
 // {"version":"1.2.3","url":"https://example.com/app.exe","sha256":"..."}), emits the
 // usual Electron autoUpdater events, asks the host to download the update artifact into
 // userData/updates and verify its SHA-256, and swaps it over the running executable on
