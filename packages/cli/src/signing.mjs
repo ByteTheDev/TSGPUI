@@ -1,4 +1,4 @@
-﻿import {readFile, writeFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 import {createHash, createPrivateKey, sign} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
 import path from 'node:path';
@@ -71,23 +71,23 @@ export function findGpg() {
 }
 
 // Resolve the signing command to run. Returns a command string or null (unsigned).
-// Precedence: TSGPUI_SIGN_COMMAND, then platform-specific env shortcuts.
+// Precedence: TSGPU_SIGN_COMMAND, then platform-specific env shortcuts.
 export function resolveSignCommand() {
-  if (process.env.TSGPUI_SIGN_COMMAND) return process.env.TSGPUI_SIGN_COMMAND;
-  if (process.platform === 'win32' && process.env.TSGPUI_CERT_FILE) {
+  if (process.env.TSGPU_SIGN_COMMAND) return process.env.TSGPU_SIGN_COMMAND;
+  if (process.platform === 'win32' && process.env.TSGPU_CERT_FILE) {
     const tool = findSigntool();
     if (!tool) return null;
-    const cert = process.env.TSGPUI_CERT_FILE;
-    const password = process.env.TSGPUI_CERT_PASSWORD || '';
+    const cert = process.env.TSGPU_CERT_FILE;
+    const password = process.env.TSGPU_CERT_PASSWORD || '';
     const pw = password ? ` /p "${password}"` : '';
     return `"${tool}" sign /f "${cert}"${pw} /tr http://timestamp.digicert.com /td sha256 /fd sha256`;
   }
-  if (process.platform === 'darwin' && process.env.TSGPUI_CODESIGN_IDENTITY) {
-    const identity = process.env.TSGPUI_CODESIGN_IDENTITY;
+  if (process.platform === 'darwin' && process.env.TSGPU_CODESIGN_IDENTITY) {
+    const identity = process.env.TSGPU_CODESIGN_IDENTITY;
     return `codesign --sign "${identity}" --timestamp --options runtime`;
   }
-  if (process.platform === 'linux' && process.env.TSGPUI_GPG_KEY) {
-    const key = process.env.TSGPUI_GPG_KEY;
+  if (process.platform === 'linux' && process.env.TSGPU_GPG_KEY) {
+    const key = process.env.TSGPU_GPG_KEY;
     return `gpg --local-user "${key}" --detach-sign --armor`;
   }
   return null;
@@ -116,10 +116,10 @@ export async function notarizeArtifact(file) {
 }
 
 export async function signArtifact(file, command = resolveSignCommand()) {
-  if (!command) { console.log('Artifact is unsigned (set TSGPUI_SIGN_COMMAND, or TSGPUI_CERT_FILE on Windows / TSGPUI_CODESIGN_IDENTITY on macOS).'); return false; }
+  if (!command) { console.log('Artifact is unsigned (set TSGPU_SIGN_COMMAND, or TSGPU_CERT_FILE on Windows / TSGPU_CODESIGN_IDENTITY on macOS).'); return false; }
   const child = process.platform === 'win32'
-    ? spawn('cmd.exe', ['/d', '/s', '/c', `${command} "%TSGPUI_SIGN_FILE%"`], {env:{...process.env, TSGPUI_SIGN_FILE:path.resolve(file)}, stdio:'ignore', windowsHide:true})
-    : spawn('/bin/sh', ['-c', `${command} "$1"`, 'tsgpui-sign', path.resolve(file)], {stdio:'ignore'});
+    ? spawn('cmd.exe', ['/d', '/s', '/c', `${command} "%TSGPU_SIGN_FILE%"`], {env:{...process.env, TSGPU_SIGN_FILE:path.resolve(file)}, stdio:'ignore', windowsHide:true})
+    : spawn('/bin/sh', ['-c', `${command} "$1"`, 'tsgpu-sign', path.resolve(file)], {stdio:'ignore'});
   const code = await new Promise((resolve, reject) => {child.once('error', reject); child.once('close', resolve);});
   if (code !== 0) throw new Error('Signing command failed.');
   return true;

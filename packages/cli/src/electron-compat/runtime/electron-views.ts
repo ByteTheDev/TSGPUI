@@ -4,14 +4,14 @@ import { EventEmitter } from './events';
 // Partial shims for Electron's view/window APIs: BaseWindow, BrowserView and View.
 //
 // Multi-view layout (composing child views inside a window, tabbed windows, view
-// hierarchies) is NOT supported by the TSGPUI host. These shims keep inspectable
+// hierarchies) is NOT supported by the TS-GPU host. These shims keep inspectable
 // state (bounds, visibility, title, destroyed flags) and emit the events Electron
 // exposes, so apps can import and reference the APIs without crashing at load
 // time. addChildView/removeChildView throw a clear error because native view
 // chrome is unavailable. Basic construction never throws.
 
 function unsupported(api: string): never {
-  throw new Error(`${api} is not supported by TSGPUI`);
+  throw new Error(`${api} is not supported by TS-GPU`);
 }
 
 function numberOr(value: any, fallback: number): number {

@@ -1,4 +1,4 @@
-﻿import {writeFile} from 'node:fs/promises';
+import {writeFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 function literal(value) {
@@ -10,8 +10,8 @@ export function nsisScript({name, version, executable, output, publishUrl, certi
   const exe = literal(path.basename(executable));
   const safe = value => value ? String(value).replace(/[\r\n"$]+/g, '_') : '(unset)';
   return `Unicode true
-; TSGPUI NSIS installer for ${name} ${version}
-; Signing: tsgpui package --installer nsis --sign with TSGPUI_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
+; TS-GPU NSIS installer for ${name} ${version}
+; Signing: tsgpu package --installer nsis --sign with TSGPU_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
 ; Publish (manual): upload this installer plus the SHA-256 manifest to publishUrl ${safe(publishUrl)}
 ; In-app updates are supported: configure autoUpdater.setFeedURL(...) to the published manifest URL.
 Name "${name} ${version}"
@@ -19,23 +19,6 @@ OutFile "${output}"
 InstallDir "$PROGRAMFILES\\${name}"
 RequestExecutionLevel admin
 Section
-  ReadRegStr $0 HKLM "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
-  StrCmp $0 "" checkuser
-  StrCmp $0 "0.0.0.0" checkuser runtimeok
-checkuser:
-  ReadRegStr $0 HKCU "Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
-  StrCmp $0 "" installruntime
-  StrCmp $0 "0.0.0.0" installruntime runtimeok
-installruntime:
-  InitPluginsDir
-  inetc::get /SILENT "https://go.microsoft.com/fwlink/p/?LinkId=2124703" "$PLUGINSDIR\\webview2.exe" /END
-  Pop $0
-  StrCmp $0 "OK" +2
-  Abort "Could not download WebView2 runtime"
-  ExecWait '"$PLUGINSDIR\\webview2.exe" /silent /install' $0
-  IntCmp $0 0 runtimeok
-  Abort "WebView2 runtime installation failed"
-runtimeok:
   SetOutPath "$INSTDIR"
   File "${executable}"
   CreateDirectory "$SMPROGRAMS\\${name}"

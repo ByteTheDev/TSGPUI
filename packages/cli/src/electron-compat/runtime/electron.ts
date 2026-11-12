@@ -94,7 +94,7 @@ export const Session: any = _lazyValue('electron-session', 'Session');
 const g: any = globalThis;
 const page = () => g.window?.tsgpui;
 function warn(api: string) { compatWarnings.push(`${api} is not supported and has no effect`); }
-function unsupported(api: string): never { throw new Error(`${api} is not supported by TSGPUI`); }
+function unsupported(api: string): never { throw new Error(`${api} is not supported by TS-GPU`); }
 class App extends EventEmitter {
   isPackaged = true;
   private ready = false;

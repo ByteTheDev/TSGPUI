@@ -1,16 +1,14 @@
 {
-  "name": "tsgpui-counter-example",
+  "name": "tsgpu-counter-example",
   "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "gpui": "tsgpui build",
-    "gpui:build": "tsgpui build",
-    "gpui:dev": "tsgpui dev",
-    "gpui:compile": "tsgpui compile",
-    "GPUI": "tsgpui build"
+    "build": "tsgpu build",
+    "dev": "tsgpu dev",
+    "compile": "tsgpu compile"
   },
   "devDependencies": {
-    "@bytethedeveloper/tsgpui": "workspace:*"
+    "@bytethedeveloper/tsgpu": "workspace:*"
   }
 }

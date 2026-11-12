@@ -21,6 +21,10 @@ permissions:
   contents: read
 jobs:
   validate:
+    # NOTE (Project Rendrix, Phase A): the JS suite in this job targets the post-rewrite
+    # contract (bin/tsgpu.mjs, renderer "rendrix", magic TSGPU001, hosts.json v2). It goes
+    # green only once Agent J's CLI rename (packages/cli) has landed; the Rust steps below
+    # target Agent R's renamed Cargo targets (rendrix-host / tsgpu-gpui-host), which have.
     strategy:
       fail-fast: false
       matrix:
@@ -39,11 +43,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      - name: Install Linux WebView dependencies
+      # WebKitGTK/GTK are gone with the WebView host. These are the GUI-independent system
+      # libraries the deprecated GPUI host still needs to compile on Linux.
+      - name: Install Linux system libraries
         if: matrix.target == 'linux-x64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libssl-dev libasound2-dev libfontconfig-dev libvulkan-dev
+          sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libssl-dev libasound2-dev libfontconfig-dev libvulkan-dev
       - name: Install JavaScript dependencies
         run: bun install
       - name: Check CLI and compiler
@@ -54,25 +60,55 @@ jobs:
           bunx tsc --noEmit -p examples/notes/tsconfig.json
       - name: Compile both example bundles
         run: |
-          node packages/cli/bin/tsgpui.mjs compile --project examples/counter
-          node packages/cli/bin/tsgpui.mjs compile --project examples/notes
-      - name: Test native host
-        run: cargo test --manifest-path native/Cargo.toml --features native-host
-      - name: Build native host
-        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpui-host
-      - name: Build WebView host
-        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features webview-host --bin tsgpui-webview-host
+          node packages/cli/bin/tsgpu.mjs compile --project examples/counter
+          node packages/cli/bin/tsgpu.mjs compile --project examples/notes
+      - name: Test Rendrix host
+        run: cargo test --manifest-path native/Cargo.toml --features rendrix --bin rendrix-host
+      - name: Test deprecated GPUI host
+        run: cargo test --manifest-path native/Cargo.toml --features native-host --bin tsgpu-gpui-host
+      - name: Build Rendrix host
+        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features rendrix --bin rendrix-host
+      - name: Build deprecated GPUI host
+        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpu-gpui-host
       - name: Import and build Windows sample
         if: matrix.target == 'windows-x64'
         run: |
-          node packages/cli/bin/tsgpui.mjs import electron examples/electron-sample --out runner-sample --build
-          node packages/cli/bin/tsgpui.mjs build --project runner-sample --host native/target/release/tsgpui-webview-host.exe
-      - name: Run Windows end-to-end check
-        if: matrix.target == 'windows-x64'
-        run: node scripts/e2e-windows.mjs runner-sample/release/electron-sample.exe e2e-report.json
-      - name: Upload Windows end-to-end report
-        if: always() && matrix.target == 'windows-x64'
+          node packages/cli/bin/tsgpu.mjs import electron examples/electron-sample --out runner-sample --build
+          node packages/cli/bin/tsgpu.mjs build --project runner-sample --host native/target/release/rendrix-host.exe
+      # Renderer-agnostic JS checks end here. The packaged-app smoke below is Windows-only;
+      # macOS/Linux GUI smoke on hosted runners is PENDING PHYSICAL VERIFICATION per the
+      # charter's honest-testing requirement — a green Linux/macOS leg means "compiles and
+      # unit tests pass", not "a window rendered".
+  windows-smoke:
+    # REQUIRES Phase A complete: this job needs Agent J's renamed CLI (packages/cli/bin/tsgpu.mjs)
+    # and Agent R's rendrix-host binary. Until both land this job is expected to fail; keep
+    # continue-on-error: false so the gate cannot be quietly skipped once they do.
+    name: Windows packaged-app smoke (Rendrix)
+    runs-on: windows-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install JavaScript dependencies
+        run: bun install
+      - name: Build Rendrix host
+        run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features rendrix --bin rendrix-host
+      # Counter example path per the charter. Agent J owns the CLI; if the packaged exe is
+      # named differently after the rename, update the smoke invocation with it.
+      - name: Build the counter example via the CLI
+        run: node packages/cli/bin/tsgpu.mjs build --project examples/counter --host native/target/release/rendrix-host.exe
+      - name: Smoke the packaged app
+        run: node scripts/smoke-packaged.mjs examples/counter/dist/tsgpu-counter.exe smoke-report.json smoke-screenshot.png
+      - name: Upload smoke report and screenshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-e2e-report
-          path: e2e-report.json
+          name: windows-rendrix-smoke
+          path: |
+            smoke-report.json
+            smoke-screenshot.png
+          if-no-files-found: warn

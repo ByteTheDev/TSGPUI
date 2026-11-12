@@ -31,7 +31,7 @@ function decodeEntities(input) {
     if (names[lower] !== undefined) return names[lower];
     const code = lower.startsWith('&#x') ? Number.parseInt(lower.slice(3, -1), 16) : Number.parseInt(lower.slice(2, -1), 10);
     return Number.isInteger(code) && code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
-      ? String.fromCodePoint(code) : '�';
+      ? String.fromCodePoint(code) : 'ï¿½';
   });
 }
 

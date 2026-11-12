@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make TSGPUI apps feel like desktop apps while preserving its HTML/CSS/TypeScript authoring model and native GPUI renderer. Add declarative native menus and context menus, file drag and drop, platform accessibility semantics, and complete everyday text editing behavior.
+Make TS-GPU apps feel like desktop apps while preserving its HTML/CSS/TypeScript authoring model and native GPUI renderer. Add declarative native menus and context menus, file drag and drop, platform accessibility semantics, and complete everyday text editing behavior.
 
 ## Existing behavior
 

@@ -105,7 +105,7 @@ function nearestDisplay(point: Point): Display {
 }
 
 export const screen = Object.assign(new EventEmitter(), {
-  /** TSGPUI addition: re-read the displays from the host and wait for the result. */
+  /** TS-GPU addition: re-read the displays from the host and wait for the result. */
   async refresh() { await refreshDisplays(true); if (displaysError) throw displaysError; },
   getPrimaryDisplay(): Display { requireDisplays(); return primaryDisplay as Display; },
   getAllDisplays(): Display[] { return [...requireDisplays()]; },

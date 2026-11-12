@@ -1,6 +1,7 @@
 #![cfg_attr(all(target_os="windows",not(debug_assertions)),windows_subsystem="windows")]
 mod capabilities;
 mod platform;
+mod updater;
 mod ipc;
 mod package;
 mod network;
@@ -17,16 +18,18 @@ mod hotkeys;
 fn main(){
     let bundle_file=match package::bundle_path(){
         Ok(path)=>path,
-        Err(err)=>{eprintln!("TSGPUI host: {err}");std::process::exit(2)}
+        Err(err)=>{eprintln!("tsgpu-gpui-host: {err}");std::process::exit(2)}
     };
     let doc=match package::load(){
         Ok(doc)=>doc,
-        Err(err)=>{eprintln!("TSGPUI host: {err}");std::process::exit(2)}
+        Err(err)=>{eprintln!("tsgpu-gpui-host: {err}");std::process::exit(2)}
     };
     if doc.renderer != "native" {
-        eprintln!("TSGPUI host: app bundle selects the '{}' renderer; use tsgpui-webview-host",doc.renderer);
+        eprintln!("tsgpu-gpui-host: app bundle selects the '{}' renderer; this deprecated host only runs renderer \"native\" bundles (use rendrix-host)",doc.renderer);
         std::process::exit(2);
     }
+    // The GPUI host is deprecated: accepted with a warning until the Rendrix M1 gate, then removed.
+    eprintln!("tsgpu-gpui-host: the native renderer is deprecated; migrate bundles to renderer \"rendrix\"");
     // Relative filesystem grants resolve against the bundle's folder for `--bundle` runs, and
     // against the app's own folder otherwise.
     let base=bundle_file.as_ref().and_then(|file|file.parent().map(|p|p.to_path_buf()))

@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -68,7 +68,7 @@ test('Backend rejects runtime imports and require',()=>{
 });
 test('Compiler creates strict package schema',()=>{
   const doc=compileProject({html,css,backend,config});
-  assert.equal(doc.format,'tsgpui-1');
+  assert.equal(doc.format,'tsgpu-1');
   assert.equal(doc.root.tag,'body');
   assert.ok(doc.backend_js.includes('__tsgpui_app'));
 });
@@ -98,12 +98,12 @@ test('Compiles project from files, then packages and extracts native overlay',as
   const temp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-test-'));
   try {
     await mkdir(path.join(temp,'src'));
-    await writeFile(path.join(temp,'tsgpui.config.json'),JSON.stringify({...config,html:'src/index.html',css:'src/style.css',backend:'src/backend.ts',outDir:'dist'}));
+    await writeFile(path.join(temp,'tsgpu.config.json'),JSON.stringify({...config,html:'src/index.html',css:'src/style.css',backend:'src/backend.ts',outDir:'dist'}));
     await writeFile(path.join(temp,'src/index.html'),html);
     await writeFile(path.join(temp,'src/style.css'),css);
     await writeFile(path.join(temp,'src/backend.ts'),backend);
     const compiled=await buildPackage(temp);
-    assert.equal(compiled.bundle.format,'tsgpui-1');
+    assert.equal(compiled.bundle.format,'tsgpu-1');
     const host=path.join(temp,'host.exe'),out=path.join(temp,'app.exe');
     const fakeHost=Buffer.alloc(1024,0);
     fakeHost.write('MZ');
@@ -117,8 +117,8 @@ test('Compiles project from files, then packages and extracts native overlay',as
 });
 
 
-test('bundles and watches local backend modules for native and webview', async()=>{
-  const temp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-modules-'));
+test('bundles and watches local backend modules', async()=>{
+  const temp=await mkdtemp(path.join(os.tmpdir(),'tsgpu-modules-'));
   try {
     await mkdir(path.join(temp,'src'));
     const cfg={...config,html:'src/index.html',css:'src/style.css',backend:'src/backend.ts'};
@@ -127,8 +127,8 @@ test('bundles and watches local backend modules for native and webview', async()
     await writeFile(path.join(temp,'src/backend.ts'),`import { next } from './helper'; export default {state:{count:0},actions:{increment(api){api.set('count',next(api.get('count')))}}};`);
     await writeFile(path.join(temp,'src/helper.ts'),`export { next } from './nested';`);
     await writeFile(path.join(temp,'src/nested.ts'),`export function next(n: number) { return n + 1; }`);
-    for (const renderer of ['native','webview']) {
-      await writeFile(path.join(temp,'tsgpui.config.json'),JSON.stringify({...cfg,renderer}));
+    for (const renderer of ['rendrix','native']) {
+      await writeFile(path.join(temp,'tsgpu.config.json'),JSON.stringify({...cfg,renderer}));
       const built=await buildPackage(temp);
       assert.ok(built.watchAssets.includes(path.join('src','nested.ts')));
       const context=vm.createContext({});
@@ -136,7 +136,6 @@ test('bundles and watches local backend modules for native and webview', async()
       const app=context.__tsgpui_app;
       app.actions.increment({get:k=>app.state[k],set:(k,v)=>app.state[k]=v});
       assert.equal(app.state.count,1);
-      if (renderer==='webview') assert.ok(built.bundle.webview_html.includes('Unknown backend module'));
     }
     await writeFile(path.join(temp,'src/backend.ts'),`import x from 'node:fs'; export default {state:{},actions:{}}`);
     await assert.rejects(buildPackage(temp),/runtime imports must be relative/);
@@ -155,11 +154,11 @@ test('macOS app puts payload and icon in resources and records version metadata'
   try {
     const host=path.join(dir,'host'), bundle=path.join(dir,'app.tgp'), icon=path.join(dir,'icon.icns'), output=path.join(dir,'App.app');
     const macho=Buffer.alloc(1024); macho.writeUInt32BE(0xfeedfacf); await writeFile(host,macho);
-    const doc={format:'tsgpui-1',name:'App',title:'App & Co',version:'2.3.4',bundle_id:'com.example.app'};
+    const doc={format:'tsgpu-1',name:'App',title:'App & Co',version:'2.3.4',bundle_id:'com.example.app'};
     await writeFile(bundle,JSON.stringify(doc)); await writeFile(icon,'icon');
     await packageMacApp(host,bundle,output,{iconFile:icon});
     assert.deepEqual(await readFile(path.join(output,'Contents/MacOS/App')),macho);
-    assert.deepEqual(JSON.parse(await readFile(path.join(output,'Contents/Resources/tsgpui.tgp'),'utf8')),doc);
+    assert.deepEqual(JSON.parse(await readFile(path.join(output,'Contents/Resources/tsgpu.tgp'),'utf8')),doc);
     assert.equal(await readFile(path.join(output,'Contents/Resources/AppIcon.icns'),'utf8'),'icon');
     const plist=await readFile(path.join(output,'Contents/Info.plist'),'utf8');
     assert.match(plist,/com.example.app/); assert.match(plist,/2.3.4/); assert.match(plist,/App &amp; Co/); assert.match(plist,/AppIcon.icns/);

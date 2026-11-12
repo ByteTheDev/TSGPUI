@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap,fs::File,io::{Read,Seek,SeekFrom},path::PathBuf};
 use serde::Deserialize;
 
-pub const MAGIC: &[u8;8] = b"TSGPUI01";
+pub const MAGIC: &[u8;8] = b"TSGPU001";
 pub const MAX_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// Persisted backend state is small by design; larger values are not written.
 pub const MAX_STATE_BYTES: u64 = 256 * 1024;
@@ -74,7 +74,7 @@ impl Default for WindowChrome {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppPackage {
     pub format: String,
-    #[serde(default = "native_renderer")] pub renderer: String,
+    #[serde(default = "rendrix_renderer")] pub renderer: String,
     pub name: String,
     #[serde(default = "default_version")] pub version: String,
     pub title: String,
@@ -82,7 +82,6 @@ pub struct AppPackage {
     pub height: i32,
     pub root: Node,
     pub backend_js: String,
-    #[serde(default)] pub webview_html: Option<String>,
     #[serde(default)] pub assets: BTreeMap<String,EmbeddedAsset>,
     #[serde(default)] pub fonts: BTreeMap<String,String>,
     // Preferences for the development overlay and for persisting backend state between runs.
@@ -97,7 +96,7 @@ pub struct AppPackage {
     #[serde(default)] pub integrity: Option<String>,
 }
 
-fn native_renderer() -> String { "native".into() }
+fn rendrix_renderer() -> String { "rendrix".into() }
 
 fn default_version() -> String { "1.0.0".into() }
 
@@ -191,13 +190,15 @@ pub fn sha256_hex(data: &[u8]) -> String {
 fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     let doc: AppPackage = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Invalid .tgp document: {e}"))?;
-    if doc.format != "tsgpui-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
+    if doc.format != "tsgpu-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
     if !(200..=4096).contains(&doc.width) || !(200..=4096).contains(&doc.height) {
         return Err("Invalid window dimensions".into());
     }
-    if !["native", "webview"].contains(&doc.renderer.as_str()) {return Err(format!("Unknown renderer: {}",doc.renderer));}
-    if doc.name.is_empty() || doc.renderer == "native" && doc.root.tag.is_empty() {return Err("Invalid document content".into());}
-    if doc.renderer == "webview" && doc.webview_html.as_ref().is_none_or(String::is_empty) {return Err("WebView app bundle is missing webview_html".into());}
+    // "webview" was removed with the WebView host; a bundle still selecting it gets migration
+    // guidance instead of a generic "unknown renderer" message.
+    if doc.renderer == "webview" {return Err("The WebView renderer was removed; rebuild the bundle with the Rendrix renderer (set the project renderer to \"rendrix\")".into());}
+    if !["rendrix", "native"].contains(&doc.renderer.as_str()) {return Err(format!("Unknown renderer: {}",doc.renderer));}
+    if doc.name.is_empty() || ["rendrix", "native"].contains(&doc.renderer.as_str()) && doc.root.tag.is_empty() {return Err("Invalid document content".into());}
     if let Some(expected) = &doc.integrity {
         let payload = format!("{}{}", doc.backend_js, serde_json::to_string(&doc.root).unwrap_or_default());
         let actual = sha256_hex(payload.as_bytes());
@@ -210,7 +211,7 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
 fn read_embedded() -> Result<Vec<u8>,String> {
     let exe: PathBuf = std::env::current_exe().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/tsgpui.tgp")) {
+    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/tsgpu.tgp")) {
         if resources.is_file() { return std::fs::read(&resources).map_err(|e| format!("Unable to read app resource: {e}")); }
     }
     let mut f = File::open(&exe).map_err(|e| format!("Unable to open host: {e}"))?;
@@ -271,7 +272,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    const VALID_DOC: &str = r#"{"format":"tsgpui-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
+    const VALID_DOC: &str = r#"{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
 
     fn overlay(payload: &[u8], count: u64) -> Vec<u8> {
         let mut bytes = payload.to_vec();
@@ -343,7 +344,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_format_version() {
-        let json = VALID_DOC.replace("tsgpui-1", "tsgpui-2");
+        let json = VALID_DOC.replace("tsgpu-1", "tsgpui-2");
         assert!(parse_bundle(json.into_bytes()).unwrap_err().contains("Incompatible bundle format"));
     }
 
@@ -361,6 +362,23 @@ mod tests {
         assert!(parse_bundle(no_name.into_bytes()).unwrap_err().contains("Invalid document content"));
         let no_tag = VALID_DOC.replace("\"tag\":\"div\"", "\"tag\":\"\"");
         assert!(parse_bundle(no_tag.into_bytes()).unwrap_err().contains("Invalid document content"));
+    }
+
+    #[test]
+    fn renderer_keys() {
+        // Absent key defaults to the Rendrix renderer.
+        let doc = parse_bundle(VALID_DOC.as_bytes().to_vec()).unwrap();
+        assert_eq!(doc.renderer, "rendrix");
+        let rendrix = VALID_DOC.replace("\"name\":\"app\"", "\"renderer\":\"rendrix\",\"name\":\"app\"");
+        assert_eq!(parse_bundle(rendrix.into_bytes()).unwrap().renderer, "rendrix");
+        // The deprecated GPUI renderer is still accepted here; the GPUI host enforces it.
+        let native = VALID_DOC.replace("\"name\":\"app\"", "\"renderer\":\"native\",\"name\":\"app\"");
+        assert_eq!(parse_bundle(native.into_bytes()).unwrap().renderer, "native");
+        // WebView bundles are a hard error with migration guidance.
+        let webview = VALID_DOC.replace("\"name\":\"app\"", "\"renderer\":\"webview\",\"name\":\"app\"");
+        assert!(parse_bundle(webview.into_bytes()).unwrap_err().contains("WebView renderer was removed"));
+        let unknown = VALID_DOC.replace("\"name\":\"app\"", "\"renderer\":\"gtk\",\"name\":\"app\"");
+        assert!(parse_bundle(unknown.into_bytes()).unwrap_err().contains("Unknown renderer"));
     }
 
     #[test]

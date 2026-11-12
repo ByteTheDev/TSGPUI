@@ -18,7 +18,7 @@ function encodeUtf8(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-// Custom protocol shim for Electron -> TSGPUI transfer.
+// Custom protocol shim for Electron -> TS-GPU transfer.
 // Supports packaged-asset handlers, binary and streaming bodies, callback handlers, remote
 // proxy responses through the permission-checked transport, and per-scheme privilege records.
 

@@ -10,7 +10,7 @@ import {importElectron} from '../src/import-electron.mjs';
 import {buildPackage} from '../src/compiler.mjs';
 import {bundleBackend} from '../src/backend.mjs';
 
-const cli=fileURLToPath(new URL('../bin/tsgpui.mjs',import.meta.url));
+const cli=fileURLToPath(new URL('../bin/tsgpu.mjs',import.meta.url));
 test('bundles a pure JavaScript package with transitive CommonJS and JSON dependencies', async t => {
   const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-package-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out'), pkg=path.join(app,'node_modules','example-package');
@@ -43,61 +43,6 @@ test('backend bundling identifies direct native addon imports', async t => {
   await writeFile(entry,`import addon from './native.node'; export default {state:{},actions:{}};`);
   await assert.rejects(bundleBackend(entry,tmp,async()=>{}), /Native addon '\.\/native\.node'/);
 });
-test('each statically identified window page receives its own preload before page scripts', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-preloads-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
-  const app=path.join(tmp,'app'), out=path.join(tmp,'out');
-  await mkdir(path.join(app,'dist'),{recursive:true});
-  await writeFile(path.join(app,'package.json'),JSON.stringify({name:'pages',version:'1.0.0',main:'main.js'}));
-  await writeFile(path.join(app,'main.js'),`const {BrowserWindow} = require('electron'); const path = require('path'); const a = new BrowserWindow({webPreferences:{preload:path.join(__dirname,'one.js')}}); a.loadFile('dist/one.html'); const b = new BrowserWindow({webPreferences:{preload:path.join(__dirname,'two.js')}}); b.loadFile('dist/two.html');`);
-  await writeFile(path.join(app,'one.js'),`const {contextBridge} = require('electron'); globalThis.rendererValue = 'overwritten'; window.preloadOnly = true; contextBridge.exposeInMainWorld('preloadIdentity', { value: 'one' });`);
-  await writeFile(path.join(app,'two.js'),`const {contextBridge} = require('electron'); globalThis.rendererValue = 'overwritten'; contextBridge.exposeInMainWorld('preloadIdentity', { value: 'two' });`);
-  await writeFile(path.join(app,'dist/one.html'),'<html><body><script>window.pageScript = true;</script></body></html>');
-  await writeFile(path.join(app,'dist/two.html'),'<html><body><script>window.pageScript = true;</script></body></html>');
-  await importElectron(app,{out});
-  const {bundle}=await buildPackage(out);
-  const pages = [bundle.webview_html, Buffer.from(bundle.webview_files['/src/renderer/dist/two.html'].data,'base64').toString()];
-  for (let i=0; i<pages.length; i++) {
-    const match=/<script\b[^>]*data-tsgpui-preload[^>]*>([\s\S]*?)<\/script>/i.exec(pages[i]);
-    assert.ok(match,`page ${i} has a preload`);
-    assert.ok(match.index < pages[i].indexOf('window.pageScript'));
-    const context=vm.createContext({rendererValue:'original'}); vm.runInContext(match[1],context);
-    assert.equal(context.preloadIdentity.value,i ? 'two' : 'one');
-    assert.equal(context.rendererValue,'original'); assert.equal(context.preloadOnly,undefined);
-  }
-});
-test('reports instead of applying the wrong preload when windows share a page', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-shared-page-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
-  const app=path.join(tmp,'app'), out=path.join(tmp,'out');
-  await mkdir(path.join(app,'dist'),{recursive:true});
-  await writeFile(path.join(app,'package.json'),JSON.stringify({name:'shared',version:'1.0.0',main:'main.js'}));
-  await writeFile(path.join(app,'main.js'),`const {BrowserWindow}=require('electron'); const a=new BrowserWindow({webPreferences:{preload:'one.js'}}); a.loadFile('dist/index.html'); const b=new BrowserWindow(); b.loadFile('dist/index.html');`);
-  await writeFile(path.join(app,'one.js'),`globalThis.preloadIdentity = 'one';`);
-  await writeFile(path.join(app,'dist/index.html'),'<html><body>Hello</body></html>');
-  const {report}=await importElectron(app,{out});
-  assert.match(report,/multiple preload scripts; per-window association requires review/);
-  const {bundle}=await buildPackage(out);
-  assert.doesNotMatch(bundle.webview_html,/data-tsgpui-preload/);
-});
-test('packages multiple window pages and their assets with source-relative paths', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-pages-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
-  const app=path.join(tmp,'app'), out=path.join(tmp,'out');
-  await mkdir(path.join(app,'first'),{recursive:true}); await mkdir(path.join(app,'second'),{recursive:true});
-  await writeFile(path.join(app,'package.json'),JSON.stringify({name:'pages',version:'1.0.0',main:'main.js'}));
-  await writeFile(path.join(app,'main.js'),`const {BrowserWindow} = require('electron'); const a = new BrowserWindow(); a.loadFile('first/index.html'); const b = new BrowserWindow(); b.loadFile('second/index.html');`);
-  await writeFile(path.join(app,'first/index.html'),'<html><body>First</body></html>');
-  await writeFile(path.join(app,'second/index.html'),'<html><head><link rel="stylesheet" href="page.css"></head><body>Second<script src="page.js"></script></body></html>');
-  await writeFile(path.join(app,'second/page.css'),'body { color: blue }');
-  await writeFile(path.join(app,'second/page.js'),'globalThis.secondPage = true;');
-  const {config}=await importElectron(app,{out});
-  assert.equal(config.html,'src/renderer/first/index.html');
-  assert.deepEqual(config.webviewPages,['src/renderer/second/index.html']);
-  const {bundle}=await buildPackage(out);
-  assert.equal(bundle.webview_entry,'/src/renderer/first/index.html');
-  for (const file of ['second/index.html','second/page.css','second/page.js']) assert.ok(bundle.webview_files['/src/renderer/'+file],file);
-  const second=Buffer.from(bundle.webview_files['/src/renderer/second/index.html'].data,'base64').toString();
-  assert.match(second,/Second/);
-  assert.match(second,/Content-Security-Policy/);
-});
 test('imported CommonJS modules preserve callable and object module.exports values', async t => {
   const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-cjs-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
@@ -123,7 +68,7 @@ test('Electron subpath imports resolve to the compatibility runtime', async t =>
   const {report}=await importElectron(app,{out});
   assert.doesNotMatch(report,/Unsupported module (?:electron\/main|electron\/renderer|node:electron)/);
   const main=await readFile(path.join(out,'src/main/main.ts'),'utf8');
-  assert.equal((main.match(/tsgpui-runtime\/electron/g) || []).length, 3);
+  assert.equal((main.match(/tsgpu-runtime\/electron/g) || []).length, 3);
   await buildPackage(out);
 });
 test('build detects an Electron project in the working directory without a migrate command', async t => {
@@ -137,7 +82,7 @@ test('build detects an Electron project in the working directory without a migra
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/Electron compatibility is incomplete/);
   assert.match(result.stdout,/example-win32-x64\.exe/);
-  await assert.rejects(readFile(path.join(tmp,'tsgpui.config.json')),{code:'ENOENT'});
+  await assert.rejects(readFile(path.join(tmp,'tsgpu.config.json')),{code:'ENOENT'});
   const help=spawnSync(process.execPath,[cli,'--help'],{encoding:'utf8'});
   assert.doesNotMatch(help.stdout,/^\s*migrate\b/m);
 });
@@ -150,17 +95,18 @@ test('imports Electron configuration, modules and permissions, with a review rep
   await writeFile(path.join(app,'dist','index.html'),'<html><head></head><body>Hello</body></html>');
   const result=spawnSync(process.execPath,[cli,'import','electron',app,'--out',output],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);
-  const config=JSON.parse(await readFile(path.join(output,'tsgpui.config.json'),'utf8'));
-  assert.equal(config.renderer,'webview'); assert.equal(config.name,'sample-app'); assert.equal(config.version,'2.3.4'); assert.equal(config.title,'Hello');
+  const config=JSON.parse(await readFile(path.join(output,'tsgpu.config.json'),'utf8'));
+  assert.ok(config.renderer === undefined || config.renderer === 'rendrix');
+  assert.equal(config.name,'sample-app'); assert.equal(config.version,'2.3.4'); assert.equal(config.title,'Hello');
   assert.deepEqual(config.window,{width:800,height:650});
   assert.deepEqual(config.permissions.filesystem,{read:['./data'],write:['./data']});
   assert.deepEqual(config.permissions.processes,['git']); assert.deepEqual(config.permissions.network,['api.example.com','example.com']); assert.equal(config.permissions.ipc,true);
   const main=await readFile(path.join(output,'src/main/main.ts'),'utf8');
-  assert.match(main,/import \* as __tsgpui_import_0 from "\.\.\/tsgpui-runtime\/electron"/);
+  assert.match(main,/import \* as __tsgpui_import_0 from "\.\.\/tsgpu-runtime\/electron"/);
   assert.doesNotMatch(main,/require\(/);
-  assert.match(main,/tsgpui-runtime\/https/);
-  const report=await readFile(path.join(output,'TSGPUI_IMPORT_REPORT.md'),'utf8');
-  assert.match(report,/main\.js:4: Unsupported module unsupported-package/); assert.match(report,/node:fs/); assert.match(report,/tsgpui build/);
+  assert.match(main,/tsgpu-runtime\/https/);
+  const report=await readFile(path.join(output,'TSGPU_IMPORT_REPORT.md'),'utf8');
+  assert.match(report,/main\.js:4: Unsupported module unsupported-package/); assert.match(report,/node:fs/); assert.match(report,/tsgpu build/);
   await assert.rejects(importElectron(app,{out:output}),/already exists/);
 });
 
@@ -180,7 +126,7 @@ test('a simple imported project compiles with the available compatibility runtim
   await writeFile(path.join(app,'dist/index.html'),'<html><head></head><body>Hello</body></html>');
   await importElectron(app,{out});
   const result=await buildPackage(out);
-  assert.equal(result.bundle.renderer,'webview');
+  assert.equal(result.bundle.renderer,'rendrix');
 });
 
 test('uses and reports linked renderer stylesheets', async t => {

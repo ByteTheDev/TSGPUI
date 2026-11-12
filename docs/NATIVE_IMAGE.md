@@ -1,6 +1,6 @@
 # NativeImage real pixel support
 
-TSGPUI's Electron compatibility layer used to keep `nativeImage` metadata only: PNG bytes were
+TS-GPU's Electron compatibility layer used to keep `nativeImage` metadata only: PNG bytes were
 preserved and dimensions were parsed from PNG/JPEG/GIF/WebP headers, but `resize`, `crop`, `toPNG`,
 `toJPEG` and `toDataURL` did not touch pixels.
 
@@ -15,11 +15,13 @@ Electron.
 ```
 Electron app
   └─ electron-image.ts (shim)                real pixels, async host calls
-       └─ host('nativeImage.*', options)     __tsgpui_host / api.native
-            ├─ WebView renderer:  native/src/webview_bridge.rs
+       └─ host('nativeImage.*', options)     __tsgpu_host / api.native
             └─ native renderer:   native/src/runtime.rs → capabilities.rs
                  └─ IMAGE_STORE: decoded DynamicImage behind a handle
 ```
+
+(The webview-era path through `native/src/webview_bridge.rs` and
+`native/src/webview_capabilities.rs` was removed with the WebView renderer.)
 
 All operations take **one option object** and return plain JSON. Decoded images stay in the host;
 callers pass a numeric `handle` between calls instead of shipping pixels back and forth. Bitmaps
@@ -67,9 +69,9 @@ least-recently-used entry when a new decode arrives. Handles stay stable for as 
 is alive; a handle that has been evicted reads as an empty image. Create and transform results are
 both stored, so a chain like `resize → crop → toPNG` reuses the same mechanism.
 
-## Calling from the native and WebView APIs
+## Calling from the native API
 
-Native renderer (`api.native` in a TSGPUI app):
+Native renderer (`api.native` in a TS-GPU app):
 
 ```ts
 const created = await api.native.nativeImage.createFromBuffer({ base64, scaleFactor: 1 });
@@ -77,14 +79,10 @@ const resized = await api.native.nativeImage.resize({ handle: created.handle, wi
 const { base64: png } = await api.native.nativeImage.toPNG({ handle: resized.handle });
 ```
 
-WebView renderer (`window.tsgpui.invoke`):
+(Historical: the removed WebView renderer exposed the same operations as
+`window.tsgpu.invoke('nativeImage.*', …)`, permission-checked the same way.)
 
-```ts
-const created = await window.tsgpui.invoke('nativeImage.createFromPath', { root: 'assets', path: 'icon.png' });
-const { dataUrl } = await window.tsgpui.invoke('nativeImage.toDataURL', { handle: created.handle });
-```
-
-`nativeImage.createFromPath` is permission-checked in both renderers. Buffer and transform
+`nativeImage.createFromPath` is permission-checked on every renderer. Buffer and transform
 operations need no grant because they do no I/O.
 
 ## Electron shim behaviour
@@ -128,10 +126,10 @@ small.toPNG();            // pixels of the resized image
 Compatibility coverage is recorded in
 [`packages/cli/src/electron-compat/coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs);
 the native host implementation is in
-[`native/src/capabilities.rs`](../native/src/capabilities.rs), the WebView host's copy is in
-[`native/src/webview_capabilities.rs`](../native/src/webview_capabilities.rs), and the bridge
-wiring is in [`native/src/webview_bridge.rs`](../native/src/webview_bridge.rs) and
-[`native/src/runtime.rs`](../native/src/runtime.rs).
+[`native/src/capabilities.rs`](../native/src/capabilities.rs). The webview host's copy
+(`native/src/webview_capabilities.rs`) and the bridge wiring
+(`native/src/webview_bridge.rs`) were removed with the WebView renderer; the native-side
+wiring stays in [`native/src/runtime.rs`](../native/src/runtime.rs).
 
 ## Verification
 

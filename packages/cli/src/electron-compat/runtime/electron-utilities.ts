@@ -2,7 +2,7 @@ import { EventEmitter } from './events';
 import { compatWarnings } from './host';
 import { spawn as spawnChild } from './child_process';
 
-// utilityProcess in Electron runs a Node module in a separate utility process. TSGPUI has no Node
+// utilityProcess in Electron runs a Node module in a separate utility process. TS-GPU has no Node
 // module runtime, but it can start a normal child process (the same host operation
 // `child_process` uses) and relay its streams and lifecycle. The executable must be listed in
 // `permissions.processes`; it defaults to `node`, so grant `node` (or pass `options.execPath`).
@@ -75,7 +75,7 @@ export class UtilityProcess extends EventEmitter {
   }
   terminate(): boolean { return this.kill(); }
   postMessage(_message: any, _handle?: any): boolean {
-    compatWarnings.push('utilityProcess.postMessage has no message port in TSGPUI; the message was dropped');
+    compatWarnings.push('utilityProcess.postMessage has no message port in TS-GPU; the message was dropped');
     return false;
   }
   disconnect() { this.connected = false; }
@@ -104,10 +104,12 @@ export const webUtils = {
   },
 };
 
-// In-app update support. TSGPUI checks a configured update feed (JSON such as
+// In-app update support. TS-GPU checks a configured update feed (JSON such as
 // {"version":"1.2.3","url":"https://example.com/app.exe","sha256":"..."}), emits the
-// usual Electron autoUpdater events, downloads the update artifact, verifies its
-// SHA-256 when one is supplied, and installs it on quitAndInstall().
+// usual Electron autoUpdater events, asks the host to download the update artifact into
+// userData/updates and verify its SHA-256, and swaps it over the running executable on
+// quitAndInstall() (relaunching when isForceRunAfter is set). Without a staged artifact the
+// fallback opens the artifact in the system browser and quits.
 import { host } from './host';
 
 function compareVersions(left: any, right: any): number {
@@ -128,6 +130,14 @@ export class AutoUpdater extends EventEmitter {
   private currentVersionValue = '';
   private pendingUpdate: any = null;
   private downloadedPath: string | null = null;
+
+  /// Derives a plain file name for the staged artifact from the feed's URL.
+  private artifactName(info: any): string {
+    const raw = String(info?.url ?? '');
+    const base = raw.split(/[?#]/)[0].split('/').pop() || '';
+    const safe = base.replace(/[^A-Za-z0-9._-]/g, '_');
+    return safe || 'update.bin';
+  }
 
   getFeedURL(): string { return this.feedURLValue; }
   setFeedURL(options: any): void {
@@ -205,6 +215,25 @@ export class AutoUpdater extends EventEmitter {
   async downloadUpdate(updateInfo?: any): Promise<any> {
     const info = updateInfo || this.pendingUpdate;
     if (!info || !info.url) return null;
+    const name = this.artifactName(info);
+    // Preferred path: the host streams the artifact straight into userData/updates while
+    // verifying SHA-256, so the bytes never round-trip through the JS bridge. When the host
+    // cannot stage it (an older host, or the feed host is not granted), fall back to an
+    // in-memory download with the same verification; quitAndInstall then offers the artifact
+    // through the system browser instead of swapping it in.
+    try {
+      const request: any = { url: String(info.url), name };
+      if (info.sha256) request.sha256 = String(info.sha256);
+      const staged: any = await host('updater.download', request);
+      const file = String(staged?.staged ?? '').split(/[\\/]/).pop() || '';
+      if (file) {
+        const downloaded = { ...info, stagedPath: `updates/${file}` };
+        this.pendingUpdate = downloaded;
+        this.downloadedPath = `updates/${file}`;
+        this.emit('update-downloaded', downloaded);
+        return downloaded;
+      }
+    } catch { /* fall through to the in-memory download */ }
     let bytes: Uint8Array | null = null;
     const g: any = globalThis;
     if (typeof g.fetch === 'function') {
@@ -240,13 +269,24 @@ export class AutoUpdater extends EventEmitter {
     return info;
   }
 
-  quitAndInstall(_isSilent?: boolean, _isForceRunAfter?: boolean): void {
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void {
     this.emit('before-quit-for-update');
-    const info = this.pendingUpdate;
-    if (info && info.url) {
-      try { host('shell.openExternal', { url: info.url }); } catch {}
-    }
-    try { host('app.quit', {}); } catch {}
+    const staged = typeof this.pendingUpdate?.stagedPath === 'string' ? String(this.pendingUpdate.stagedPath) : '';
+    const fileName = staged ? staged.replace(/^updates[\\/]/, '') : '';
+    const install = fileName
+      ? host('updater.install', { path: fileName, restart: !!isForceRunAfter })
+      : Promise.reject(new Error('No staged update artifact'));
+    install
+      .then(() => host('app.quit', {}))
+      .catch(() => {
+        // No staged artifact, or the host could not swap it: open the artifact and quit, the
+        // pre-1.0 behavior, so the user still ends up with the new version in hand.
+        const info = this.pendingUpdate;
+        if (info && info.url) {
+          try { host('shell.openExternal', { url: info.url }); } catch {}
+        }
+        try { host('app.quit', {}); } catch {}
+      });
   }
 }
 

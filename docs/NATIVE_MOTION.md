@@ -1,6 +1,13 @@
 # Native CSS motion: current state and feasibility
 
-This note records the investigation of CSS motion support on TSGPUI's native
+> **Update (2026-11-11, Rendrix rewrite):** the WebView renderer was removed, so the
+> "use `renderer: "webview"`" guidance below no longer works — it is a hard error. CSS
+> `transition`, `animation`, and `transform` are unsupported in every in-tree engine today.
+> The Rendrix roadmap (M3) plans rAF-driven interpolation of opacity, color, and position
+> ([RENDERER_TSGPU.md](RENDERER_TSGPU.md)). The GPUI investigation below is kept as the
+> record of why no native path was chosen for GPUI.
+
+This note records the investigation of CSS motion support on TS-GPU's native
 renderer (`renderer: "native"`): transitions, animations, and transforms. It
 complements [`SUPPORTED_SYNTAX.md`](./SUPPORTED_SYNTAX.md) and
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
@@ -21,9 +28,9 @@ complements [`SUPPORTED_SYNTAX.md`](./SUPPORTED_SYNTAX.md) and
 - No newer GPUI version available in the registry or on crates.io exposes an
   element transform. Upgrading would be a large, API-breaking migration that
   would not close this gap.
-- **Recommendation: keep CSS motion WebView-only.** Do not attempt to implement
-  native CSS transitions/animations/transforms now. Use
-  `renderer: "webview"` when motion is required.
+- **Recommendation (historical): keep CSS motion out of the GPUI path.** Do not attempt to implement
+  native CSS transitions/animations/transforms on GPUI. Before the rewrite this pointed at
+  `renderer: "webview"`, which is now a hard error; motion is unsupported in-tree until Rendrix M3.
 
 ## Current state
 
@@ -106,36 +113,26 @@ transforms unsupported. It is not justified for motion alone.
 
 ## Recommendation
 
-1. **Keep WebView-only for CSS motion.** `renderer: "webview"` passes authored
-   CSS to the platform browser engine (WebView2 / WKWebView / WebKitGTK), which
-   supports transitions, animations, and transforms fully. This is the supported
-   path for motion.
-2. **Do not implement native CSS motion now.** The cost (custom animation loop,
+1. **Keep CSS motion out of the GPUI path.** GPUI cannot express it (see above). The historical
+   "supported path for motion" — `renderer: "webview"` with WebView2 / WKWebView / WebKitGTK —
+   was removed with the WebView renderer and is now a hard error.
+2. **Do not implement native CSS motion on GPUI now.** The cost (custom animation loop,
    property interpolation, paint-time transform, stacking-context changes) is
    large and the primitive is absent from GPUI.
-3. **Revisit only when GPUI exposes an element transform primitive** (or a
-   drawing API that makes one straightforward). Track this in
+3. **Deliver motion through the Rendrix roadmap instead.** M3 plans rAF-driven interpolation of
+   opacity/color/position. Track this in
    `docs/ROADMAP_TO_1.0.md` item 3.
 4. **Small improvement made:** the CSS compiler's unsupported-property warning
    for `transition`, `transform`, and `animation` now names the cause and points
-   at the WebView renderer (`packages/cli/src/css.mjs`), so users hitting this
-   in `tsgpui dev`/`build` get an actionable message. Other unsupported
+   at the Rendrix animation plan (`packages/cli/src/css.mjs`), so users hitting this
+   in `tsgpu dev`/`build` get an actionable message. Other unsupported
    properties keep the shorter message. Existing tests still match the
    `'...' is not supported yet` prefix.
 
 ## How to use motion today
 
-Set the renderer in `tsgpui.config.json`:
-
-```json
-{ "renderer": "webview" }
-```
-
-Then authored CSS such as
-
-```css
-button { transition: transform 0.15s ease, background-color 0.15s ease; }
-button:hover { transform: translateY(-2px); }
-```
-
-runs through the platform browser engine, as in `examples/electron-sample`.
+You cannot, on any in-tree engine. The webview-era instructions (setting
+`{ "renderer": "webview" }` in `tsgpu.config.json` and relying on the platform
+browser engine, as in `examples/electron-sample`) are historical — that renderer
+was removed and the key now fails the build. Until Rendrix M3 ships animations,
+CSS `transition`, `animation`, and `transform` remain unsupported.

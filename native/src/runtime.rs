@@ -1338,9 +1338,9 @@ mod tests {
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("listen", json!({})).unwrap();
         let environment: std::collections::HashMap<String, String> = backend.ipc_environment().into_iter().collect();
-        let mut peer = TcpStream::connect(&environment["TSGPUI_IPC_ADDR"]).unwrap();
+        let mut peer = TcpStream::connect(&environment["TSGPU_IPC_ADDR"]).unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let token = &environment["TSGPUI_IPC_TOKEN"];
+        let token = &environment["TSGPU_IPC_TOKEN"];
         writeln!(peer, "{}", json!({ "token": token })).unwrap();
         writeln!(peer, "{}", json!({ "channel": "ping", "payload": "from peer" })).unwrap();
 
@@ -1368,7 +1368,7 @@ mod tests {
             listen(api) { api.native.ipc.on('ping', (payload) => api.set('got', payload)); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("listen", json!({})).unwrap();
-        let addr = backend.ipc_environment().into_iter().find(|(key, _)| key == "TSGPUI_IPC_ADDR").unwrap().1;
+        let addr = backend.ipc_environment().into_iter().find(|(key, _)| key == "TSGPU_IPC_ADDR").unwrap().1;
         let mut intruder = TcpStream::connect(addr).unwrap();
         // The host closes a connection that gives the wrong token, so later writes can fail. The
         // check that matters is that the spoofed message is not delivered.

@@ -1,22 +1,22 @@
-# Installs the tsgpui CLI on Windows into Bun's bin directory:
+# Installs the tsgpu CLI on Windows into Bun's bin directory:
 #
 #   irm https://raw.githubusercontent.com/ByteTheDev/TSGPUI/main/packages/cli/install/install.ps1 | iex
 #
 # Environment variables:
-#   TSGPUI_VERSION         install this release tag, for example 0.3.0 (default: the latest release)
-#   TSGPUI_URL             install the archive at this URL instead (a mirror, or a local test server)
-#   TSGPUI_NO_MODIFY_PATH  set to 1 to leave the user PATH unchanged
-#   BUN_INSTALL            Bun's home directory (default: %USERPROFILE%\.bun)
+#   TSGPU_VERSION         install this release tag, for example 0.3.0 (default: the latest release)
+#   TSGPU_URL             install the archive at this URL instead (a mirror, or a local test server)
+#   TSGPU_NO_MODIFY_PATH  set to 1 to leave the user PATH unchanged
+#   BUN_INSTALL           Bun's home directory (default: %USERPROFILE%\.bun)
 #
-# The archive is unpacked to %BUN_INSTALL%\install\tsgpui and a tsgpui.cmd launcher is written to
+# The archive is unpacked to %BUN_INSTALL%\install\tsgpu and a tsgpu.cmd launcher is written to
 # %BUN_INSTALL%\bin. The launcher runs the CLI with Bun when present, otherwise Node.js 20+.
 # This is a function so that `irm | iex` does not leave $ErrorActionPreference changed in your session.
 
-function Install-Tsgpui {
+function Install-Tsgpu {
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'
   $repoUrl = 'https://github.com/ByteTheDev/TSGPUI'
-  $archiveName = 'tsgpui-cli.tgz'
+  $archiveName = 'tsgpu-cli.tgz'
 
   if ($env:OS -ne 'Windows_NT') { throw 'install.ps1 is for Windows; use install.sh on macOS and Linux.' }
   # Use Windows' own bsdtar by full path: a Git for Windows GNU tar earlier on PATH misreads C:\ paths.
@@ -29,12 +29,12 @@ function Install-Tsgpui {
     $nodeMajor = [int](& node -p "process.versions.node.split('.')[0]")
     $hasNode = $nodeMajor -ge 20
   }
-  if (-not ($hasBun -or $hasNode)) { throw 'tsgpui needs Bun or Node.js 20 or newer on PATH.' }
+  if (-not ($hasBun -or $hasNode)) { throw 'tsgpu needs Bun or Node.js 20 or newer on PATH.' }
 
-  if ($env:TSGPUI_URL) {
-    $url = $env:TSGPUI_URL
-  } elseif ($env:TSGPUI_VERSION) {
-    $url = "$repoUrl/releases/download/v$($env:TSGPUI_VERSION.TrimStart('v'))/$archiveName"
+  if ($env:TSGPU_URL) {
+    $url = $env:TSGPU_URL
+  } elseif ($env:TSGPU_VERSION) {
+    $url = "$repoUrl/releases/download/v$($env:TSGPU_VERSION.TrimStart('v'))/$archiveName"
   } else {
     $url = "$repoUrl/releases/latest/download/$archiveName"
   }
@@ -42,11 +42,11 @@ function Install-Tsgpui {
   # GitHub requires TLS 1.2; Windows PowerShell 5.1 may default to older protocols.
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-  $tmp = Join-Path ([IO.Path]::GetTempPath()) ('tsgpui-' + [guid]::NewGuid().ToString('N'))
+  $tmp = Join-Path ([IO.Path]::GetTempPath()) ('tsgpu-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $tmp | Out-Null
   try {
     $archive = Join-Path $tmp $archiveName
-    Write-Host "tsgpui: downloading $url"
+    Write-Host "tsgpu: downloading $url"
     Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
     Invoke-WebRequest -Uri "$url.sha256" -OutFile "$archive.sha256" -UseBasicParsing
 
@@ -60,10 +60,10 @@ function Install-Tsgpui {
     New-Item -ItemType Directory -Path $extract | Out-Null
     & $tarExe -xzf $archive -C $extract --strip-components 1
     if ($LASTEXITCODE -ne 0) { throw 'could not unpack the archive.' }
-    if (-not (Test-Path (Join-Path $extract 'dist\tsgpui.mjs'))) { throw 'archive does not contain dist\tsgpui.mjs.' }
+    if (-not (Test-Path (Join-Path $extract 'dist\tsgpu.mjs'))) { throw 'archive does not contain dist\tsgpu.mjs.' }
 
     $bunHome = if ($env:BUN_INSTALL) { $env:BUN_INSTALL } else { Join-Path $env:USERPROFILE '.bun' }
-    $pkgDir = Join-Path $bunHome 'install\tsgpui'
+    $pkgDir = Join-Path $bunHome 'install\tsgpu'
     $binDir = Join-Path $bunHome 'bin'
     New-Item -ItemType Directory -Force -Path (Split-Path $pkgDir) | Out-Null
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
@@ -73,8 +73,8 @@ function Install-Tsgpui {
     # The launcher finds the CLI relative to itself, so the install can move with $BUN_INSTALL.
     $shimLines = @(
       '@echo off',
-      'rem tsgpui launcher written by the TSGPUI installer. Run install.ps1 again to update it.',
-      'set "CLI=%~dp0..\install\tsgpui\dist\tsgpui.mjs"',
+      'rem tsgpu launcher written by the TS-GPU installer. Run install.ps1 again to update it.',
+      'set "CLI=%~dp0..\install\tsgpu\dist\tsgpu.mjs"',
       'where /q bun',
       'if errorlevel 1 goto node',
       'bun "%CLI%" %*',
@@ -83,26 +83,26 @@ function Install-Tsgpui {
       'node "%CLI%" %*',
       'exit /b %errorlevel%'
     )
-    $shim = Join-Path $binDir 'tsgpui.cmd'
+    $shim = Join-Path $binDir 'tsgpu.cmd'
     Set-Content -Path $shim -Value ($shimLines -join "`r`n") -Encoding Ascii
 
-    if ($env:TSGPUI_NO_MODIFY_PATH -ne '1') {
+    if ($env:TSGPU_NO_MODIFY_PATH -ne '1') {
       $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
       $entries = @($userPath -split ';' | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') })
       if ($entries -notcontains $binDir.TrimEnd('\')) {
         $newPath = if ($userPath) { "$($userPath.TrimEnd(';'));$binDir" } else { $binDir }
         [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         $env:Path = "$env:Path;$binDir"
-        Write-Host "tsgpui: added $binDir to your user PATH (new terminals will pick it up)"
+        Write-Host "tsgpu: added $binDir to your user PATH (new terminals will pick it up)"
       }
     }
 
     $version = & $shim --version
-    Write-Host "tsgpui: installed $version to $pkgDir"
-    Write-Host "tsgpui: next, run 'tsgpui doctor' to check the toolchain"
+    Write-Host "tsgpu: installed $version to $pkgDir"
+    Write-Host "tsgpu: next, run 'tsgpu doctor' to check the toolchain"
   } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
   }
 }
 
-Install-Tsgpui
+Install-Tsgpu

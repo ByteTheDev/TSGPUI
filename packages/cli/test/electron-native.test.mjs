@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -180,12 +180,12 @@ test('native net.request sends the request options and returns the response body
   assert.equal(calls.find(([name]) => name === 'net.request')[1][0].url, 'https://example.com/ping');
 });
 
-test('operations that need a page or an extra window name the renderer that provides them', async () => {
+test('window and page operations explain the Rendrix-host limitation instead of failing silently', async () => {
   const { api } = fakeNative();
   const { load } = nativeRuntime(api);
   const host = load('host');
-  await assert.rejects(host.host('window.create', {}), /renderer: "webview"/);
-  await assert.rejects(host.host('ipc.invoke', { channel: 'x' }), /not available in the native renderer/);
+  await assert.rejects(host.host('window.create', {}), /not supported by the Rendrix host yet/);
+  await assert.rejects(host.host('ipc.invoke', { channel: 'x' }), /not supported by the Rendrix host yet/);
 });
 
 test('page messages and close listeners warn in the native renderer instead of failing', async () => {

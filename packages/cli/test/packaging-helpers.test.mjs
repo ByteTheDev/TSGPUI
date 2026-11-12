@@ -9,7 +9,7 @@ import {nsisScript} from '../src/installer/nsis.mjs';
 
 test('installer script includes installation and runtime handling', () => {
   const s = nsisScript({name:'Example',version:'1.0.0',executable:'app.exe',output:'setup.exe'});
-  for (const part of ['Example 1.0.0', '$PROGRAMFILES', 'CreateShortcut', 'WriteUninstaller', 'F3017226', 'LinkId=2124703']) assert.ok(s.includes(part));
+  for (const part of ['Example 1.0.0', '$PROGRAMFILES', 'CreateShortcut', 'WriteUninstaller', 'Uninstall']) assert.ok(s.includes(part));
 });
 test('unsigned artifact is reported', async () => {
   const old = console.log; let message = ''; console.log = x => {message = x;};

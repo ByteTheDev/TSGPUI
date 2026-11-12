@@ -1,7 +1,6 @@
 {
-  "name": "tsgpui-notes",
-  "title": "TSGPUI • Notes",
-  "renderer": "native",
+  "name": "tsgpu-notes",
+  "title": "TS-GPU • Notes",
   "window": {"width": 900, "height": 600},
   "html": "src/index.html",
   "css": "src/styles.css",
