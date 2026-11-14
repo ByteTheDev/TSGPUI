@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0 — Rendrix becomes a rendering engine and application runtime (unreleased)
+
+Direction change: Rendrix no longer targets Electron compatibility or a static HTML-subset compiler. It is
+an independent engine that runs TypeScript applications with its own DOM, CSS engine, layout, GPU renderer
+and runtime. See `docs/ENGINE_ASSESSMENT.md`.
+
+### Added
+- `engine/` Rust workspace: `rendrix-css`, `rendrix-dom`, `rendrix-layout`, `rendrix-gfx`, `rendrix-core`,
+  `rendrix-js` (QuickJS behind a `JsEngine` trait), `rendrix-runtime` (winit window, headless driver,
+  benchmark, standalone packaging).
+- Web platform layer: DOM, events, forms/text editing, selectors, `fetch`, `URL`, storage, observers,
+  transitions/animations, timers/`requestAnimationFrame`, images (see `docs/COMPATIBILITY.md`).
+- New CLI: `rendrix init | dev | build | run | check | package | doctor` with TypeScript type-checking, TSX
+  (`rendrix/jsx-runtime`), `node_modules` ESM resolution and `.rdxapp` / standalone executable output.
+- `examples/app-counter` and a scripted end-to-end test (`npm run e2e`); `npm run bench`.
+
+### Removed
+- Electron compatibility layer, Electron project importer and their docs/examples.
+- GPUI legacy host and the M0 static-tree renderer (`native/`), the build-time HTML/CSS compiler and the
+  `{ state, actions }` backend model, old host fetching/packaging scripts, old CI workflows.
+  Migration notes: `docs/ENGINE_ASSESSMENT.md` §4.
+
+### Known limitations
+Windows is the only verified platform; no accessibility tree; see the compatibility matrix.
+
 ## Unreleased — the Rendrix rewrite
 
 **Rendrix renames from Rendrix; WebView renderer removed; Rendrix is the sole rendering engine.**

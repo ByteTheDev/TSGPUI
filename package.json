@@ -1,24 +1,25 @@
 {
   "name": "rendrix-monorepo",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "workspaces": [
     "packages/*",
     "examples/*"
   ],
   "scripts": {
-    "build": "node packages/cli/bin/rendrix.mjs build --project examples/counter",
-    "dev": "node packages/cli/bin/rendrix.mjs dev --project examples/counter",
-    "compile": "node packages/cli/bin/rendrix.mjs compile --project examples/counter",
-    "host": "node packages/cli/bin/rendrix.mjs host build",
-    "doctor": "node packages/cli/bin/rendrix.mjs doctor",
     "rendrix": "node packages/cli/bin/rendrix.mjs",
-    "test": "node --test packages/cli/test/*.test.mjs",
-    "typecheck": "tsc --noEmit -p examples/counter/tsconfig.json"
+    "doctor": "node packages/cli/bin/rendrix.mjs doctor",
+    "runtime": "cargo build --release -p rendrix-runtime --manifest-path engine/Cargo.toml",
+    "example": "node packages/cli/bin/rendrix.mjs dev examples/app-counter",
+    "example:build": "node packages/cli/bin/rendrix.mjs build examples/app-counter",
+    "e2e": "node scripts/e2e.mjs",
+    "test": "cargo test --workspace --manifest-path engine/Cargo.toml && node --test packages/cli/test/*.test.mjs",
+    "test:cli": "node --test packages/cli/test/*.test.mjs",
+    "bench": "cargo run --release -p rendrix-runtime --manifest-path engine/Cargo.toml -- bench 1000",
+    "typecheck": "node packages/cli/bin/rendrix.mjs check examples/app-counter"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "postcss": "^8.5.6"
+    "typescript": "^5.9.3"
   }
 }

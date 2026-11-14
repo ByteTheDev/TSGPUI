@@ -1,0 +1,12 @@
+{
+  "name": "rendrix",
+  "version": "0.5.0",
+  "description": "TypeScript types and the JSX runtime entry for Rendrix applications",
+  "types": "index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts" },
+    "./jsx-runtime": { "types": "./jsx-runtime.d.ts" },
+    "./jsx-dev-runtime": { "types": "./jsx-runtime.d.ts" }
+  },
+  "license": "MIT"
+}

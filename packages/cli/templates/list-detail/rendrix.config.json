@@ -1,9 +1,0 @@
-{
-  "name": "rendrix-list-detail",
-  "title": "Rendrix • List / Detail",
-  "window": {"width": 900, "height": 600},
-  "html": "src/index.html",
-  "css": "src/styles.css",
-  "backend": "src/backend.ts",
-  "outDir": "dist"
-}

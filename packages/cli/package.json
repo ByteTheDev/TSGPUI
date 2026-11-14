@@ -1,19 +1,10 @@
 {
   "name": "@bytethedeveloper/rendrix",
-  "version": "0.4.0",
-  "description": "Compile HTML/CSS and TypeScript applications into native windows rendered by Rendrix",
+  "version": "0.5.0",
+  "description": "The Rendrix command line: build and run TypeScript applications on Rendrix's own rendering engine",
   "type": "module",
   "license": "MIT",
-  "keywords": [
-    "rendrix",
-    "rendrix",
-    "native",
-    "html",
-    "css",
-    "typescript",
-    "quickjs",
-    "cli"
-  ],
+  "keywords": ["rendrix", "rendering-engine", "typescript", "dom", "css", "gpu", "wgpu", "quickjs", "cli"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ByteTheDev/Rendrix.git",
@@ -21,33 +12,17 @@
   },
   "homepage": "https://github.com/ByteTheDev/Rendrix#readme",
   "bin": {
-    "rendrix": "dist/rendrix.mjs"
+    "rendrix": "bin/rendrix.mjs"
   },
-  "exports": {
-    "./types": "./types/app.d.ts"
-  },
-  "files": [
-    "dist",
-    "src/electron-compat/runtime",
-    "templates",
-    "types",
-    "native",
-    "README.md",
-    "hosts.json"
-  ],
+  "files": ["bin", "src", "templates", "README.md"],
   "scripts": {
-    "build": "bun build bin/rendrix.mjs --target=node --outfile=dist/rendrix.mjs",
-    "prepack": "node scripts/pack-native.mjs copy && bun run build",
-    "postpack": "node scripts/pack-native.mjs clean",
-    "release:archive": "node scripts/pack-release.mjs",
     "test": "node --test test/*.test.mjs"
   },
-  "devDependencies": {
-    "postcss": "^8.5.6",
+  "dependencies": {
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "publishConfig": {
     "access": "public"

@@ -1,0 +1,83 @@
+:root {
+  --bg: #000;
+  --panel: #0d0d0d;
+  --panel-2: #161616;
+  --text: #fff;
+  --muted: #a1a1aa;
+  --faint: #71717a;
+  --radius: 10px;
+}
+
+html, body { background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; }
+body { margin: 0; }
+
+.shell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: 460px;
+  padding: 32px;
+  background: var(--panel);
+  border: 1px solid #1f1f1f;
+  border-radius: calc(var(--radius) * 1.6);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.badge { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--muted); }
+h1 { margin: 0; font-size: 44px; line-height: 1.05; }
+.subtitle { margin: 0; font-size: 15px; color: var(--muted); line-height: 1.4; }
+
+.counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px;
+  background: var(--panel-2);
+  border-radius: var(--radius);
+  transition: background-color 250ms ease;
+}
+.counter.negative { background: #2a1414; }
+.counter.positive { background: #142a1a; }
+.eyebrow { font-size: 12px; letter-spacing: 3px; color: var(--faint); }
+.count { font-size: 72px; font-weight: 700; line-height: 1.1; }
+.hint { font-size: 13px; color: var(--muted); }
+
+.buttons { display: flex; flex-direction: row; gap: 12px; }
+.buttons button { flex: 1; }
+button {
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+button:active { transform: scale(0.96); }
+.primary { background: #fff; color: #000; }
+.primary:hover { background: #d4d4d8; }
+.secondary { background: #262626; }
+.secondary:hover { background: #333; }
+.ghost { background: transparent; border-color: #2a2a2a; color: var(--muted); }
+.ghost:hover { background: #141414; }
+
+.log { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.log li { display: flex; justify-content: space-between; font-size: 12px; color: var(--faint); padding: 6px 10px; background: #101010; border-radius: 6px; }
+.log li:first-child { color: var(--muted); }
+
+@media (max-width: 480px) {
+  .buttons { flex-direction: column; }
+  h1 { font-size: 34px; }
+}

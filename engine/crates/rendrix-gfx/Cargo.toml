@@ -1,0 +1,17 @@
+[package]
+name = "rendrix-gfx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rendrix-css.workspace = true
+rendrix-layout.workspace = true
+cosmic-text.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true
+image.workspace = true

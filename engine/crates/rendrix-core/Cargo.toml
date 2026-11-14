@@ -1,0 +1,15 @@
+[package]
+name = "rendrix-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rendrix-css.workspace = true
+rendrix-dom.workspace = true
+rendrix-layout.workspace = true
+rendrix-gfx.workspace = true
+image.workspace = true

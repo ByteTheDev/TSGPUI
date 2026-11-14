@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "rendrix",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [],
+    "paths": {
+      "rendrix": ["__TYPES__/index.d.ts"],
+      "rendrix/jsx-runtime": ["__TYPES__/jsx-runtime.d.ts"],
+      "rendrix/jsx-dev-runtime": ["__TYPES__/jsx-runtime.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

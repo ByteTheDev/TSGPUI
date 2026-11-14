@@ -1,0 +1,5 @@
+{
+  "name": "__NAME__",
+  "window": { "title": "__NAME__", "width": 720, "height": 480 },
+  "permissions": { "network": false }
+}
