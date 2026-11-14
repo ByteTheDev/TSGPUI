@@ -12,9 +12,9 @@
   --fg: #fff;
   --muted: #a1a1aa;
   --dim: #71717a;
-  --ac: #8a9bff;
-  --ac-soft: rgba(114, 136, 255, 0.16);
-  --glow: rgba(114, 136, 255, 0.42);
+  --ac: #ffffff;
+  --ac-soft: rgba(255, 255, 255, 0.055);
+  --glow: rgba(255, 255, 255, 0.2);
   --slant: -17deg;
   --unslant: 17deg;
   --font-body: "Archivo", "Segoe UI", system-ui, sans-serif;
@@ -454,12 +454,12 @@ p {
 
 .app {
   width: 100%;
-  background: #090b14;
+  background: #000;
   color: #f5f5fb;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-stretch: 100%;
-  border: 1px solid #2a2f55;
-  border-radius: 10px;
+  border: 1px solid #2e2e2e;
+  border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 0 0 1px #000, 0 40px 90px -24px var(--glow), 0 18px 40px rgba(0, 0, 0, 0.7);
 }
@@ -469,8 +469,8 @@ p {
   align-items: center;
   gap: 0.8rem;
   padding: 0.6rem 0.85rem;
-  background: #14172a;
-  color: #8f9dc6;
+  background: #0d0d0d;
+  color: #71717a;
   font-size: 0.78rem;
 }
 
@@ -482,7 +482,7 @@ p {
   width: 0.62rem;
   height: 0.62rem;
   border-radius: 50%;
-  background: #343e60;
+  background: #262626;
 }
 
 .app-body {
@@ -493,15 +493,15 @@ p {
   display: grid;
   gap: 0.85rem;
   padding: 1.4rem;
-  background: #171b2c;
-  border-radius: 1.1rem;
+  background: #0d0d0d;
+  border-radius: 6px;
 }
 
 .app-badge {
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #91a8ff;
+  color: #a1a1aa;
 }
 
 .app-title {
@@ -516,7 +516,7 @@ p {
 
 .app-sub {
   font-size: 0.86rem;
-  color: #adb7d2;
+  color: #a1a1aa;
 }
 
 .app-panel {
@@ -524,13 +524,13 @@ p {
   justify-items: center;
   gap: 0.35rem;
   padding: 1rem;
-  background: #222942;
-  border-radius: 0.8rem;
+  background: #161616;
+  border-radius: 4px;
 }
 
 .app-eyebrow {
   font-size: 0.7rem;
-  color: #8f9dc6;
+  color: #71717a;
 }
 
 .app-count {
@@ -547,7 +547,7 @@ p {
 
 .app-hint {
   font-size: 0.76rem;
-  color: #aab8d5;
+  color: #a1a1aa;
 }
 
 .app-buttons {
@@ -560,7 +560,7 @@ p {
   flex: 1 1 auto;
   padding: 0.7rem 0.6rem;
   border: 0;
-  border-radius: 0.6rem;
+  border-radius: 4px;
   font: inherit;
   font-size: 0.84rem;
   font-weight: 700;
@@ -573,14 +573,14 @@ p {
 .app-btn:focus-visible {
   outline-color: #fff;
 }
-.app-btn-primary { background: #7288ff; color: #fff; }
-.app-btn-secondary { background: #343e60; color: #edf2ff; }
-.app-btn-ghost { background: #20273c; color: #b4bfd8; }
+.app-btn-primary { background: #fff; color: #000; }
+.app-btn-secondary { background: #262626; color: #fff; }
+.app-btn-ghost { background: #141414; color: #a1a1aa; }
 .app-btn:hover { filter: brightness(1.18); }
 
 .app-foot {
   font-size: 0.72rem;
-  color: #7887ac;
+  color: #71717a;
 }
 
 /* What ships -------------------------------------------------------------- */
@@ -639,9 +639,9 @@ p {
 }
 
 .stack-rendrix .layer-host {
-  background: linear-gradient(120deg, #11142b, #1c2250);
-  border-color: #3f4ba8;
-  color: #dfe4ff;
+  background: #0d0d0d;
+  border-color: #fff;
+  color: #fff;
   box-shadow: 0 0 60px -12px var(--glow);
 }
 
@@ -744,7 +744,7 @@ p {
 
 .tk-com { color: #71717a; font-style: italic; }
 .tk-str,
-.tk-num { color: #8a9bff; }
+.tk-num { color: #b9b9c2; }
 .tk-tag,
 .tk-kw,
 .tk-prop,
