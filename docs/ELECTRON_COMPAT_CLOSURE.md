@@ -35,11 +35,11 @@ already exist. No Rust/GPUI change is required.
 ## (b) Need a GPUI/platform upgrade
 
 These require new native host operations or platform APIs before they can behave like Electron.
-(GPUI is deprecated; these items carry over to the Rendrix ladder in [RENDERER_TSGPU.md](RENDERER_TSGPU.md).)
+(GPUI is deprecated; these items carry over to the Rendrix ladder in [RENDERER_RENDRIX.md](RENDERER_RENDRIX.md).)
 
 - `screen.getCursorScreenPoint` live global cursor coordinates - needs a host op backed by platform cursor APIs (`GetCursorPos`/equivalent); currently cached after refresh.
 - Per-display scale factors - GPUI exposes one scale for the app window, so all displays report the window scale.
-- Real window chrome for `BrowserWindow` show/hide/fullscreen/focus/bounds - only the removed WebView host applied these; the GPUI host tracks them locally (Rendrix: roadmap).
+- Real window chrome for `BrowserWindow` show/hide/fullscreen/focus/bounds - only the removed WebView host applied these; the legacy host tracks them locally (Rendrix: roadmap).
 - OS-level global shortcut delivery - requires registering with the OS keyboard hook.
 - OS tray chrome - requires a native tray implementation.
 - `nativeImage` multiple scale factors and representations.
@@ -56,7 +56,7 @@ These require new native host operations or platform APIs before they can behave
 - `inAppPurchase` - store billing is platform/store specific and not provided by the host.
 - `pushNotifications` - remote push requires platform push services; local notifications are supported via `Notification`.
 - `net.fetch` - use `net.request`, which is permission-checked and host-backed.
-- `contentTracing` - Chromium tracing internals are not exposed; the shim writes a Chrome tracing-event JSON timeline with TS-GPU markers.
+- `contentTracing` - Chromium tracing internals are not exposed; the shim writes a Chrome tracing-event JSON timeline with Rendrix markers.
 - `netLog` - Chromium socket/DNS/QUIC internals are not exposed; the shim records `net.request` traffic in a JSON log.
 - `crashReporter` upload and native minidumps - parameters and `captureCrash` dumps are written under `userData/crashes`; uploads and native crash dumps are not supported.
 - `utilityProcess` messaging - fork starts a child process through the host, but there is no Node module runtime, `postMessage` port or transferable support.

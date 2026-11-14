@@ -1,6 +1,6 @@
 {
-  "name": "tsgpu-counter",
-  "title": "TS-GPU • Counter",
+  "name": "rendrix-counter",
+  "title": "Rendrix • Counter",
   "window": {"width": 900, "height": 600},
   "html": "src/index.html",
   "css": "src/styles.css",

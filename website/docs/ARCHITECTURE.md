@@ -4,31 +4,31 @@
 
 The `renderer` setting selects the host:
 
-- `rendrix` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render through the Rendrix engine (winit + wgpu + taffy + cosmic-text). Actions run in embedded QuickJS. **Rendrix is in early beta**; feature coverage is limited, and state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility, and animations are on the Rendrix M1–M3 ladder (see [RENDERER_TSGPU.md](RENDERER_TSGPU.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
-- `native`: the deprecated GPUI host. Accepted with a deprecation warning until the Rendrix M1 gate removes it.
+- `rendrix` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render through the Rendrix engine (winit + wgpu + taffy + cosmic-text). Actions run in embedded QuickJS. **Rendrix is in early beta**; feature coverage is limited, and state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility, and animations are on the Rendrix M1–M3 ladder (see [RENDERER_RENDRIX.md](RENDERER_RENDRIX.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
+- `native`: the deprecated legacy host. Accepted with a deprecation warning until the Rendrix M1 gate removes it.
 - `webview`: a hard error. The WebView renderer was removed in the rewrite; see below.
 
-Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.tgp` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][TSGPU001]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/tsgpu.tgp`. Packaged apps do not need Node or Bun at runtime.
+Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.rdx` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][RENDRI01]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/rendrix.rdx`. Packaged apps do not need Node or Bun at runtime.
 
 ## Removed: WebView renderer
 
 The WebView renderer (Wry, WebView2/WKWebView/WebKitGTK) and all of its paths were deleted in the rewrite: the webview host binary and `webview-host` feature, the `gtk`/`tao`/`wry` dependencies, the webview compiler/packaging paths, the page bridge and custom protocol, CDP-based e2e, and the WebKitGTK Linux CI dependencies. The pre-rewrite implementation is preserved at branch `backup/webview-era` (commit `0fc860b`). Historical summaries of the removed protocol/bridge behavior live in [SUPPORTED_SYNTAX.md](SUPPORTED_SYNTAX.md) and [SAFETY.md](SAFETY.md).
 
-[`platform.rs`](../native/src/platform.rs) holds the operations the hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` answers the same way on the Rendrix and GPUI hosts.
+[`platform.rs`](../native/src/platform.rs) holds the operations the hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` answers the same way on the Rendrix and legacy hosts.
 
-`tsgpu import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
+`rendrix import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
 
 The Electron shims speak the host call protocol: `host(operation, args)` with named arguments and normalized results. In the renderer backend the shim has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs). (The webview-era page bridge that also spoke this protocol was removed with the WebView renderer.)
 
 ## Native host modules
 
-The deprecated GPUI host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`. The Rendrix engine lives in `native/src/gpu/` (that directory is extracted into an independent open-source `rendrix` crate in Phase B).
+The deprecated legacy host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`. The Rendrix engine lives in `native/src/gpu/` (that directory is extracted into an independent open-source `rendrix` crate in Phase B).
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `tsgpu host build --renderer rendrix` for the Rendrix engine or `tsgpu host build --renderer native` for the deprecated GPUI host. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `tsgpu build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `tsgpu all` package the same bundle for other supported targets, each with its own verified prebuilt host.
+Build a host when Rust host code changes. Use `rendrix host build --renderer rendrix` for the Rendrix engine or `rendrix host build --renderer native` for the deprecated legacy host. HTML, CSS, TypeScript, and asset changes only rebuild the `.rdx` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `rendrix build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `rendrix all` package the same bundle for other supported targets, each with its own verified prebuilt host.
 
-`tsgpu dev` watches the configured source files and rewrites the bundle. Host processes reload the bundle in the existing window. The GPUI host preserves backend state across reloads by merging user-changed values into the new script; the Rendrix host's reload behavior is part of the early beta and follows the same merge model as it matures. A failed build is shown in the GPUI host's in-window panel while the last successful document keeps running. The browser preview (`tsgpu preview`) preserves state on reload.
+`rendrix dev` watches the configured source files and rewrites the bundle. Host processes reload the bundle in the existing window. The legacy host preserves backend state across reloads by merging user-changed values into the new script; the Rendrix host's reload behavior is part of the early beta and follows the same merge model as it matures. A failed build is shown in the legacy host's in-window panel while the last successful document keeps running. The browser preview (`rendrix preview`) preserves state on reload.
 
 ## Native controls and capabilities
 
@@ -54,7 +54,7 @@ QuickJS memory and execution time are limited as described in the safety documen
 
 ## Versioned binary format
 
-On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `TSGPU001`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
+On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `RENDRI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
 
 ## Remaining roadmap
 
@@ -71,4 +71,4 @@ On Windows and Linux a packaged application consists of the native executable fo
 - Keeping the WebView renderer as a compatibility path was rejected in the rewrite decision: two rendering stacks double the maintenance surface, and the Rendrix engine is the product's direction ([REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
 - Recompiling Rust for every developer edit is much slower than reusing one host executable.
 
-The design keeps rendering native and iteration fast, with a documented HTML subset and explicit host capabilities. Rendrix replaces the GPUI renderer as the sole engine; the GPUI host stays deprecated in the tree until the Rendrix M1 gate.
+The design keeps rendering native and iteration fast, with a documented HTML subset and explicit host capabilities. Rendrix replaces the GPUI renderer as the sole engine; the legacy host stays deprecated in the tree until the Rendrix M1 gate.

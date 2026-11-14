@@ -16,15 +16,15 @@ test('unsigned artifact is reported', async () => {
   try { assert.equal(await signArtifact('a', ''), false); assert.match(message, /unsigned/); } finally {console.log = old;}
 });
 test('manifest hashes bytes and signs exact contents', async () => {
-  const dir = await mkdtemp(path.join(tmpdir(),'tsgpui-sign-'));
+  const dir = await mkdtemp(path.join(tmpdir(),'rendrix-sign-'));
   try {
-    const file = path.join(dir,'a.tgp'), manifest = path.join(dir,'manifest.json'), keyfile = path.join(dir,'key.pem');
+    const file = path.join(dir,'a.rdx'), manifest = path.join(dir,'manifest.json'), keyfile = path.join(dir,'key.pem');
     await writeFile(file,'abc');
     const {privateKey, publicKey} = generateKeyPairSync('ed25519');
     await writeFile(keyfile, privateKey.export({type:'pkcs8',format:'pem'}));
     await writeManifest([file],manifest,keyfile);
     const data = await readFile(manifest);
-    assert.equal(JSON.parse(data).artifacts['a.tgp'],'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    assert.equal(JSON.parse(data).artifacts['a.rdx'],'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     assert.ok(verify(null,data,publicKey,Buffer.from((await readFile(manifest+'.sig','utf8')).trim(),'base64')));
   } finally {await rm(dir,{recursive:true,force:true});}
 });

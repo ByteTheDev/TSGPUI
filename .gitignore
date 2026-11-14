@@ -1,14 +1,14 @@
 node_modules/
 dist/
-.tsgpui/
+.rendrix/
 target/
 *.exe
 *.pdb
 .DS_Store
 
-# Generated Electron->TSGPUI conversion output
-*-tsgpui/
-*-tsgpui-verify/
+# Generated Electron->Rendrix conversion output
+*-rendrix/
+*-rendrix-verify/
 release/
 
 # Copied into the CLI package by prepack

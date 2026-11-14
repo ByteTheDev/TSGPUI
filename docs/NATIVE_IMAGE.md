@@ -1,6 +1,6 @@
 # NativeImage real pixel support
 
-TS-GPU's Electron compatibility layer used to keep `nativeImage` metadata only: PNG bytes were
+Rendrix's Electron compatibility layer used to keep `nativeImage` metadata only: PNG bytes were
 preserved and dimensions were parsed from PNG/JPEG/GIF/WebP headers, but `resize`, `crop`, `toPNG`,
 `toJPEG` and `toDataURL` did not touch pixels.
 
@@ -15,7 +15,7 @@ Electron.
 ```
 Electron app
   └─ electron-image.ts (shim)                real pixels, async host calls
-       └─ host('nativeImage.*', options)     __tsgpu_host / api.native
+       └─ host('nativeImage.*', options)     __rendrix_host / api.native
             └─ native renderer:   native/src/runtime.rs → capabilities.rs
                  └─ IMAGE_STORE: decoded DynamicImage behind a handle
 ```
@@ -71,7 +71,7 @@ both stored, so a chain like `resize → crop → toPNG` reuses the same mechani
 
 ## Calling from the native API
 
-Native renderer (`api.native` in a TS-GPU app):
+Native renderer (`api.native` in a Rendrix app):
 
 ```ts
 const created = await api.native.nativeImage.createFromBuffer({ base64, scaleFactor: 1 });
@@ -80,7 +80,7 @@ const { base64: png } = await api.native.nativeImage.toPNG({ handle: resized.han
 ```
 
 (Historical: the removed WebView renderer exposed the same operations as
-`window.tsgpu.invoke('nativeImage.*', …)`, permission-checked the same way.)
+`window.rendrix.invoke('nativeImage.*', …)`, permission-checked the same way.)
 
 `nativeImage.createFromPath` is permission-checked on every renderer. Buffer and transform
 operations need no grant because they do no I/O.

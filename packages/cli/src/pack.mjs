@@ -2,7 +2,7 @@ import { copyFile, appendFile, rename, rm, chmod, readFile, stat, open, mkdir, w
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const MAGIC = Buffer.from('TSGPU001','ascii');
+export const MAGIC = Buffer.from('RENDRI01','ascii');
 export const MAX_PAYLOAD = 1024 * 1024 * 1024;
 
 function isMachO(header) {
@@ -31,7 +31,7 @@ async function validateBundle(bundleFile) {
   const payload = await readFile(bundleFile);
   if (!payload.length || payload.length > MAX_PAYLOAD) throw new Error('Invalid bundle size');
   const document = JSON.parse(payload.toString('utf8'));
-  if (document.format !== 'tsgpu-1') throw new Error('Incorrect bundle format');
+  if (document.format !== 'rendrix-1') throw new Error('Incorrect bundle format');
   return {payload, document};
 }
 
@@ -56,7 +56,7 @@ export async function packageMacApp(hostFile,bundleFile,outputDirectory,options 
   if (existing?.isSymbolicLink()) throw new Error('Refusing to replace a symlink at the macOS application output');
   const temporary = `${output}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const executable = path.join(temporary,'Contents','MacOS',document.name);
-  const bundleId = document.bundle_id ?? `dev.tsgpu.${document.name.replaceAll('_', '-')}`;
+  const bundleId = document.bundle_id ?? `dev.rendrix.${document.name.replaceAll('_', '-')}`;
   const version = document.version ?? '1.0.0';
   if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId) || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)) throw new Error('Invalid macOS bundle metadata');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>${plistEscape(document.name)}</string><key>CFBundleIdentifier</key><string>${plistEscape(bundleId)}</string><key>CFBundleName</key><string>${plistEscape(document.title || document.name)}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>${plistEscape(version)}</string><key>CFBundleShortVersionString</key><string>${plistEscape(version)}</string>${options.iconFile ? '<key>CFBundleIconFile</key><string>AppIcon.icns</string>' : ''}<key>NSHighResolutionCapable</key><true/></dict></plist>\n`;
@@ -66,7 +66,7 @@ export async function packageMacApp(hostFile,bundleFile,outputDirectory,options 
     await chmod(executable,hostStat.mode);
     await mkdir(path.join(temporary,'Contents','Resources'),{recursive:true});
     await writeFile(path.join(temporary,'Contents','Info.plist'),plist);
-    await writeFile(path.join(temporary,'Contents','Resources','tsgpu.tgp'),payload);
+    await writeFile(path.join(temporary,'Contents','Resources','rendrix.rdx'),payload);
     if (options.iconFile) await copyFile(options.iconFile,path.join(temporary,'Contents','Resources','AppIcon.icns'));
     if (existing) await rm(output,{recursive:true,force:true});
     await rename(temporary,output);
@@ -106,7 +106,7 @@ export async function packageExecutable(hostFile,bundleFile,outputFile) {
   }
 }
 export function extractEmbeddedBundleForTest(bytes) {
-  if (!bytes.subarray(bytes.length-8).equals(MAGIC)) throw new Error('Missing TS-GPU trailer');
+  if (!bytes.subarray(bytes.length-8).equals(MAGIC)) throw new Error('Missing Rendrix trailer');
   const length = Number(bytes.readBigUInt64LE(bytes.length-16));
   if (length <= 0 || length > MAX_PAYLOAD || length > bytes.length-16) throw new Error('Invalid bundle length');
   return JSON.parse(bytes.subarray(bytes.length-16-length,bytes.length-16).toString('utf8'));

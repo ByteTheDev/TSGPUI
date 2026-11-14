@@ -286,12 +286,12 @@ impl JsBackend {
         let state = backend.run_limited("Backend startup", |context| {
             context.with(|ctx| {
                 install_host(&ctx, host).map_err(|e| format!("Backend startup failed: {e}"))?;
-                ctx.eval::<(), _>(NATIVE_SETUP.replace("__TSGPUI_GRANTS__", &grants).into_bytes())
+                ctx.eval::<(), _>(NATIVE_SETUP.replace("__RENDRIX_GRANTS__", &grants).into_bytes())
                     .map_err(|e| format!("Backend startup failed: {e}"))?;
                 ctx.eval::<(), _>(script.as_bytes().to_vec())
                     .map_err(|e| format!("Backend evaluation failed: {e}"))?;
                 let json: String = ctx
-                    .eval("JSON.stringify(globalThis.__tsgpui_app.state)")
+                    .eval("JSON.stringify(globalThis.__rendrix_app.state)")
                     .map_err(|e| format!("Backend state serialization failed: {e}"))?;
                 serde_json::from_str::<Value>(&json).map_err(|e| e.to_string())
             })
@@ -384,7 +384,7 @@ impl JsBackend {
                 HostEvent::Settled { id, envelope } => {
                     self.host.unsettled.lock().unwrap_or_else(|error| error.into_inner()).remove(&id);
                     settled = true;
-                    let source = format!("globalThis.__tsgpui_settle({id}, {})", literal(&envelope));
+                    let source = format!("globalThis.__rendrix_settle({id}, {})", literal(&envelope));
                     if let Err(error) = self.slice("Host call", Some(source)) {
                         pump.errors.push(error);
                         // With no task waiting, nothing else will roll back this partial work.
@@ -430,19 +430,19 @@ impl JsBackend {
         let (label, source) = match task {
             Task::SetState { key, value } => return self.apply_set_state(&key, value).map(|()| true),
             Task::Action { name, event } => {
-                let source = format!("globalThis.__tsgpui_envelope = undefined;\n{}", action_source(&name, &event));
+                let source = format!("globalThis.__rendrix_envelope = undefined;\n{}", action_source(&name, &event));
                 (format!("Backend action '{name}'"), source)
             }
             Task::Deliver { channel, payload } => {
-                let source = format!("globalThis.__tsgpui_envelope = undefined;\n{}", deliver_source(&channel, &payload));
+                let source = format!("globalThis.__rendrix_envelope = undefined;\n{}", deliver_source(&channel, &payload));
                 (format!("Backend listener for '{channel}'"), source)
             }
             Task::HostEvent { channel, payload } => {
-                let source = format!("globalThis.__tsgpui_envelope = undefined;\n{}", host_event_source(&channel, &payload));
+                let source = format!("globalThis.__rendrix_envelope = undefined;\n{}", host_event_source(&channel, &payload));
                 (format!("Host event '{channel}'"), source)
             }
             Task::GlobalEvent { source } => {
-                (String::from("Host event"), format!("globalThis.__tsgpui_envelope = undefined;\n{source}"))
+                (String::from("Host event"), format!("globalThis.__rendrix_envelope = undefined;\n{source}"))
             }
         };
         *self.host.action_requests.lock().unwrap_or_else(|error| error.into_inner()) = Some(Vec::new());
@@ -523,7 +523,7 @@ impl JsBackend {
                 if is_past(&self.deadline) {
                     return Err(format!("{label} was interrupted"));
                 }
-                ctx.eval::<Option<String>, _>("globalThis.__tsgpui_envelope")
+                ctx.eval::<Option<String>, _>("globalThis.__rendrix_envelope")
                     .map_err(|e| format!("{label} failed: {e}"))
             })
         })
@@ -540,7 +540,7 @@ impl JsBackend {
     // un-awaited promise, changes state with nothing to roll back. Commit it as it happens.
     fn commit_background(&mut self) {
         let Ok(json) = self.context.with(|ctx| {
-            ctx.eval::<String, _>("JSON.stringify(globalThis.__tsgpui_app.state)")
+            ctx.eval::<String, _>("JSON.stringify(globalThis.__rendrix_app.state)")
         }) else {
             return;
         };
@@ -601,7 +601,7 @@ impl JsBackend {
 
     fn restore_js_state(&self) {
         let literal = serde_json::to_string(&self.state.to_string()).unwrap_or_else(|_| "null".into());
-        let source = format!("globalThis.__tsgpui_app.state = JSON.parse({literal});");
+        let source = format!("globalThis.__rendrix_app.state = JSON.parse({literal});");
         let _ = self.context.with(|ctx| ctx.eval::<(), _>(source.into_bytes()));
     }
 }
@@ -667,12 +667,12 @@ fn start_workers() -> Sender<Job> {
 
 // Runs once before the app script. It wraps the host function in promise-returning methods and
 // installs the settle hook the runtime uses to resume them. The methods are frozen and
-// non-enumerable, and each call is checked against the grants in Rust. `__TSGPUI_GRANTS__` is
+// non-enumerable, and each call is checked against the grants in Rust. `__RENDRIX_GRANTS__` is
 // replaced with the grant flags.
 const NATIVE_SETUP: &str = r#"(function() {
-    const host = globalThis.__tsgpui_host;
-    Reflect.deleteProperty(globalThis, '__tsgpui_host');
-    const grants = __TSGPUI_GRANTS__;
+    const host = globalThis.__rendrix_host;
+    Reflect.deleteProperty(globalThis, '__rendrix_host');
+    const grants = __RENDRIX_GRANTS__;
     const hidden = (name, value) => Object.defineProperty(globalThis, name, { value, enumerable: false, writable: false, configurable: false });
     // Each host call gets an id from Rust. Its promise waits here until the result is settled.
     const waiting = new Map();
@@ -781,7 +781,7 @@ const NATIVE_SETUP: &str = r#"(function() {
             displays: call('screen.displays')
         }),
         // Tray icons and global shortcuts. The host owns the OS objects; the shim keeps the
-        // Electron-facing state and receives events through `__tsgpui_host_event`.
+        // Electron-facing state and receives events through `__rendrix_host_event`.
         tray: Object.freeze({
             create: (options) => call('tray.create')(options ?? {}),
             setIcon: (options) => call('tray.setIcon')(options ?? {}),
@@ -799,15 +799,15 @@ const NATIVE_SETUP: &str = r#"(function() {
             isRegistered: (accelerator) => call('globalShortcut.isRegistered')(accelerator)
         })
     });
-    hidden('__tsgpui_native', native);
-    hidden('__tsgpui_settle', settle);
-    hidden('__tsgpui_dispatch', dispatch);
+    hidden('__rendrix_native', native);
+    hidden('__rendrix_settle', settle);
+    hidden('__rendrix_dispatch', dispatch);
 })();"#;
 
 // Runs one action. `__NAME__` and `__EVENT__` are replaced with JSON literals. The event goes in last
 // so user data is never scanned for placeholders.
 const ACTION_SOURCE: &str = r#"(function() {
-    const app=globalThis.__tsgpui_app;
+    const app=globalThis.__rendrix_app;
     const message=(err) => String((err && err.message) || err);
     const fn=app.actions[__NAME__];
     if (typeof fn !== 'function') return Promise.resolve(JSON.stringify({ok:false,error:'No action: ' + __NAME__}));
@@ -817,7 +817,7 @@ const ACTION_SOURCE: &str = r#"(function() {
         get: (key) => app.state[key],
         set: (key,value) => { if (!Object.prototype.hasOwnProperty.call(app.state,key)) throw Error('Unknown state key: '+key); app.state[key]=value; },
         update: (key,modify) => { if (!Object.prototype.hasOwnProperty.call(app.state,key)) throw Error('Unknown state key: '+key); app.state[key]=modify(app.state[key]); },
-        native: globalThis.__tsgpui_native
+        native: globalThis.__rendrix_native
     });
     let pending;
     try {
@@ -830,26 +830,26 @@ const ACTION_SOURCE: &str = r#"(function() {
         if (typeof after !== 'string') throw Error('State is not JSON serializable');
         return JSON.stringify({ok:true,state:after});
     }).catch(restore);
-})().then((envelope) => { globalThis.__tsgpui_envelope=envelope; });"#;
+})().then((envelope) => { globalThis.__rendrix_envelope=envelope; });"#;
 
 // Calls every `ipc.on` listener for a channel as one task, so a listener that writes state rolls
 // back when it fails. `__CHANNEL__` and `__PAYLOAD__` are JSON literals, with the payload last.
 const DELIVER_SOURCE: &str = r#"(function() {
-    const app=globalThis.__tsgpui_app;
+    const app=globalThis.__rendrix_app;
     const message=(err) => String((err && err.message) || err);
     const before=JSON.stringify(app.state);
     const restore=(err) => { app.state=JSON.parse(before); return JSON.stringify({ok:false,error:message(err)}); };
-    const listeners=globalThis.__tsgpui_dispatch(__CHANNEL__);
+    const listeners=globalThis.__rendrix_dispatch(__CHANNEL__);
     return Promise.resolve()
         .then(async () => { for (const listener of listeners) { await listener(__PAYLOAD__); } })
         .then(() => JSON.stringify({ok:true,state:JSON.stringify(app.state)}), restore)
-        .then((envelope) => { globalThis.__tsgpui_envelope=envelope; });
+        .then((envelope) => { globalThis.__rendrix_envelope=envelope; });
 })();"#;
 
 // Sets one key and returns `{ ok, state | error }`. The key path must already exist in the state.
 const SET_STATE_SOURCE: &str = r#"(function() {
     try {
-        const app=globalThis.__tsgpui_app;
+        const app=globalThis.__rendrix_app;
         const key=__KEY__, value=__VALUE__, parts=key.split('.');
         let target=app.state;
         for (const part of parts.slice(0,-1)) {
@@ -884,12 +884,12 @@ fn deliver_source(channel: &str, payload: &Value) -> String {
 }
 
 // Hands a native event (a tray click, a global shortcut press) to the compatibility shim. The shim
-// installs `__tsgpui_host_event`; state changes a callback makes are committed as a normal task.
-const HOST_EVENT_SOURCE: &str = r#"globalThis.__tsgpui_envelope = (function() {
-    const app=globalThis.__tsgpui_app;
+// installs `__rendrix_host_event`; state changes a callback makes are committed as a normal task.
+const HOST_EVENT_SOURCE: &str = r#"globalThis.__rendrix_envelope = (function() {
+    const app=globalThis.__rendrix_app;
     const before=JSON.stringify(app.state);
     try {
-        const handler=globalThis.__tsgpui_host_event;
+        const handler=globalThis.__rendrix_host_event;
         if (typeof handler === 'function') handler(__CHANNEL__, __PAYLOAD__);
         return JSON.stringify({ok:true,state:JSON.stringify(app.state)});
     } catch (err) {
@@ -902,10 +902,10 @@ fn host_event_source(channel: &str, payload: &Value) -> String {
     HOST_EVENT_SOURCE.replace("__CHANNEL__", &literal(channel)).replace("__PAYLOAD__", &payload.to_string())
 }
 
-// Runs one shim event handler (`__tsgpui_power_event`, `__tsgpui_display_event`, ...) as a task,
+// Runs one shim event handler (`__rendrix_power_event`, `__rendrix_display_event`, ...) as a task,
 // committing any state its listeners change. `__CALL__` is a fixed global call.
 const EVENT_SOURCE: &str = r#"(function() {
-    const app=globalThis.__tsgpui_app;
+    const app=globalThis.__rendrix_app;
     const message=(err) => String((err && err.message) || err);
     const before=JSON.stringify(app.state);
     const restore=(err) => { app.state=JSON.parse(before); return JSON.stringify({ok:false,error:message(err)}); };
@@ -914,13 +914,13 @@ const EVENT_SOURCE: &str = r#"(function() {
     } catch (err) {
         return Promise.resolve(restore(err));
     }
-})().then((envelope) => { globalThis.__tsgpui_envelope=envelope; });"#;
+})().then((envelope) => { globalThis.__rendrix_envelope=envelope; });"#;
 
 fn event_source(call: &str) -> String {
     EVENT_SOURCE.replace("__CALL__", call)
 }
 
-// Exposes `__tsgpui_host(operation, argsJson)` to the setup script. It returns the request id at once,
+// Exposes `__rendrix_host(operation, argsJson)` to the setup script. It returns the request id at once,
 // and the result arrives later through `HostEvent::Settled`.
 fn install_host(ctx: &Ctx<'_>, port: HostPort) -> rquickjs::Result<()> {
     let host = Function::new(ctx.clone(), move |operation: String, args: String| -> f64 {
@@ -932,7 +932,7 @@ fn install_host(ctx: &Ctx<'_>, port: HostPort) -> rquickjs::Result<()> {
         }
         id as f64
     })?;
-    ctx.globals().set("__tsgpui_host", host)
+    ctx.globals().set("__rendrix_host", host)
 }
 
 // Unwraps the `{ ok, state | error }` envelope produced by the JS helpers.
@@ -952,7 +952,7 @@ mod tests {
     use serde_json::json;
 
     const APP: &str = r#"
-        globalThis.__tsgpui_app = {
+        globalThis.__rendrix_app = {
             state: { count: 0, last: null, user: { name: 'ada' }, items: [1, 2] },
             actions: {
                 increment(api) { api.set('count', api.get('count') + 1); },
@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn rejects_script_with_syntax_error() {
-        assert!(JsBackend::new("globalThis.__tsgpui_app = {").err().unwrap().contains("evaluation failed"));
+        assert!(JsBackend::new("globalThis.__rendrix_app = {").err().unwrap().contains("evaluation failed"));
     }
 
     #[test]
@@ -1059,7 +1059,7 @@ mod tests {
     }
 
     const FILE_APP: &str = r#"
-        globalThis.__tsgpui_app = {
+        globalThis.__rendrix_app = {
             state: { text: '', listed: 0 },
             actions: {
                 async saveAndLoad(api) {
@@ -1085,7 +1085,7 @@ mod tests {
     fn granted_backend(name: &str) -> (JsBackend, std::path::PathBuf) {
         use crate::package::{FilesystemPermissions, Permissions};
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let base = std::env::temp_dir().join(format!("tsgpui-runtime-{name}-{stamp}"));
+        let base = std::env::temp_dir().join(format!("rendrix-runtime-{name}-{stamp}"));
         std::fs::create_dir_all(&base).unwrap();
         let permissions = Permissions {
             filesystem: FilesystemPermissions { read: vec!["data".into()], write: vec!["data".into()] },
@@ -1165,12 +1165,12 @@ mod tests {
         } else {
             ("sh", json!(["-c", "sleep 2"]))
         };
-        let base = std::env::temp_dir().join(format!("tsgpui-slow-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("rendrix-slow-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let permissions = crate::package::Permissions { processes: vec![name.into()], ..Default::default() };
         let grants = Capabilities::from_permissions(&permissions, base);
         let app = format!(
-            "globalThis.__tsgpui_app = {{ state: {{ done: 0 }}, actions: {{ async slow(api) {{ \
+            "globalThis.__rendrix_app = {{ state: {{ done: 0 }}, actions: {{ async slow(api) {{ \
                 await api.native.process.spawn('{name}', {args}); api.set('done', 1); }} }} }};"
         );
         let mut backend = JsBackend::with_capabilities(&app, grants).unwrap();
@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn runaway_continuation_after_an_action_is_rolled_back() {
         use crate::package::{FilesystemPermissions, Permissions};
-        let base = std::env::temp_dir().join(format!("tsgpui-background-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("rendrix-background-{}", std::process::id()));
         std::fs::create_dir_all(base.join("data")).unwrap();
         let permissions = Permissions {
             filesystem: FilesystemPermissions { read: vec!["data".into()], write: vec![] },
@@ -1192,7 +1192,7 @@ mod tests {
         };
         let grants = Capabilities::from_permissions(&permissions, base);
         // The action returns at once. The un-awaited continuation writes state, then loops forever.
-        let app = "globalThis.__tsgpui_app = { state: { count: 0 }, actions: { fire(api) { \
+        let app = "globalThis.__rendrix_app = { state: { count: 0 }, actions: { fire(api) { \
             api.native.filesystem.list('').then(() => { api.set('count', 99); while (true) {} }); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("fire", json!({})).unwrap();
@@ -1222,7 +1222,7 @@ mod tests {
     fn window_commands_are_queued_for_the_ui_thread() {
         let permissions = crate::package::Permissions { window: true, ..Default::default() };
         let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir());
-        let app = "globalThis.__tsgpui_app = { state: { n: 0 }, actions: { async chrome(api) { \
+        let app = "globalThis.__rendrix_app = { state: { n: 0 }, actions: { async chrome(api) { \
             await api.native.window.setTitle('Notes'); await api.native.window.minimize(); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("chrome", json!({})).unwrap();
@@ -1236,14 +1236,14 @@ mod tests {
 
     #[test]
     fn electron_shim_operations_are_on_the_native_api() {
-        let base = std::env::temp_dir().join(format!("tsgpui-runtime-shim-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("rendrix-runtime-shim-{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         let permissions = crate::package::Permissions {
             filesystem: crate::package::FilesystemPermissions { read: vec!["data".into()], write: vec!["data".into()] },
             ..Default::default()
         };
         let grants = Capabilities::from_permissions(&permissions, base.clone()).with_app("Example", "1.2.3");
-        let app = r#"globalThis.__tsgpui_app = { state: { text: '', roots: '', refused: '', width: 0 }, actions: {
+        let app = r#"globalThis.__rendrix_app = { state: { text: '', roots: '', refused: '', width: 0 }, actions: {
             async write(api) {
                 await api.native.filesystem.writeText({ root: 'data', path: 'named.txt' }, 'named');
                 api.set('text', await api.native.filesystem.readText({ root: 'data', path: 'named.txt' }));
@@ -1284,9 +1284,9 @@ mod tests {
         // action must wait for that result instead of failing as if no host call were pending.
         let permissions = crate::package::Permissions::default();
         let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir()).with_app("Loading", "2.0.0");
-        let app = "globalThis.__tsgpui_ready = globalThis.__tsgpui_native.app.info(); \
-            globalThis.__tsgpui_app = { state: { name: '' }, actions: { async read(api) { \
-                const info = await globalThis.__tsgpui_ready; api.set('name', info.name); } } };";
+        let app = "globalThis.__rendrix_ready = globalThis.__rendrix_native.app.info(); \
+            globalThis.__rendrix_app = { state: { name: '' }, actions: { async read(api) { \
+                const info = await globalThis.__rendrix_ready; api.set('name', info.name); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("read", json!({})).unwrap();
         assert!(finish(&mut backend).is_empty());
@@ -1296,7 +1296,7 @@ mod tests {
     #[test]
     fn screen_displays_wait_for_the_ui_thread_to_answer() {
         let mut backend = JsBackend::new(
-            "globalThis.__tsgpui_app = { state: { width: 0 }, actions: { async screens(api) { \
+            "globalThis.__rendrix_app = { state: { width: 0 }, actions: { async screens(api) { \
                 const list = await api.native.screen.displays(); api.set('width', list[0].width); } } };",
         ).unwrap();
         backend.invoke_with_event("screens", json!({})).unwrap();
@@ -1317,7 +1317,7 @@ mod tests {
     fn ipc_messages_reach_local_listeners() {
         let permissions = crate::package::Permissions { ipc: true, ..Default::default() };
         let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir());
-        let app = "globalThis.__tsgpui_app = { state: { got: '' }, actions: {\
+        let app = "globalThis.__rendrix_app = { state: { got: '' }, actions: {\
             listen(api) { api.native.ipc.on('loop', (payload) => api.set('got', payload)); },\
             async echo(api) { await api.native.ipc.send('loop', 'echo'); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
@@ -1332,15 +1332,15 @@ mod tests {
         use std::{io::{BufRead, BufReader, Write}, net::TcpStream};
         let permissions = crate::package::Permissions { ipc: true, ..Default::default() };
         let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir());
-        let app = "globalThis.__tsgpui_app = { state: { got: '' }, actions: {\
+        let app = "globalThis.__rendrix_app = { state: { got: '' }, actions: {\
             listen(api) { api.native.ipc.on('ping', (payload) => api.set('got', payload)); },\
             async say(api) { await api.native.ipc.send('pong', 'hello peer'); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("listen", json!({})).unwrap();
         let environment: std::collections::HashMap<String, String> = backend.ipc_environment().into_iter().collect();
-        let mut peer = TcpStream::connect(&environment["TSGPU_IPC_ADDR"]).unwrap();
+        let mut peer = TcpStream::connect(&environment["RENDRIX_IPC_ADDR"]).unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let token = &environment["TSGPU_IPC_TOKEN"];
+        let token = &environment["RENDRIX_IPC_TOKEN"];
         writeln!(peer, "{}", json!({ "token": token })).unwrap();
         writeln!(peer, "{}", json!({ "channel": "ping", "payload": "from peer" })).unwrap();
 
@@ -1364,11 +1364,11 @@ mod tests {
         use std::{io::Write, net::TcpStream};
         let permissions = crate::package::Permissions { ipc: true, ..Default::default() };
         let grants = Capabilities::from_permissions(&permissions, std::env::temp_dir());
-        let app = "globalThis.__tsgpui_app = { state: { got: '' }, actions: {\
+        let app = "globalThis.__rendrix_app = { state: { got: '' }, actions: {\
             listen(api) { api.native.ipc.on('ping', (payload) => api.set('got', payload)); } } };";
         let mut backend = JsBackend::with_capabilities(app, grants).unwrap();
         backend.invoke_with_event("listen", json!({})).unwrap();
-        let addr = backend.ipc_environment().into_iter().find(|(key, _)| key == "TSGPU_IPC_ADDR").unwrap().1;
+        let addr = backend.ipc_environment().into_iter().find(|(key, _)| key == "RENDRIX_IPC_ADDR").unwrap().1;
         let mut intruder = TcpStream::connect(addr).unwrap();
         // The host closes a connection that gives the wrong token, so later writes can fail. The
         // check that matters is that the spoofed message is not delivered.
@@ -1382,8 +1382,8 @@ mod tests {
     #[test]
     fn raw_host_function_is_hidden_from_app_code() {
         let mut backend = JsBackend::new(
-            "globalThis.__tsgpui_app = { state: { kinds: [] }, actions: { probe(api) { \
-                api.set('kinds', [typeof __tsgpui_host, typeof __tsgpui_native === 'object' ? 'native' : 'none']); } } };",
+            "globalThis.__rendrix_app = { state: { kinds: [] }, actions: { probe(api) { \
+                api.set('kinds', [typeof __rendrix_host, typeof __rendrix_native === 'object' ? 'native' : 'none']); } } };",
         ).unwrap();
         backend.invoke_with_event("probe", json!({})).unwrap();
         assert_eq!(backend.state()["kinds"], json!(["undefined", "native"]));
@@ -1460,7 +1460,7 @@ mod tests {
     #[test]
     fn no_ambient_host_apis_are_exposed() {
         let mut backend = JsBackend::new(
-            "globalThis.__tsgpui_app = { state: { kinds: [] }, actions: { probe(api) { \
+            "globalThis.__rendrix_app = { state: { kinds: [] }, actions: { probe(api) { \
                 api.set('kinds', [typeof require, typeof process, typeof fetch, typeof Bun]); } } };",
         ).unwrap();
         backend.invoke_with_event("probe", json!({})).unwrap();
@@ -1503,7 +1503,7 @@ mod tests {
         let mut old = backend();
         old.set_state("count", json!(7)).unwrap();
         let mut reloaded = JsBackend::reload(
-            "globalThis.__tsgpui_app = { state: { count: 100, user: { name: 'grace' }, items: [9] }, actions: { \
+            "globalThis.__rendrix_app = { state: { count: 100, user: { name: 'grace' }, items: [9] }, actions: { \
                 increment(api) { api.set('count', api.get('count') + 1); } } };",
             &old,
         ).unwrap();
@@ -1519,7 +1519,7 @@ mod tests {
     fn failed_reload_leaves_the_previous_backend_usable() {
         let mut old = backend();
         old.set_state("count", json!(3)).unwrap();
-        assert!(JsBackend::reload("globalThis.__tsgpui_app = {", &old).is_err());
+        assert!(JsBackend::reload("globalThis.__rendrix_app = {", &old).is_err());
         old.invoke_with_event("increment", json!({})).unwrap();
         assert_eq!(old.state()["count"], json!(4));
     }

@@ -1,6 +1,6 @@
 # Power, Display, and System Preferences
 
-This document describes TS-GPU's support for `powerMonitor`, `systemPreferences`, and `screen`
+This document describes Rendrix's support for `powerMonitor`, `systemPreferences`, and `screen`
 display events on the hosts: the deprecated native GPUI renderer and the Rendrix engine.
 
 The Electron-facing shims live in `packages/cli/src/electron-compat/runtime`:
@@ -41,12 +41,12 @@ Cached state is exposed through:
 - `onBatteryPower` / `isOnBatteryPower()`
 - `getSystemIdleState(threshold)` and `getSystemIdleTime()`
 - `getCurrentThermalState()`
-- `refresh()` - TS-GPU addition: re-read `power.state` and update the cache.
+- `refresh()` - Rendrix addition: re-read `power.state` and update the cache.
 
 The shim seeds its cache from `power.state` when it loads, then listens for host events through:
 
 ```js
-globalThis.__tsgpu_power_event(name, ...args)
+globalThis.__rendrix_power_event(name, ...args)
 ```
 
 The shim updates the cached state and emits the matching event. Hosts poll state twice a second;
@@ -62,7 +62,7 @@ the platform layer caches slow OS queries so this does not run a command every t
 
 Windows uses callback-style power notifications, so it does not need a hidden message window or a
 message loop. `RegisterPowerSettingNotification` is the user32 API Electron itself uses;
-TS-GPU reaches the same notifications through `PowerSettingRegisterNotification` with
+Rendrix reaches the same notifications through `PowerSettingRegisterNotification` with
 `DEVICE_NOTIFY_CALLBACK`, which fits the GPUI/tao event loop.
 
 Linux and macOS do not expose suspend/lock callbacks without extra D-Bus/Objective-C integration,
@@ -88,16 +88,16 @@ while the process is frozen cannot be observed until it runs again.
   light/dark palette as fallback. Names follow Electron (`window`, `window-text`, `highlight`,
   `button-face`, ...).
 - `isInvertedColorScheme()` - host value, or `inverted-colors: inverted`.
-- `isHighContrast()` - host value, or `forced-colors: active` (TS-GPU addition).
+- `isHighContrast()` - host value, or `forced-colors: active` (Rendrix addition).
 - `accessibilityDisplayShouldReduceMotion` - host value, or `prefers-reduced-motion: reduce`.
 - `accessibilityDisplayShouldReduceTransparency` - host value.
 - `getAnimationSettings()` - reflects the reduced-motion flag.
-- `refresh()` - TS-GPU addition: re-read `systemPreferences.info`.
+- `refresh()` - Rendrix addition: re-read `systemPreferences.info`.
 
 Host wiring:
 
 ```js
-globalThis.__tsgpu_system_preferences_event(name, ...args)
+globalThis.__rendrix_system_preferences_event(name, ...args)
 ```
 
 The handlers `color-changed`, `accent-color-changed` and
@@ -115,7 +115,7 @@ The handlers `color-changed`, `accent-color-changed` and
 
 - TouchID, media access, `effectiveAppearance` mutation and notification-center preferences remain
   stubs.
-- Linux colors are the TS-GPU palette, not the GTK theme's actual colors.
+- Linux colors are the Rendrix palette, not the GTK theme's actual colors.
 - `getAccentColor()` normalizes CSS values to lower case without spaces, matching Electron's
   `rrggbb` form.
 
@@ -132,8 +132,8 @@ The following events are emitted when the display set changes:
 Host wiring:
 
 ```js
-globalThis.__tsgpu_display_event(name, display, details)
-globalThis.__tsgpu_display_changed(payload)
+globalThis.__rendrix_display_event(name, display, details)
+globalThis.__rendrix_display_changed(payload)
 ```
 
 Both hosts poll the monitor list every three seconds and emit events when it changes. The shim
@@ -161,10 +161,10 @@ change.
 The same host polling loop also improves the miscellaneous Electron shims:
 
 - `contentTracing.startRecording()` / `stopRecording(path)` write a Chrome tracing-event JSON file
-  with TS-GPU markers. Open it in Perfetto or `chrome://tracing`; Chromium renderer/GPU events are
+  with Rendrix markers. Open it in Perfetto or `chrome://tracing`; Chromium renderer/GPU events are
   not available.
 - `crashReporter.start()` writes `crash-reporter.json` under `<userData>/crashes`.
-  `crashReporter.captureCrash(reason)` (TS-GPU addition) writes a timestamped JSON dump there.
+  `crashReporter.captureCrash(reason)` (Rendrix addition) writes a timestamped JSON dump there.
   Native minidumps and uploads are not supported.
 - `netLog.startLogging(path)` / `stopLogging()` write a JSON net log. The `net` shim records each
   `net.request` URL, method, status and headers. Chromium socket, DNS and QUIC internals are not

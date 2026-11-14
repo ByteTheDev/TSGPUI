@@ -78,7 +78,7 @@ impl App {
         let scale = if scale > 0.0 { scale } else { 1.0 };
         let logical = (size.0 as f32 / scale, size.1 as f32 / scale);
         let output = layout::measure(&self.doc.root, logical, scale, &mut self.text);
-        if std::env::var_os("TSGPU_DEBUG_FRAME").is_some() && !self.debug_dumped {
+        if std::env::var_os("RENDRIX_DEBUG_FRAME").is_some() && !self.debug_dumped {
             self.debug_dumped = true;
             let mut dump = String::new();
             for key in [2u64, 3, 4, 11, 19, 21, 23] {
@@ -87,7 +87,7 @@ impl App {
                 }
             }
             dump.push_str(&format!("scale={scale} size={size:?} logical={logical:?}\n"));
-            let path = std::env::temp_dir().join("tsgpu-frame-debug.txt");
+            let path = std::env::temp_dir().join("rendrix-frame-debug.txt");
             let _ = std::fs::write(&path, dump);
         }
 
@@ -176,7 +176,7 @@ impl App {
     /// bridge so backend actions mutate app state, which re-drives `frame()`.
     // TODO(M1): wire to the QuickJS backend bridge (rquickjs) instead of printing.
     fn dispatch_action(&mut self, action: &str) {
-        println!("[tsgpu] action {action}");
+        println!("[rendrix] action {action}");
     }
 
     fn hit(&self, x: f32, y: f32) -> Option<u64> {
@@ -684,7 +684,7 @@ mod tests {
 
     fn doc(style: &str) -> AppPackage {
         let json = format!(
-            r#"{{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,
+            r#"{{"format":"rendrix-1","name":"app","title":"App","width":400,"height":300,
                 "backend_js":"","root":{{"tag":"div","key":1,"style":{style}}}}}"#
         );
         serde_json::from_str(&json).unwrap()
@@ -756,10 +756,10 @@ mod tests {
     #[test]
     fn frame_emits_text_ops_from_layout_text_styles() {
         // A nested text node styled by the document; layout resolves its box and text style.
-        let json = r##"{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,
+        let json = r##"{"format":"rendrix-1","name":"app","title":"App","width":400,"height":300,
             "backend_js":"",
             "root":{"tag":"div","key":1,"children":[
-                {"tag":"h1","key":2,"text":"TSGPUI","style":{"font-size":"48px","color":"#ffffff"}}
+                {"tag":"h1","key":2,"text":"Rendrix","style":{"font-size":"48px","color":"#ffffff"}}
             ]}}"##;
         let mut app = App::new(serde_json::from_str::<AppPackage>(json).unwrap());
         let frame = app.frame(1.0, (400, 300));
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(text_ops.len(), 1);
         let run = text_ops[0];
         assert_eq!(run.node, 2);
-        assert_eq!(run.text, "TSGPUI");
+        assert_eq!(run.text, "Rendrix");
         assert_eq!(run.size, 48.0);
         assert_eq!(run.color, [1.0, 1.0, 1.0, 1.0]);
         // The baseline comes from layout's estimate inside the node's box.
@@ -787,7 +787,7 @@ mod tests {
         // And the final frame carries the shaped glyph batch (one instance per character).
         assert!(frame.ops.iter().any(|op| matches!(
             op,
-            DrawOp::Glyphs(batch) if batch.instances.len() == "TSGPUI".len()
+            DrawOp::Glyphs(batch) if batch.instances.len() == "Rendrix".len()
         )));
     }
 
@@ -817,7 +817,7 @@ mod diagnostic {
 
     #[test]
     fn diagnostic_counter_bundle_rects_and_glyphs() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/tsgpu-counter.tgp");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/rendrix-counter.rdx");
         let Ok(json) = std::fs::read_to_string(&path) else {
             eprintln!("skipping: counter bundle not built at {}", path.display());
             return;
@@ -847,10 +847,10 @@ mod diagnostic {
                 let a = atlas.rgba[((y * atlas.width + x) * 4 + 3) as usize];
                 *p = image::Rgba([a, a, a, 255]);
             }
-            let path = std::env::temp_dir().join("tsgpu-atlas-alpha.png");
+            let path = std::env::temp_dir().join("rendrix-atlas-alpha.png");
             let _ = alpha_view.save(&path);
             println!("atlas alpha saved: {}", path.display());
-            let path = std::env::temp_dir().join("tsgpu-atlas.png");
+            let path = std::env::temp_dir().join("rendrix-atlas.png");
             let _ = img.save(&path);
             println!("atlas saved: {}", path.display());
         }

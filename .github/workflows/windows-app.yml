@@ -1,5 +1,5 @@
-name: Compile TS-GPU counter to Windows EXE
-# Packages the counter example with the DEPRECATED GPUI host. Rendrix-host packaging and the
+name: Compile Rendrix counter to Windows EXE
+# Packages the counter example with the DEPRECATED legacy host. Rendrix-host packaging and the
 # Windows GUI smoke live in platform-validation.yml.
 on:
   workflow_dispatch:
@@ -28,17 +28,17 @@ jobs:
         run: bun run test
       - name: Type-check TypeScript example
         run: bun run typecheck
-      - name: Build deprecated GPUI host
-        run: node packages/cli/bin/tsgpu.mjs host build
-      - name: Package counter EXE with the deprecated GPUI host
-        run: node packages/cli/bin/tsgpu.mjs build --project examples/counter --renderer native
+      - name: Build deprecated legacy host
+        run: node packages/cli/bin/rendrix.mjs host build
+      - name: Package counter EXE with the deprecated legacy host
+        run: node packages/cli/bin/rendrix.mjs build --project examples/counter --renderer native
       - name: Generate EXE checksum
         shell: pwsh
-        run: (Get-FileHash 'examples/counter/dist/tsgpu-counter.exe' -Algorithm SHA256).Hash | Set-Content examples/counter/dist/tsgpu-counter.exe.sha256
+        run: (Get-FileHash 'examples/counter/dist/rendrix-counter.exe' -Algorithm SHA256).Hash | Set-Content examples/counter/dist/rendrix-counter.exe.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: tsgpu-counter-windows-x64
+          name: rendrix-counter-windows-x64
           path: |
-            examples/counter/dist/tsgpu-counter.exe
-            examples/counter/dist/tsgpu-counter.exe.sha256
+            examples/counter/dist/rendrix-counter.exe
+            examples/counter/dist/rendrix-counter.exe.sha256
           if-no-files-found: error

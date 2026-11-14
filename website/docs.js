@@ -14,7 +14,7 @@
         })
         .catch(function (error) {
           // Opening index.html from disk blocks fetch(), so use the copy embedded by sync-docs.mjs.
-          var embedded = window.TSGPU_DOCS && window.TSGPU_DOCS[file];
+          var embedded = window.RENDRIX_DOCS && window.RENDRIX_DOCS[file];
           if (embedded) return embedded;
           throw error;
         });

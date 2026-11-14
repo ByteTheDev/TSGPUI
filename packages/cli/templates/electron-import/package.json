@@ -1,0 +1,13 @@
+{
+  "name": "electron-import-demo",
+  "productName": "Electron Import Demo",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

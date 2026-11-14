@@ -1,4 +1,4 @@
-// TSGPUI patch: libc no longer defines ENOATTR on Linux. Linux reports a missing attribute as
+// Rendrix patch: libc no longer defines ENOATTR on Linux. Linux reports a missing attribute as
 // ENODATA, so use that value there. Other platforms keep libc's ENOATTR.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const ENOATTR_VALUE: ::libc::c_int = ::libc::ENODATA;

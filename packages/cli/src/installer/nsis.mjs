@@ -10,8 +10,8 @@ export function nsisScript({name, version, executable, output, publishUrl, certi
   const exe = literal(path.basename(executable));
   const safe = value => value ? String(value).replace(/[\r\n"$]+/g, '_') : '(unset)';
   return `Unicode true
-; TS-GPU NSIS installer for ${name} ${version}
-; Signing: tsgpu package --installer nsis --sign with TSGPU_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
+; Rendrix NSIS installer for ${name} ${version}
+; Signing: rendrix package --installer nsis --sign with RENDRIX_SIGN_COMMAND (certificateSubjectName ${safe(certificateSubjectName)})
 ; Publish (manual): upload this installer plus the SHA-256 manifest to publishUrl ${safe(publishUrl)}
 ; In-app updates are supported: configure autoUpdater.setFeedURL(...) to the published manifest URL.
 Name "${name} ${version}"

@@ -1,8 +1,8 @@
-//! Shared draw-list contract for the tsgpu renderer.
+//! Shared draw-list contract for the rendrix renderer.
 //!
 //! `gpu::backend` produces a `PaintFrame` from the document tree; `gpu::paint` turns it into
 //! GPU work; `gpu::surface` puts it on screen. Everything in this file is the boundary between
-//! those modules — change it only with all module owners' consent (see RENDERER_TSGPU.md).
+//! those modules — change it only with all module owners' consent (see RENDERER_RENDRIX.md).
 
 /// Linear RGBA, 0.0–1.0.
 pub type Color = [f32; 4];

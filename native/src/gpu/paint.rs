@@ -1,5 +1,5 @@
 //! Draw-list → GPU encoding: rounded-rect quad pipeline + glyph-atlas text pipeline.
-//! Owner: agent B. See docs/RENDERER_TSGPU.md for the architecture.
+//! Owner: agent B. See docs/RENDERER_RENDRIX.md for the architecture.
 //!
 //! Contract (fixed):
 //! - `Painter::new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self`
@@ -329,11 +329,11 @@ pub struct Painter {
 impl Painter {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let rect_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("tsgpu rect shader"),
+            label: Some("rendrix rect shader"),
             source: wgpu::ShaderSource::Wgsl(RECT_WGSL.into()),
         });
         let text_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("tsgpu glyph shader"),
+            label: Some("rendrix glyph shader"),
             source: wgpu::ShaderSource::Wgsl(GLYPH_WGSL.into()),
         });
 
@@ -341,7 +341,7 @@ impl Painter {
         // + format flag. Both are uniform buffers rewritten every frame via queue.write_buffer
         // (called before the caller submits the encoder, so ordering is guaranteed).
         let rect_globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tsgpu rect globals layout"),
+            label: Some("rendrix rect globals layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -354,7 +354,7 @@ impl Painter {
             }],
         });
         let text_globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tsgpu text globals layout"),
+            label: Some("rendrix text globals layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -386,12 +386,12 @@ impl Painter {
         });
 
         let rect_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("tsgpu rect pipeline layout"),
+            label: Some("rendrix rect pipeline layout"),
             bind_group_layouts: &[&rect_globals_layout],
             push_constant_ranges: &[],
         });
         let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("tsgpu text pipeline layout"),
+            label: Some("rendrix text pipeline layout"),
             bind_group_layouts: &[&text_globals_layout],
             push_constant_ranges: &[],
         });
@@ -452,24 +452,24 @@ impl Painter {
             })
         };
 
-        let rect_pipeline = make_pipeline("tsgpu rect pipeline", &rect_module, &rect_pipeline_layout, &rect_instance_layout);
-        let text_pipeline = make_pipeline("tsgpu text pipeline", &text_module, &text_pipeline_layout, &text_instance_layout);
+        let rect_pipeline = make_pipeline("rendrix rect pipeline", &rect_module, &rect_pipeline_layout, &rect_instance_layout);
+        let text_pipeline = make_pipeline("rendrix text pipeline", &text_module, &text_pipeline_layout, &text_instance_layout);
 
         let rect_globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tsgpu rect globals"),
+            label: Some("rendrix rect globals"),
             size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let text_globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tsgpu text globals"),
+            label: Some("rendrix text globals"),
             size: 32,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let rect_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tsgpu rect bind group"),
+            label: Some("rendrix rect bind group"),
             layout: &rect_globals_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -478,7 +478,7 @@ impl Painter {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("tsgpu glyph sampler"),
+            label: Some("rendrix glyph sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -497,8 +497,8 @@ impl Painter {
                 mapped_at_creation: false,
             })
         };
-        let (initial_capacity, rect_instances) = (512u32, make_instances("tsgpu rect instances", 512, RECT_STRIDE));
-        let text_instances = make_instances("tsgpu text instances", 512, TEXT_STRIDE);
+        let (initial_capacity, rect_instances) = (512u32, make_instances("rendrix rect instances", 512, RECT_STRIDE));
+        let text_instances = make_instances("rendrix text instances", 512, TEXT_STRIDE);
 
         Self {
             debug_logged: false,
@@ -547,7 +547,7 @@ impl Painter {
         // *-srgb swapchain formats after the clear, so this lands on screen as intended).
         let bg = frame.background;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("tsgpu frame"),
+            label: Some("rendrix frame"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,
@@ -567,7 +567,7 @@ impl Painter {
         });
 
         let scale = frame.scale;
-        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() && !self.debug_logged {
+        if std::env::var_os("RENDRIX_DEBUG_PAINT").is_some() && !self.debug_logged {
             self.debug_logged = true;
             let mut dump = String::new();
             dump.push_str(&format!("surface paint: w={} h={} scale={} atlas_pending={} gen_uploaded={}\n", frame.width, frame.height, frame.scale, self.pending_atlas.is_some(), self.uploaded_generation));
@@ -582,7 +582,7 @@ impl Painter {
                     types::DrawOp::Text(_) => {}
                 }
             }
-            let path = std::env::temp_dir().join("tsgpu-paint-debug.txt");
+            let path = std::env::temp_dir().join("rendrix-paint-debug.txt");
             let _ = std::fs::write(&path, dump);
         }
         if scale.is_finite() && scale > 0.0 && frame.width > 0 && frame.height > 0 {
@@ -642,7 +642,7 @@ impl Painter {
                             rect_cursor,
                             1,
                             RECT_STRIDE,
-                            "tsgpu rect instances",
+                            "rendrix rect instances",
                         );
                         let offset = rect_cursor as u64 * RECT_STRIDE;
                         self.queue
@@ -667,10 +667,10 @@ impl Painter {
                             text_cursor,
                             count,
                             TEXT_STRIDE,
-                            "tsgpu text instances",
+                            "rendrix text instances",
                         );
                         let base = text_cursor as u64 * TEXT_STRIDE;
-                        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() && text_cursor == 0 {
+                        if std::env::var_os("RENDRIX_DEBUG_PAINT").is_some() && text_cursor == 0 {
                             for g in batch.instances.iter().take(2) {
                                 let d = glyph_instance_data(g, scale);
                                 println!("instance: pos_size={:?} uv={:?} color={:?}", d.pos_size, d.uv, d.color);
@@ -705,7 +705,7 @@ impl Painter {
                             i = j;
                         }
                         text_cursor += count;
-                        if std::env::var_os("TSGPU_DEBUG_PAINT").is_some() {
+                        if std::env::var_os("RENDRIX_DEBUG_PAINT").is_some() {
                             println!("paint batch: n={count} cursor={text_cursor} bind_group={} uploaded_gen={}", self.text_bind_group.is_some(), self.uploaded_generation);
                         }                        glyph_draws += count;
                     }
@@ -747,7 +747,7 @@ impl Painter {
             .is_none_or(|a| a.width != w || a.height != h || a.single_channel != single_channel);
         if recreate {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("tsgpu glyph atlas"),
+                label: Some("rendrix glyph atlas"),
                 size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -760,7 +760,7 @@ impl Painter {
             self.atlas = Some(AtlasGpu { texture, view, width: w, height: h, single_channel });
             let a = self.atlas.as_ref().expect("just set");
             self.text_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("tsgpu text bind group"),
+                label: Some("rendrix text bind group"),
                 layout: &self.text_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -833,7 +833,7 @@ mod offscreen_tests {
     /// This is the headless framebuffer harness: CI-runnable, no window needed.
     fn render_offscreen(painter: &mut Painter, device: &wgpu::Device, queue: &wgpu::Queue, frame: &PaintFrame, format: wgpu::TextureFormat) -> Vec<u8> {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("tsgpu offscreen"),
+            label: Some("rendrix offscreen"),
             size: wgpu::Extent3d { width: frame.width, height: frame.height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
@@ -843,19 +843,19 @@ mod offscreen_tests {
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu offscreen encoder") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("rendrix offscreen encoder") });
         painter.paint(device, &mut encoder, &view, frame);
         queue.submit(Some(encoder.finish()));
 
         let bytes_per_row = frame.width * 4;
         let padded = (bytes_per_row + 255) / 256 * 256;
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tsgpu readback"),
+            label: Some("rendrix readback"),
             size: (padded * frame.height) as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu readback encoder") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("rendrix readback encoder") });
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -897,9 +897,9 @@ mod offscreen_tests {
     /// interference, with a human-inspectable magnified crop of the render.
     #[test]
     fn offscreen_minimal_text_repro() {
-        let json = r##"{"format":"tsgpu-1","name":"app","title":"T","width":400,"height":160,
+        let json = r##"{"format":"rendrix-1","name":"app","title":"T","width":400,"height":160,
             "backend_js":"","root":{"tag":"div","key":1,"style":{"background":"#090b14","color":"#ffffff"},
-            "children":[{"tag":"div","key":2,"style":{"background":"#ff0000","color":"#ffffff","font-size":"48px","font-weight":"700"},"children":[{"tag":"#text","key":3,"text":"TS-GPU"}]}]}}"##;
+            "children":[{"tag":"div","key":2,"style":{"background":"#ff0000","color":"#ffffff","font-size":"48px","font-weight":"700"},"children":[{"tag":"#text","key":3,"text":"Rendrix"}]}]}}"##;
         let doc: crate::package::AppPackage = serde_json::from_str(json).unwrap();
         let mut app = App::new(doc);
 
@@ -936,19 +936,19 @@ mod offscreen_tests {
                 let a = atlas.rgba[((y * atlas.width + x) * 4 + 3) as usize];
                 *p = image::Rgba([a, a, a, 255]);
             }
-            let _ = alpha_view.save(std::env::temp_dir().join("tsgpu-minimal-atlas.png"));
+            let _ = alpha_view.save(std::env::temp_dir().join("rendrix-minimal-atlas.png"));
         }
         painter.set_glyph_atlas(app.atlas());
         let pixels = render_offscreen(&mut painter, &device, &queue, &frame, format);
         if let Some(img) = image::RgbaImage::from_raw(400, 160, pixels.clone()) {
-            let path = std::env::temp_dir().join("tsgpu-minimal-repro.png");
+            let path = std::env::temp_dir().join("rendrix-minimal-repro.png");
             let _ = img.save(&path);
             println!("minimal repro saved (full 400x160): {}", path.display());
         }
     }
     #[test]
     fn offscreen_counter_renders_text_pixels() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/tsgpu-counter.tgp");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/rendrix-counter.rdx");
         let Ok(json) = std::fs::read_to_string(&path) else {
             eprintln!("skipping: counter bundle not built at {}", path.display());
             return;
@@ -984,13 +984,13 @@ mod offscreen_tests {
         painter.set_glyph_atlas(app.atlas());
         let pixels = render_offscreen(&mut painter, &device, &queue, &frame2, format);
 
-        // The h1 "TS-GPU" glyphs: logical x 166..380, y ~126..166, at 1.25 scale => physical.
+        // The h1 "Rendrix" glyphs: logical x 166..380, y ~126..166, at 1.25 scale => physical.
         let heading = opaque_in(&pixels, 1125, &Rect { x: 205.0, y: 155.0, w: 280.0, h: 65.0 });
         println!("heading opaque px: {heading}");
         // Save the render for visual inspection â€” pixel counts cannot distinguish correct
         // glyphs from fragments.
         if let Some(img) = image::RgbaImage::from_raw(1125, 750, pixels.clone()) {
-            let path = std::env::temp_dir().join("tsgpu-offscreen-view.png");
+            let path = std::env::temp_dir().join("rendrix-offscreen-view.png");
             let _ = img.save(&path);
             println!("offscreen saved: {}", path.display());
         }

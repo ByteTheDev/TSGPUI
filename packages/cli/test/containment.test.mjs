@@ -12,12 +12,12 @@ const config = { name: 'contained', title: 'Contained', width: 500, height: 400,
 
 // Creates a project under tmp/project and an unrelated "outside" folder that symlinks must not reach.
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-contain-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'rendrix-contain-'));
   const project = path.join(root, 'project');
   const outside = path.join(root, 'outside');
   await mkdir(path.join(project, 'src'), { recursive: true });
   await mkdir(outside, { recursive: true });
-  await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify(config));
+  await writeFile(path.join(project, 'rendrix.config.json'), JSON.stringify(config));
   await writeFile(path.join(project, 'src/index.html'), html);
   await writeFile(path.join(project, 'src/styles.css'), css);
   await writeFile(path.join(project, 'src/backend.ts'), backend);
@@ -39,8 +39,8 @@ test('a valid project builds with a missing output directory', async () => {
   const { root, project } = await fixture();
   try {
     const result = await buildPackage(project);
-    assert.equal(path.basename(result.bundleFile), 'contained.tgp');
-    assert.ok((await readFile(result.bundleFile, 'utf8')).includes('"tsgpu-1"'));
+    assert.equal(path.basename(result.bundleFile), 'contained.rdx');
+    assert.ok((await readFile(result.bundleFile, 'utf8')).includes('"rendrix-1"'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -74,9 +74,9 @@ test('the config file symlinked outside the project is rejected', async (t) => {
   const { root, project, outside } = await fixture();
   try {
     await writeFile(path.join(outside, 'config.json'), JSON.stringify(config));
-    await rm(path.join(project, 'tsgpu.config.json'));
-    if (!await link(path.join(outside, 'config.json'), path.join(project, 'tsgpu.config.json'))) return t.skip('symlinks unavailable');
-    await assert.rejects(readProject(project), /tsgpu.config.json resolves outside the project/);
+    await rm(path.join(project, 'rendrix.config.json'));
+    if (!await link(path.join(outside, 'config.json'), path.join(project, 'rendrix.config.json'))) return t.skip('symlinks unavailable');
+    await assert.rejects(readProject(project), /rendrix.config.json resolves outside the project/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -97,7 +97,7 @@ test('a missing output directory whose parent is a symlink outside the project i
   const { root, project, outside } = await fixture();
   try {
     if (!await link(outside, path.join(project, 'build'), 'junction')) return t.skip('symlinks unavailable');
-    await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify({ ...config, outDir: 'build/nested' }));
+    await writeFile(path.join(project, 'rendrix.config.json'), JSON.stringify({ ...config, outDir: 'build/nested' }));
     await assert.rejects(buildPackage(project), /Output directory resolves outside the project/);
     assert.deepEqual(await readdir(outside), []);
   } finally {
@@ -122,7 +122,7 @@ test('an output directory symlink that stays inside the project is allowed', asy
     await mkdir(path.join(project, 'real-out'));
     if (!await link(path.join(project, 'real-out'), path.join(project, 'dist'), 'junction')) return t.skip('symlinks unavailable');
     const result = await buildPackage(project);
-    assert.ok((await readdir(path.join(project, 'real-out'))).includes('contained.tgp'));
+    assert.ok((await readdir(path.join(project, 'real-out'))).includes('contained.rdx'));
     assert.ok(result.bundleFile);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -133,10 +133,10 @@ test('an existing output file that is a symlink is not written through', async (
   const { root, project, outside } = await fixture();
   try {
     await mkdir(path.join(project, 'dist'));
-    await writeFile(path.join(outside, 'target.tgp'), 'original');
-    if (!await link(path.join(outside, 'target.tgp'), path.join(project, 'dist/contained.tgp'))) return t.skip('symlinks unavailable');
+    await writeFile(path.join(outside, 'target.rdx'), 'original');
+    if (!await link(path.join(outside, 'target.rdx'), path.join(project, 'dist/contained.rdx'))) return t.skip('symlinks unavailable');
     await assert.rejects(buildPackage(project), /Refusing to write through symlink/);
-    assert.equal(await readFile(path.join(outside, 'target.tgp'), 'utf8'), 'original');
+    assert.equal(await readFile(path.join(outside, 'target.rdx'), 'utf8'), 'original');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

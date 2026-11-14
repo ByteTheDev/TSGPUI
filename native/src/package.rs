@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap,fs::File,io::{Read,Seek,SeekFrom},path::PathBuf};
 use serde::Deserialize;
 
-pub const MAGIC: &[u8;8] = b"TSGPU001";
+pub const MAGIC: &[u8;8] = b"RENDRI01";
 pub const MAX_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// Persisted backend state is small by design; larger values are not written.
 pub const MAX_STATE_BYTES: u64 = 256 * 1024;
@@ -111,7 +111,7 @@ pub fn load() -> Result<AppPackage,String> {
 pub fn bundle_path() -> Result<Option<PathBuf>,String> {
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|arg| arg == "--bundle") {
-        let file = args.get(i+1).ok_or("--bundle needs a .tgp path")?;
+        let file = args.get(i+1).ok_or("--bundle needs a .rdx path")?;
         Ok(Some(PathBuf::from(file)))
     } else {
         Ok(None)
@@ -133,7 +133,7 @@ pub fn state_file(name: &str) -> Option<PathBuf> {
         std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
     };
-    root.map(|root| root.join("tsgpui").join(safe).join("state.json"))
+    root.map(|root| root.join("rendrix").join(safe).join("state.json"))
 }
 
 pub fn load_bundle(file: &std::path::Path) -> Result<AppPackage,String> {
@@ -189,8 +189,8 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     let doc: AppPackage = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("Invalid .tgp document: {e}"))?;
-    if doc.format != "tsgpu-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
+        .map_err(|e| format!("Invalid .rdx document: {e}"))?;
+    if doc.format != "rendrix-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
     if !(200..=4096).contains(&doc.width) || !(200..=4096).contains(&doc.height) {
         return Err("Invalid window dimensions".into());
     }
@@ -211,7 +211,7 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
 fn read_embedded() -> Result<Vec<u8>,String> {
     let exe: PathBuf = std::env::current_exe().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/tsgpu.tgp")) {
+    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/rendrix.rdx")) {
         if resources.is_file() { return std::fs::read(&resources).map_err(|e| format!("Unable to read app resource: {e}")); }
     }
     let mut f = File::open(&exe).map_err(|e| format!("Unable to open host: {e}"))?;
@@ -236,13 +236,13 @@ fn read_overlay<R: Read + Seek>(f: &mut R) -> Result<Vec<u8>,String> {
             if let Ok(payload) = read_footer_at(f, cert_offset - padding) { return Ok(payload); }
         }
     }
-    Err("No embedded app bundle. Use --bundle file.tgp".into())
+    Err("No embedded app bundle. Use --bundle file.rdx".into())
 }
 fn read_footer_at<R: Read + Seek>(f: &mut R, end: u64) -> Result<Vec<u8>,String> {
-    if end < 16 { return Err("No embedded app bundle. Use --bundle file.tgp".into()); }
+    if end < 16 { return Err("No embedded app bundle. Use --bundle file.rdx".into()); }
     f.seek(SeekFrom::Start(end - 16)).map_err(|e| e.to_string())?;
     let mut footer=[0u8;16]; f.read_exact(&mut footer).map_err(|e| e.to_string())?;
-    if &footer[8..] != MAGIC { return Err("No embedded app bundle. Use --bundle file.tgp".into()); }
+    if &footer[8..] != MAGIC { return Err("No embedded app bundle. Use --bundle file.rdx".into()); }
     let count = u64::from_le_bytes(footer[0..8].try_into().unwrap());
     if count == 0 || count > MAX_PAYLOAD || count > end-16 { return Err("Invalid embedded app bundle length".into()); }
     f.seek(SeekFrom::Start(end-16-count)).map_err(|e| e.to_string())?;
@@ -272,7 +272,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    const VALID_DOC: &str = r#"{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
+    const VALID_DOC: &str = r#"{"format":"rendrix-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
 
     fn overlay(payload: &[u8], count: u64) -> Vec<u8> {
         let mut bytes = payload.to_vec();
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_format_version() {
-        let json = VALID_DOC.replace("tsgpu-1", "tsgpui-2");
+        let json = VALID_DOC.replace("rendrix-1", "rendrix-2");
         assert!(parse_bundle(json.into_bytes()).unwrap_err().contains("Incompatible bundle format"));
     }
 
@@ -383,6 +383,6 @@ mod tests {
 
     #[test]
     fn rejects_malformed_json() {
-        assert!(parse_bundle(b"{not json".to_vec()).unwrap_err().contains("Invalid .tgp document"));
+        assert!(parse_bundle(b"{not json".to_vec()).unwrap_err().contains("Invalid .rdx document"));
     }
 }

@@ -92,9 +92,9 @@ export const powerSaveBlocker: any = _lazyValue('electron-system', 'powerSaveBlo
 export const session: any = _lazyValue('electron-session', 'session');
 export const Session: any = _lazyValue('electron-session', 'Session');
 const g: any = globalThis;
-const page = () => g.window?.tsgpui;
+const page = () => g.window?.rendrix;
 function warn(api: string) { compatWarnings.push(`${api} is not supported and has no effect`); }
-function unsupported(api: string): never { throw new Error(`${api} is not supported by TS-GPU`); }
+function unsupported(api: string): never { throw new Error(`${api} is not supported by Rendrix`); }
 class App extends EventEmitter {
   isPackaged = true;
   private ready = false;
@@ -168,11 +168,11 @@ class App extends EventEmitter {
 export const app = new App();
 const windows = new Map<number, BrowserWindow>();
 let nextWindowId = 1;
-g.__tsgpui_window_closed = (id: number) => windows.get(id)?.didClose();
+g.__rendrix_window_closed = (id: number) => windows.get(id)?.didClose();
 // The host reports native window lifecycle changes (focus, blur, resize, move, minimize, maximize, restore,
 // show, hide, ready-to-show, enter-full-screen, leave-full-screen, will-move, will-resize)
 // and user close requests (close-requested). Only windows with a 'close' listener receive close-requested.
-g.__tsgpui_window_event = (id: number, name: string, ...args: any[]) => windows.get(id)?.dispatchNative(name, ...args);
+g.__rendrix_window_event = (id: number, name: string, ...args: any[]) => windows.get(id)?.dispatchNative(name, ...args);
 function numberOr(value: any, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
 export class BrowserWindow extends EventEmitter {
   id: number; options: any; destroyed = false; webContents: any; parent: BrowserWindow | null = null; private created: Promise<any>; private closeWatched = false; private visible: boolean; private fullScreen: boolean; private fullScreenable: boolean;
@@ -274,7 +274,7 @@ export class BrowserWindow extends EventEmitter {
       isDestroyed: () => win.destroyed,
       send: (channel: string, ...args: any[]) => {
         const payload = args.length <= 1 ? args[0] : args;
-        if (win.id === 1 && g.__tsgpui_emit && g.__tsgpui_window_id !== 0) g.__tsgpui_emit(channel, payload);
+        if (win.id === 1 && g.__rendrix_emit && g.__rendrix_window_id !== 0) g.__rendrix_emit(channel, payload);
         else void win.command('window.send', {channel, payload}).catch(console.error);
       },
       sendToFrame: (frameId: any, channel: string, ...args: any[]) => {
@@ -561,9 +561,9 @@ export class BrowserWindow extends EventEmitter {
       return Promise.reject(error);
     }
     const token = (this.webContents as any)?._beginLoad?.(url, 'url', url);
-    if (url.startsWith('tsgpui://localhost/')) return this.command('window.load', {path:url.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
+    if (url.startsWith('rendrix://localhost/')) return this.command('window.load', {path:url.slice('rendrix://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
     const rewritten = rewriteCustomUrl(url);
-    if (rewritten) return this.command('window.load', {path: rewritten.slice('tsgpui://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
+    if (rewritten) return this.command('window.load', {path: rewritten.slice('rendrix://localhost'.length)}).then(value => { if (!this.destroyed) { this.emitReadyToShow(); (this.webContents as any)?._finishLoad?.(token); } return value; }, error => { (this.webContents as any)?._failLoad?.(token, error); throw error; });
     const error = new Error('Only packaged local URLs are supported for additional windows');
     (this.webContents as any)?._failLoad?.(token, error);
     return Promise.reject(error);
@@ -587,7 +587,7 @@ export class BrowserWindow extends EventEmitter {
   show(): Promise<void> { if (this.destroyed) return Promise.resolve(); if (this.id === 1) return Promise.resolve(); if (this.visible) return this.command('window.show'); this.visible = true; this.emit('show'); return this.command('window.show'); }
   hide(): Promise<void> { if (this.destroyed) return Promise.resolve(); if (this.id === 1) return Promise.resolve(); if (!this.visible) return this.command('window.hide'); this.visible = false; this.emit('hide'); return this.command('window.hide'); }
   isVisible(): boolean { return this.visible; }
-  setFullScreen(flag: boolean) { if (this.destroyed) return; if (this.id === 1) throw new Error('BrowserWindow fullscreen not supported on this renderer'); if (!g.__tsgpui_host && !g.window?.tsgpui?.invoke) throw new Error('BrowserWindow fullscreen not supported on this renderer'); const next = !!flag; if (next && !this.fullScreenable) return; if (next === this.fullScreen) return; this.fullScreen = next; this.emit(next ? 'enter-full-screen' : 'leave-full-screen'); void this.command('window.setFullScreen', {fullScreen: next}).catch(console.error); }
+  setFullScreen(flag: boolean) { if (this.destroyed) return; if (this.id === 1) throw new Error('BrowserWindow fullscreen not supported on this renderer'); if (!g.__rendrix_host && !g.window?.rendrix?.invoke) throw new Error('BrowserWindow fullscreen not supported on this renderer'); const next = !!flag; if (next && !this.fullScreenable) return; if (next === this.fullScreen) return; this.fullScreen = next; this.emit(next ? 'enter-full-screen' : 'leave-full-screen'); void this.command('window.setFullScreen', {fullScreen: next}).catch(console.error); }
   isFullScreen(): boolean { return this.fullScreen; }
   isMaximized(): boolean { return this.maximized; }
   isMinimized(): boolean { return this.minimized; }
@@ -737,7 +737,7 @@ function copyBridgeValue(value: any, seen = new Map<any, any>()): any {
   for (const key of Object.keys(value)) Object.defineProperty(copy, key, { value: copyBridgeValue(value[key], seen), enumerable: true, writable: false, configurable: false });
   return Object.freeze(copy);
 }
-export const contextBridge = { exposeInMainWorld(key: string, value: any) { const target = g.__tsgpui_bridge_target || g.window || g; if (key in target) throw new Error(`contextBridge.exposeInMainWorld: ${key} already exists`); Object.defineProperty(target, key, { value: copyBridgeValue(value), enumerable: true, writable: false, configurable: false }); } };
+export const contextBridge = { exposeInMainWorld(key: string, value: any) { const target = g.__rendrix_bridge_target || g.window || g; if (key in target) throw new Error(`contextBridge.exposeInMainWorld: ${key} already exists`); Object.defineProperty(target, key, { value: copyBridgeValue(value), enumerable: true, writable: false, configurable: false }); } };
 function options(args: any[]) { return args.length > 1 ? args[1] : args[0] || {}; }
 export const dialog = {
   async showOpenDialog(...args: any[]) { const o = options(args); const result = await host('dialog.openFile', {multiple: o.properties?.includes('multiSelections') || false, filters: o.filters}); return {canceled: result.canceled, filePaths: result.paths}; },
@@ -759,7 +759,7 @@ function notificationToast(title: string, body: string) {
   const box = doc.createElement('div');
   box.setAttribute('role', 'status');
   box.setAttribute('aria-live', 'polite');
-  box.setAttribute('data-tsgpui-notification-toast', '');
+  box.setAttribute('data-rendrix-notification-toast', '');
   box.textContent = title ? (body ? `${title} — ${body}` : title) : body;
   box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;max-width:320px;padding:10px 12px;border-radius:8px;background:#202124;color:#fff;font:13px/1.4 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.35);';
   if (typeof box.addEventListener === 'function') box.addEventListener('click', () => { try { box.remove(); } catch (_ignored) { /* ignore */ } });

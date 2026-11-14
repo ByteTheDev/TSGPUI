@@ -2,15 +2,15 @@
 
 ## Status
 
-**Unsupported in the native (GPUI 0.2.2) renderer.** TS-GPU preserves HTML
+**Unsupported in the native (GPUI 0.2.2) renderer.** Rendrix preserves HTML
 `aria-*` and `role` metadata and uses `aria-label` as a visible fallback for
 unlabeled controls, but it does **not** expose an OS accessibility tree. Screen
 readers cannot see native-rendered UI.
 
 **Assistive-technology support:** the removed WebView renderer used to provide the platform
-browser's accessibility behavior (`tsgpu-webview-host`); it is gone, so there is no AT path
+browser's accessibility behavior (`rendrix-webview-host`); it is gone, so there is no AT path
 today. The Rendrix roadmap (M3) adds an accesskit tree — see
-[RENDERER_TSGPU.md](RENDERER_TSGPU.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md).
+[RENDERER_RENDRIX.md](RENDERER_RENDRIX.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md).
 
 ## Audit findings
 

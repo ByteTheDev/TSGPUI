@@ -1,0 +1,17 @@
+html, body { background: #090b14; color: #f5f5fb; }
+.shell { display: flex; flex-direction: row; background: #090b14; height: 600px; }
+.list { display: flex; flex-direction: column; gap: 10px; padding: 16px; width: 320px; background: #11142a; }
+.count { font-size: 12px; color: #8f9dc6; }
+.items { display: flex; flex-direction: column; gap: 6px; overflow: scroll; }
+.item { display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #1a1f38; }
+.marker { font-size: 12px; color: #91a8ff; width: 14px; }
+.item-title { font-size: 14px; font-weight: 700; color: #f5f5fb; flex: 1; }
+.item-meta { font-size: 12px; color: #8f9dc6; }
+.detail { display: flex; flex-direction: column; gap: 14px; padding: 36px; flex: 1; }
+h1 { font-size: 34px; font-weight: 700; color: #ffffff; }
+.meta { font-size: 13px; color: #91a8ff; }
+.body { font-size: 16px; color: #d5dcf0; }
+.buttons { display: flex; flex-direction: row; gap: 12px; }
+button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; }
+.primary { background: #7288ff; color: #ffffff; }
+.ghost { background: #20273c; color: #b4bfd8; }

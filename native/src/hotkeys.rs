@@ -381,7 +381,7 @@ mod platform {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
         std::thread::Builder::new()
-            .name("tsgpui-hotkeys".into())
+            .name("rendrix-hotkeys".into())
             .spawn(move || run(cmd_rx, ready_tx))
             .map_err(|error| format!("Unable to start the hotkey thread: {error}"))?;
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
@@ -597,7 +597,7 @@ mod platform {
     fn start_tap() -> Result<(), String> {
         let (ready_tx, ready_rx) = mpsc::channel();
         std::thread::Builder::new()
-            .name("tsgpui-hotkeys".into())
+            .name("rendrix-hotkeys".into())
             .spawn(move || unsafe {
                 let tap = CGEventTapCreate(1, 0, 1, 1u64 << KEY_DOWN, tap_callback, std::ptr::null_mut());
                 if tap.is_null() {
@@ -679,7 +679,7 @@ mod platform {
         let mut lock = SERVICE.lock().unwrap_or_else(|error| error.into_inner());
         if lock.is_none() {
             let (cmd_tx, cmd_rx) = mpsc::channel();
-            match std::thread::Builder::new().name("tsgpui-hotkeys".into()).spawn(move || run(cmd_rx)) {
+            match std::thread::Builder::new().name("rendrix-hotkeys".into()).spawn(move || run(cmd_rx)) {
                 Ok(_) => *lock = Some(Service { tx: cmd_tx }),
                 Err(error) => {
                     drop(lock);

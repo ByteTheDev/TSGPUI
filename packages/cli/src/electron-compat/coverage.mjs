@@ -1,6 +1,6 @@
 // Coverage ledger for `require('electron')`. Every export in the Electron surface snapshot
 // (surface/electron-33.json) must be classified here; the test suite enforces that, so a new
-// Electron release cannot add APIs that TS-GPU silently ignores.
+// Electron release cannot add APIs that Rendrix silently ignores.
 //
 // Status meanings:
 //   implemented  the shim behaves like Electron for normal use.
@@ -17,7 +17,7 @@ export const SURFACE_FILE = 'surface/electron-33.json';
 export const COVERAGE = {
   implemented: {
 ipcMain: 'handle/on/once/removeHandler route through the host bridge',
-    ipcRenderer: 'invoke/send/on/once/removeListener route through window.tsgpui',
+    ipcRenderer: 'invoke/send/on/once/removeListener route through window.rendrix',
     contextBridge: 'exposeInMainWorld sets a global on the page',
     dialog: 'open, save and message dialogs use the native host',
     shell: 'openExternal opens the system browser',
@@ -46,7 +46,7 @@ app: 'lifecycle (whenReady, quit, window-all-closed), getPath for provided paths
     View: 'partial shim: bounds tracking, visibility and events; view hierarchy unsupported',
     WebContentsView: 'partial shim: constructible view with stub webContents; view hierarchy unsupported',
     webFrameMain: 'partial shim: frame lookup and executeJavaScript; the main frame can send and postMessage to the page, but there is no frame tree, isolated world or transferable support',
-    contentTracing: 'partial shim: startRecording/stopRecording write a Chrome tracing-event JSON timeline with TS-GPU markers; Chromium renderer, GPU and thread internals are not captured',
+    contentTracing: 'partial shim: startRecording/stopRecording write a Chrome tracing-event JSON timeline with Rendrix markers; Chromium renderer, GPU and thread internals are not captured',
     crashReporter: 'partial shim: records crash parameters and writes crash metadata and captureCrash dumps under userData/crashes; no native minidumps or upload',
     desktopCapturer: 'partial shim: getSources returns an empty list',
     inAppPurchase: 'partial shim: purchaseProduct returns false; no store support',

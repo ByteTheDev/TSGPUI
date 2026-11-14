@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <body>
+    <main class="shell">
+      <form class="card" data-submit="submit">
+        <h1>Create account</h1>
+        <p class="subtitle">A form with validation. The backend checks every field.</p>
+
+        <label class="field">
+          <span class="label">Name</span>
+          <input type="text" placeholder="Ada Lovelace" data-bind="name" data-oninput="clearStatus" required />
+        </label>
+        <label class="field">
+          <span class="label">Email</span>
+          <input type="email" placeholder="ada@example.com" data-bind="email" data-oninput="clearStatus" required />
+        </label>
+        <label class="field">
+          <span class="label">Age</span>
+          <input type="number" min="13" max="120" step="1" data-bind="age" data-oninput="clearStatus" />
+        </label>
+        <label class="field">
+          <span class="label">Plan</span>
+          <select data-bind="plan" data-oninput="clearStatus">
+            <option value="free" selected>Free</option>
+            <option value="pro">Pro</option>
+            <option value="team">Team</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" data-bind="newsletter" data-oninput="clearStatus" />
+          <span>Send me product news</span>
+        </label>
+
+        <p class="status">{{status}}</p>
+        <div class="buttons">
+          <button type="submit" class="primary">Create</button>
+          <button type="button" class="ghost" data-onclick="reset">Clear</button>
+        </div>
+      </form>
+
+      <section class="card">
+        <h2>Accounts created: {{count}}</h2>
+        <p class="row" data-repeat="accounts as account">{{account.name}} · {{account.email}} · {{account.plan}}</p>
+      </section>
+    </main>
+  </body>
+</html>

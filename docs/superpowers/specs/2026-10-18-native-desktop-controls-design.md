@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make TS-GPU apps feel like desktop apps while preserving its HTML/CSS/TypeScript authoring model and native GPUI renderer. Add declarative native menus and context menus, file drag and drop, platform accessibility semantics, and complete everyday text editing behavior.
+Make Rendrix apps feel like desktop apps while preserving its HTML/CSS/TypeScript authoring model and native GPUI renderer. Add declarative native menus and context menus, file drag and drop, platform accessibility semantics, and complete everyday text editing behavior.
 
 ## Existing behavior
 
@@ -40,7 +40,7 @@ This phase concerns editing plain text. Rich text formatting, syntax highlightin
 
 ## Architecture and data flow
 
-The CLI parses new menu and drop declarations into the `.tgp` document. The native host turns menu definitions into GPUI menu items, registers native drop handlers on eligible elements, and maps accessibility metadata into GPUI/AccessKit nodes. Menu and drop commands call the backend with typed event payloads. Text undo state remains in the native view model next to its existing caret and selection state.
+The CLI parses new menu and drop declarations into the `.rdx` document. The native host turns menu definitions into GPUI menu items, registers native drop handlers on eligible elements, and maps accessibility metadata into GPUI/AccessKit nodes. Menu and drop commands call the backend with typed event payloads. Text undo state remains in the native view model next to its existing caret and selection state.
 
 ## Failure handling and permissions
 

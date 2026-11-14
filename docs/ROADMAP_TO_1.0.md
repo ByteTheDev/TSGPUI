@@ -1,13 +1,13 @@
 # Roadmap to 1.0 (out of experimental)
 
-Tracking work to graduate TS-GPU from experimental. Each track is independently shippable.
+Tracking work to graduate Rendrix from experimental. Each track is independently shippable.
 Status is checked against the code and docs as of 2026-11-11.
 
 ## Native renderer strategy (decided 2026-11-11, superseded 2026-11-11)
 
 **Superseded by [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md):** Rendrix (winit + wgpu + taffy +
-cosmic-text, per [RENDERER_TSGPU.md](RENDERER_TSGPU.md)) is now the sole rendering engine; the
-WebView renderer was removed the same day; the GPUI host is deprecated and is removed at the
+cosmic-text, per [RENDERER_RENDRIX.md](RENDERER_RENDRIX.md)) is now the sole rendering engine; the
+WebView renderer was removed the same day; the legacy host is deprecated and is removed at the
 Rendrix M1 gate. The original decision is kept below as history:
 
 > GPUI stays. We do **not** build our own renderer or fork GPUI. The native path is treated as an
@@ -18,7 +18,7 @@ Rendrix M1 gate. The original decision is kept below as history:
 > taffy + accesskit" route only if GPUI upstream goes quiet — not before. The compiler's
 > renderer-agnostic IR is the asset; the renderer is a commodity.
 
-Standing item (recurring): track the Rendrix M1–M3 ladder in [RENDERER_TSGPU.md](RENDERER_TSGPU.md);
+Standing item (recurring): track the Rendrix M1–M3 ladder in [RENDERER_RENDRIX.md](RENDERER_RENDRIX.md);
 update Track 2/3 notes as it lands.
 
 - **2026-11-11 check:** Zed's `gpui` crate is still frozen at 0.2.2 (last publish 2025-10-22,
@@ -58,7 +58,7 @@ update Track 2/3 notes as it lands.
 - Remaining items that need GPUI/platform upgrades are documented with reasons in [ELECTRON_COMPAT_CLOSURE.md](ELECTRON_COMPAT_CLOSURE.md) section (b); permanently unsupported APIs with reasons in section (c).
 
 ## Track 7 — Signing & distribution — DONE (with a documented 1.x descope)
-- [x] Built-in cross-platform signing: `tsgpu sign` (Windows signtool auto-detect, macOS codesign/notarize, Linux gpg).
+- [x] Built-in cross-platform signing: `rendrix sign` (Windows signtool auto-detect, macOS codesign/notarize, Linux gpg).
 - [x] In-app update client: configured feed check, `update-available`/`update-not-available`/`update-downloaded` events, host-side download with SHA-256 verification into `userData/updates`, and a real install on `quitAndInstall` — the host renames the running executable to `<exe>.old`, copies the staged artifact over it, and relaunches when asked (`native/src/updater.rs`).
 - Descope decision (2026-11-11, same pattern as Tracks 2/3/5): `download-progress`, cancellation, retries, and signed update manifests are **1.x work**, not 1.0 gates. Reasons: the update artifact is already hash-verified end to end by the host, the swap is confined to `userData/updates`, and progress/cancel are UX polish rather than correctness. The descope is recorded in [ELECTRON_COMPAT_CLOSURE.md](ELECTRON_COMPAT_CLOSURE.md) and the coverage ledger.
 

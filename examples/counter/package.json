@@ -1,14 +1,14 @@
 {
-  "name": "tsgpu-counter-example",
+  "name": "rendrix-counter-example",
   "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsgpu build",
-    "dev": "tsgpu dev",
-    "compile": "tsgpu compile"
+    "build": "rendrix build",
+    "dev": "rendrix dev",
+    "compile": "rendrix compile"
   },
   "devDependencies": {
-    "@bytethedeveloper/tsgpu": "workspace:*"
+    "@bytethedeveloper/rendrix": "workspace:*"
   }
 }

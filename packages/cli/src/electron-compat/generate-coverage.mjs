@@ -8,10 +8,10 @@ export function coverageSource() {
   const lines = [
     '// Generated from packages/cli/src/electron-compat/coverage.mjs. Do not edit by hand.',
     '',
-    'const suffix = " (see TSGPU_IMPORT_REPORT.md for alternatives)";',
+    'const suffix = " (see RENDRIX_IMPORT_REPORT.md for alternatives)";',
     '',
     'function unsupportedModule(name: string, reason: string): any {',
-    '  const fail = (what: string): never => { throw new Error(`electron.${name}${what} is not supported by TS-GPU: ${reason}${suffix}`); };',
+    '  const fail = (what: string): never => { throw new Error(`electron.${name}${what} is not supported by Rendrix: ${reason}${suffix}`); };',
     '  const target = function () {};',
     '  return new Proxy(target, {',
     '    get(_target, property) { if (property === "then" || typeof property === "symbol") return undefined; return fail(`.${String(property)}`); },',

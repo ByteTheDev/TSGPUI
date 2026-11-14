@@ -5,7 +5,7 @@ import fs from './fs';
 import path from './path';
 import { info } from './os';
 
-// Partial shims for Electron APIs that TS-GPU cannot fully back with native chrome.
+// Partial shims for Electron APIs that Rendrix cannot fully back with native chrome.
 //
 // WebContentsView / webFrameMain / contentTracing are exposed so apps can import and
 // reference them without crashing at load time, but the underlying multi-view layout,
@@ -14,7 +14,7 @@ import { info } from './os';
 // anything that needs native view chrome or frame internals throws a clear error.
 
 function unsupported(api: string): never {
-  throw new Error(`${api} is not supported by TS-GPU`);
+  throw new Error(`${api} is not supported by Rendrix`);
 }
 
 function numberOr(value: any, fallback: number): number {
@@ -89,12 +89,12 @@ const frames = new Map<string, WebFrameMain>();
 function deliverToPage(channel: string, payload: any): void {
   const g: any = globalThis;
   try {
-    if (typeof g.__tsgpui_emit === 'function' && g.__tsgpui_window_id !== 0) {
-      g.__tsgpui_emit(channel, payload);
+    if (typeof g.__rendrix_emit === 'function' && g.__rendrix_window_id !== 0) {
+      g.__rendrix_emit(channel, payload);
       return;
     }
-    if (g.window && typeof g.window.__tsgpui_receive === 'function') {
-      g.window.__tsgpui_receive(channel, payload);
+    if (g.window && typeof g.window.__rendrix_receive === 'function') {
+      g.window.__rendrix_receive(channel, payload);
       return;
     }
     void host('window.send', {channel, payload}).catch((error: any) => {
@@ -157,7 +157,7 @@ export class WebFrameMain extends EventEmitter {
     try { return Promise.resolve((0, (globalThis as any).eval)(code)); } catch (error) { return Promise.reject(error); }
   }
   executeJavaScriptInIsolatedWorld(_worldId: number, _scripts: any[], _userGesture?: boolean): Promise<any> {
-    return Promise.reject(new Error('WebFrameMain.executeJavaScriptInIsolatedWorld is not supported by TS-GPU'));
+    return Promise.reject(new Error('WebFrameMain.executeJavaScriptInIsolatedWorld is not supported by Rendrix'));
   }
   collectJavaScriptCallStack(): never { return unsupported('WebFrameMain.collectJavaScriptCallStack'); }
   reload() { compatWarnings.push('WebFrameMain.reload is not supported and has no effect'); }
@@ -187,7 +187,7 @@ export const webFrameMain: any = Object.assign(
 
 // contentTracing: Chromium's tracing internals are not available. The shim records a Chrome
 // tracing-event JSON timeline of the recording window, which tools such as Perfetto or
-// chrome://tracing can open. It contains TS-GPU markers, not renderer/GPU thread events.
+// chrome://tracing can open. It contains Rendrix markers, not renderer/GPU thread events.
 const DEFAULT_CATEGORIES = ['*', 'blink', 'cc', 'gpu', 'netlog', 'renderer', 'toplevel', 'tracing', 'ui', 'v8', 'viz', 'views', 'webview'];
 let tracingRecording = false;
 let tracingStartedAt = 0;
@@ -214,7 +214,7 @@ export const contentTracing: any = {
     tracingCategories = Array.isArray(opts.categories) ? opts.categories.map(String) : [];
     tracingStartedAt = Date.now();
     tracingRecording = true;
-    compatWarnings.push('contentTracing records TS-GPU timing markers, not Chromium renderer or GPU events');
+    compatWarnings.push('contentTracing records Rendrix timing markers, not Chromium renderer or GPU events');
     return Promise.resolve();
   },
   async stopRecording(resultFilePath?: string): Promise<string> {
@@ -224,9 +224,9 @@ export const contentTracing: any = {
     const duration = Math.max(0, stoppedAt - tracingStartedAt);
     const target = traceFilePath(resultFilePath);
     const events: any[] = [
-      {name: 'process_name', cat: '__metadata', ph: 'M', pid: 1, tid: 1, ts: 0, args: {name: info.name || 'TS-GPU app'}},
+      {name: 'process_name', cat: '__metadata', ph: 'M', pid: 1, tid: 1, ts: 0, args: {name: info.name || 'Rendrix app'}},
       {
-        name: 'TS-GPU content trace', cat: 'tsgpu', ph: 'X', pid: 1, tid: 1,
+        name: 'Rendrix content trace', cat: 'rendrix', ph: 'X', pid: 1, tid: 1,
         ts: tracingStartedAt * 1000, dur: duration * 1000,
         args: {categories: tracingCategories, platform: info.platform || '', version: info.version || ''},
       },
@@ -234,7 +234,7 @@ export const contentTracing: any = {
     const payload = {
       traceEvents: events,
       displayTimeUnit: 'ms',
-      metadata: {source: 'tsgpu', categories: tracingCategories, startedAt: new Date(tracingStartedAt).toISOString(), stoppedAt: new Date(stoppedAt).toISOString()},
+      metadata: {source: 'rendrix', categories: tracingCategories, startedAt: new Date(tracingStartedAt).toISOString(), stoppedAt: new Date(stoppedAt).toISOString()},
     };
     try {
       await fs.promises.writeFile(target, JSON.stringify(payload));

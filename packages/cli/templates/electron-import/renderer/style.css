@@ -1,0 +1,8 @@
+body { background: #090b14; color: #f5f5fb; font-family: sans-serif; }
+main { display: flex; flex-direction: column; gap: 14px; padding: 32px; }
+h1 { font-size: 30px; }
+p { color: #adb7d2; }
+textarea { height: 220px; padding: 12px; border-radius: 10px; background: #222942; color: #f5f5fb; }
+.buttons { display: flex; flex-direction: row; gap: 12px; }
+button { padding: 12px; border-radius: 10px; background: #7288ff; color: #ffffff; font-weight: 700; }
+#status { color: #91a8ff; }

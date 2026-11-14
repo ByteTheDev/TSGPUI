@@ -6,8 +6,8 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
-// The compatibility runtime as the native (GPUI) backend runs it: `api.native` is the only host bridge,
-// and there is no `__tsgpui_host`. These tests check that the shims reach `api.native` with the
+// The compatibility runtime as the native (Rendrix) backend runs it: `api.native` is the only host bridge,
+// and there is no `__rendrix_host`. These tests check that the shims reach `api.native` with the
 // arguments it expects and read its results in the shapes the shims use.
 const dir = fileURLToPath(new URL('../src/electron-compat/runtime/', import.meta.url));
 
@@ -82,7 +82,7 @@ function fakeNative(files = new Map()) {
 
 // Loads the runtime modules the way the backend bundle does, with `api` as the only host bridge.
 function nativeRuntime(api) {
-  const context = vm.createContext({ console, Uint8Array, Promise, Map, setTimeout, __tsgpui_native: api });
+  const context = vm.createContext({ console, Uint8Array, Promise, Map, setTimeout, __rendrix_native: api });
   const cache = new Map();
   function load(name) {
     name = name.replace(/^\.\//, '').replace(/\.ts$/, '');
@@ -203,7 +203,7 @@ test('page messages and close listeners warn in the native renderer instead of f
 
 test('the WebView bridge keeps its object protocol when it is present', async () => {
   const seen = [];
-  const context = vm.createContext({ console, Promise, __tsgpui_host: async (op, args) => { seen.push([op, args]); return { ok: true }; }, __tsgpui_native: { app: {} } });
+  const context = vm.createContext({ console, Promise, __rendrix_host: async (op, args) => { seen.push([op, args]); return { ok: true }; }, __rendrix_native: { app: {} } });
   const mod = { exports: {} };
   const source = fs.readFileSync(path.join(dir, 'host.ts'), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;

@@ -1,5 +1,5 @@
 {
-  "name": "tsgpu-monorepo",
+  "name": "rendrix-monorepo",
   "private": true,
   "version": "0.4.0",
   "type": "module",
@@ -8,12 +8,12 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "node packages/cli/bin/tsgpu.mjs build --project examples/counter",
-    "dev": "node packages/cli/bin/tsgpu.mjs dev --project examples/counter",
-    "compile": "node packages/cli/bin/tsgpu.mjs compile --project examples/counter",
-    "host": "node packages/cli/bin/tsgpu.mjs host build",
-    "doctor": "node packages/cli/bin/tsgpu.mjs doctor",
-    "tsgpu": "node packages/cli/bin/tsgpu.mjs",
+    "build": "node packages/cli/bin/rendrix.mjs build --project examples/counter",
+    "dev": "node packages/cli/bin/rendrix.mjs dev --project examples/counter",
+    "compile": "node packages/cli/bin/rendrix.mjs compile --project examples/counter",
+    "host": "node packages/cli/bin/rendrix.mjs host build",
+    "doctor": "node packages/cli/bin/rendrix.mjs doctor",
+    "rendrix": "node packages/cli/bin/rendrix.mjs",
     "test": "node --test packages/cli/test/*.test.mjs",
     "typecheck": "tsc --noEmit -p examples/counter/tsconfig.json"
   },

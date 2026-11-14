@@ -661,12 +661,12 @@ impl AppView {
             Value::String(value.clone())
         };
         if let Some(binding) = &field.binding {
-            if let Err(error) = self.backend.set_state(binding, state_value.clone()) { eprintln!("TSGPUI: {error}"); }
+            if let Err(error) = self.backend.set_state(binding, state_value.clone()) { eprintln!("Rendrix: {error}"); }
         } else {
             self.local_values.insert(field.node_key, state_value.clone());
         }
         if let Some(action) = &field.action {
-            if let Err(error) = self.backend.invoke_with_event(action, serde_json::json!({"type":"input","value":state_value,"name":field.input_name})) { eprintln!("TSGPUI: {error}"); }
+            if let Err(error) = self.backend.invoke_with_event(action, serde_json::json!({"type":"input","value":state_value,"name":field.input_name})) { eprintln!("Rendrix: {error}"); }
         }
     }
 

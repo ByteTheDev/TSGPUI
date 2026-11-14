@@ -10,9 +10,9 @@ import {importElectron} from '../src/import-electron.mjs';
 import {buildPackage} from '../src/compiler.mjs';
 import {bundleBackend} from '../src/backend.mjs';
 
-const cli=fileURLToPath(new URL('../bin/tsgpu.mjs',import.meta.url));
+const cli=fileURLToPath(new URL('../bin/rendrix.mjs',import.meta.url));
 test('bundles a pure JavaScript package with transitive CommonJS and JSON dependencies', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-package-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-package-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out'), pkg=path.join(app,'node_modules','example-package');
   await mkdir(pkg,{recursive:true}); await mkdir(path.join(app,'dist'));
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'app',main:'main.js'}));
@@ -26,7 +26,7 @@ test('bundles a pure JavaScript package with transitive CommonJS and JSON depend
   vm.runInContext(bundle.backend_js,context); assert.equal(context.packageResult,'hello world');
 });
 test('rejects native addons and dynamic package loaders with a named diagnostic', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-native-addon-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-native-addon-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), pkg=path.join(app,'node_modules','native-example');
   await mkdir(pkg,{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({main:'main.js'}));
@@ -38,13 +38,13 @@ test('rejects native addons and dynamic package loaders with a named diagnostic'
   await assert.rejects(importElectron(app,{out:path.join(tmp,'out')}), /Dynamic require.*native-example/);
 });
 test('backend bundling identifies direct native addon imports', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-backend-native-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-backend-native-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const entry=path.join(tmp,'backend.ts');
   await writeFile(entry,`import addon from './native.node'; export default {state:{},actions:{}};`);
   await assert.rejects(bundleBackend(entry,tmp,async()=>{}), /Native addon '\.\/native\.node'/);
 });
 test('imported CommonJS modules preserve callable and object module.exports values', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-cjs-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-cjs-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'example',version:'1.0.0',main:'main.js'}));
@@ -59,7 +59,7 @@ test('imported CommonJS modules preserve callable and object module.exports valu
   assert.deepEqual(Array.from(context.__result),['OK',42,'ordinary property']);
 });
 test('Electron subpath imports resolve to the compatibility runtime', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-subpaths-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-subpaths-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'example',version:'1.0.0',main:'main.js'}));
@@ -68,11 +68,11 @@ test('Electron subpath imports resolve to the compatibility runtime', async t =>
   const {report}=await importElectron(app,{out});
   assert.doesNotMatch(report,/Unsupported module (?:electron\/main|electron\/renderer|node:electron)/);
   const main=await readFile(path.join(out,'src/main/main.ts'),'utf8');
-  assert.equal((main.match(/tsgpu-runtime\/electron/g) || []).length, 3);
+  assert.equal((main.match(/rendrix-runtime\/electron/g) || []).length, 3);
   await buildPackage(out);
 });
 test('build detects an Electron project in the working directory without a migrate command', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-auto-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-auto-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   await mkdir(path.join(tmp,'dist'));
   await writeFile(path.join(tmp,'package.json'),JSON.stringify({name:'example',version:'1.0.0',main:'main.js'}));
   await writeFile(path.join(tmp,'main.js'),"const {BrowserWindow} = require('electron'); const win = new BrowserWindow(); win.loadFile('dist/index.html');");
@@ -82,12 +82,12 @@ test('build detects an Electron project in the working directory without a migra
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/Electron compatibility is incomplete/);
   assert.match(result.stdout,/example-win32-x64\.exe/);
-  await assert.rejects(readFile(path.join(tmp,'tsgpu.config.json')),{code:'ENOENT'});
+  await assert.rejects(readFile(path.join(tmp,'rendrix.config.json')),{code:'ENOENT'});
   const help=spawnSync(process.execPath,[cli,'--help'],{encoding:'utf8'});
   assert.doesNotMatch(help.stdout,/^\s*migrate\b/m);
 });
 test('imports Electron configuration, modules and permissions, with a review report', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), output=path.join(tmp,'converted');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'sample-app',productName:'Sample App',version:'2.3.4',main:'main.js',build:{appId:'test.app'},config:{forge:{}}}));
@@ -95,30 +95,30 @@ test('imports Electron configuration, modules and permissions, with a review rep
   await writeFile(path.join(app,'dist','index.html'),'<html><head></head><body>Hello</body></html>');
   const result=spawnSync(process.execPath,[cli,'import','electron',app,'--out',output],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);
-  const config=JSON.parse(await readFile(path.join(output,'tsgpu.config.json'),'utf8'));
+  const config=JSON.parse(await readFile(path.join(output,'rendrix.config.json'),'utf8'));
   assert.ok(config.renderer === undefined || config.renderer === 'rendrix');
   assert.equal(config.name,'sample-app'); assert.equal(config.version,'2.3.4'); assert.equal(config.title,'Hello');
   assert.deepEqual(config.window,{width:800,height:650});
   assert.deepEqual(config.permissions.filesystem,{read:['./data'],write:['./data']});
   assert.deepEqual(config.permissions.processes,['git']); assert.deepEqual(config.permissions.network,['api.example.com','example.com']); assert.equal(config.permissions.ipc,true);
   const main=await readFile(path.join(output,'src/main/main.ts'),'utf8');
-  assert.match(main,/import \* as __tsgpui_import_0 from "\.\.\/tsgpu-runtime\/electron"/);
+  assert.match(main,/import \* as __rendrix_import_0 from "\.\.\/rendrix-runtime\/electron"/);
   assert.doesNotMatch(main,/require\(/);
-  assert.match(main,/tsgpu-runtime\/https/);
-  const report=await readFile(path.join(output,'TSGPU_IMPORT_REPORT.md'),'utf8');
-  assert.match(report,/main\.js:4: Unsupported module unsupported-package/); assert.match(report,/node:fs/); assert.match(report,/tsgpu build/);
+  assert.match(main,/rendrix-runtime\/https/);
+  const report=await readFile(path.join(output,'RENDRIX_IMPORT_REPORT.md'),'utf8');
+  assert.match(report,/main\.js:4: Unsupported module unsupported-package/); assert.match(report,/node:fs/); assert.match(report,/rendrix build/);
   await assert.rejects(importElectron(app,{out:output}),/already exists/);
 });
 
 test('missing renderer gives build guidance and does not create output', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   await writeFile(path.join(tmp,'package.json'),JSON.stringify({main:'main.js'}));
   await writeFile(path.join(tmp,'main.js'),"win.loadFile('dist/index.html');");
   await assert.rejects(importElectron(tmp,{out:tmp+'-output'}),/build.*--build/i);
 });
 
 test('a simple imported project compiles with the available compatibility runtime', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'example',version:'1.0.0',main:'main.js'}));
@@ -130,7 +130,7 @@ test('a simple imported project compiles with the available compatibility runtim
 });
 
 test('uses and reports linked renderer stylesheets', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-css-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-css-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist','css'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({main:'main.js'}));
@@ -146,7 +146,7 @@ test('uses and reports linked renderer stylesheets', async t => {
 });
 
 test('uses an explained empty placeholder when no stylesheet is linked', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-css-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-css-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), out=path.join(tmp,'out');
   await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({main:'main.js'}));
@@ -158,7 +158,7 @@ test('uses an explained empty placeholder when no stylesheet is linked', async t
 });
 
 test('main-process modules get per-module __dirname and __filename', async t => {
-  const tmp=await mkdtemp(path.join(os.tmpdir(),'tsgpui-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
+  const tmp=await mkdtemp(path.join(os.tmpdir(),'rendrix-electron-')); t.after(()=>rm(tmp,{recursive:true,force:true}));
   const app=path.join(tmp,'app'), output=path.join(tmp,'converted');
   await mkdir(path.join(app,'electron'),{recursive:true}); await mkdir(path.join(app,'dist'),{recursive:true});
   await writeFile(path.join(app,'package.json'),JSON.stringify({name:'dirname-app',main:'electron/main.js'}));
@@ -172,4 +172,69 @@ test('main-process modules get per-module __dirname and __filename', async t => 
   assert.match(main,/const __filename = "\/electron\/main\.js";/);
   const util=await readFile(path.join(output,'src/main/electron/util.ts'),'utf8');
   assert.doesNotMatch(util,/__dirname|__filename/);
+});
+
+// Real apps rarely call loadFile with a literal. These are the shapes found in open-source Electron samples.
+async function importFixture(t, mainSource, files = {'index.html': '<html><body>Hi</body></html>'}) {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'rendrix-import-shape-'));
+  t.after(() => rm(tmp, {recursive: true, force: true}));
+  const app = path.join(tmp, 'app'), out = path.join(tmp, 'out');
+  await mkdir(app, {recursive: true});
+  await writeFile(path.join(app, 'package.json'), JSON.stringify({name: 'shape-app', main: 'main.js'}));
+  await writeFile(path.join(app, 'main.js'), mainSource);
+  for (const [name, text] of Object.entries(files)) await writeFile(path.join(app, name), text);
+  return {result: spawnSync(process.execPath, [cli, 'import', 'electron', app, '--out', out], {encoding: 'utf8'}), out};
+}
+
+test('loadURL with "file://" + __dirname + a page finds the renderer', async t => {
+  const {result, out} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+win.loadURL('file://' + __dirname + '/index.html');
+`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(await readFile(path.join(out, 'RENDRIX_IMPORT_REPORT.md'), 'utf8'), /Electron import report/);
+});
+
+test('loadURL with a template literal or a const URL finds the renderer', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+const target = \`file://\${__dirname}/index.html\`;
+win.loadURL(target);
+`);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('loadURL with url.format({protocol: "file:", pathname}) finds the renderer', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const path = require('path');
+const url = require('url');
+const win = new BrowserWindow({});
+win.loadURL(url.format({ pathname: path.join(__dirname, 'index.html'), protocol: 'file:', slashes: true }));
+`);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('an app that only loads a remote site is refused with an explanation, not a build hint', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+const url = 'https://example.com/app';
+win.loadURL(url);
+`, {});
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /only loads remote page.*https:\/\/example\.com\/app.*no web view/);
+  assert.doesNotMatch(result.stderr, /No built renderer entry/);
+});
+
+test('app calls the runtime shim implements are not flagged for review, unknown ones still are', async t => {
+  const {result, out} = await importFixture(t, `const { app, BrowserWindow } = require('electron');
+app.setName('Demo');
+app.once('ready', () => {});
+if (!app.requestSingleInstanceLock()) app.quit();
+app.setAppUserModelId('x');
+new BrowserWindow({}).loadFile('index.html');
+`);
+  assert.equal(result.status, 0, result.stderr);
+  const report = await readFile(path.join(out, 'RENDRIX_IMPORT_REPORT.md'), 'utf8');
+  assert.doesNotMatch(report, /potentially unsupported API app\.(setName|once|requestSingleInstanceLock)/);
+  assert.match(report, /potentially unsupported API app\.setAppUserModelId/);
 });

@@ -1175,7 +1175,7 @@ mod linux {
             return Ok(());
         }
         let child = Command::new("systemd-inhibit")
-            .args(["--what=sleep:idle", "--who=TSGPUI", "--why=power blocker", "tail", "-f", "/dev/null"])
+            .args(["--what=sleep:idle", "--who=Rendrix", "--why=power blocker", "tail", "-f", "/dev/null"])
             .spawn()
             .map_err(|e| e.to_string())?;
         *power_child().lock().unwrap_or_else(|e| e.into_inner()) = Some(child);

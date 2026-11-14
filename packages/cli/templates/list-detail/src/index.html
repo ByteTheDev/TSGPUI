@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <body>
+    <main class="shell">
+      <aside class="list">
+        <use component="SearchField" placeholder="Search tasks" aria-label="Search tasks" data-bind="query" data-oninput="search" />
+        <p class="count">{{shown}} of {{total}} tasks</p>
+        <div class="items">
+          <div class="item" data-repeat="visible as task">
+            <span class="marker">{{task.marker}}</span>
+            <span class="item-title">{{task.title}}</span>
+            <span class="item-meta">{{task.meta}}</span>
+          </div>
+        </div>
+        <div class="buttons">
+          <button class="ghost" data-onclick="previous">↑ Previous</button>
+          <button class="ghost" data-onclick="next">↓ Next</button>
+        </div>
+      </aside>
+
+      <section class="detail">
+        <h1>{{selected.title}}</h1>
+        <p class="meta">{{selected.meta}}</p>
+        <p class="body">{{selected.body}}</p>
+        <div class="buttons">
+          <button class="primary" data-onclick="toggleDone">{{selected.action}}</button>
+          <button class="ghost" data-onclick="remove">Delete</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

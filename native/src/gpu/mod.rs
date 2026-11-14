@@ -1,5 +1,5 @@
-//! The tsgpu renderer: our own GPU renderer for the compiled document IR.
-//! See RENDERER_TSGPU.md for the architecture, module ownership and milestones.
+//! The rendrix renderer: our own GPU renderer for the compiled document IR.
+//! See RENDERER_RENDRIX.md for the architecture, module ownership and milestones.
 
 pub mod types;
 pub mod surface;

@@ -1,0 +1,9 @@
+{
+  "name": "rendrix-form",
+  "title": "Rendrix • Form",
+  "window": {"width": 720, "height": 760},
+  "html": "src/index.html",
+  "css": "src/styles.css",
+  "backend": "src/backend.ts",
+  "outDir": "dist"
+}

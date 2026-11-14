@@ -1,4 +1,4 @@
-// In-app update staging and install for packaged TSGPUI apps.
+// In-app update staging and install for packaged Rendrix apps.
 //
 // Page flow: the TS `autoUpdater` shim reads a JSON feed (`{version, url, sha256?}`), compares
 // versions, then calls `updater.download` with the artifact URL. The host streams the artifact
@@ -174,7 +174,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tsgpui-updater-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rendrix-updater-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
