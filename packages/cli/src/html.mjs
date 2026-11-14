@@ -162,12 +162,26 @@ function checkNode(node, parent, inComponent) {
   }
 }
 
+// Errors carry the 1-based line and column of the tag that caused them, so the compiler can print file:line:col.
+function locate(source, offset) {
+  const before = source.slice(0, offset);
+  const line = before.split('\n').length;
+  return { line, column: offset - (before.lastIndexOf('\n') + 1) + 1 };
+}
+function withLocation(error, where) {
+  if (error && error.line === undefined && where) { error.line = where.line; error.column = where.column; }
+  return error;
+}
+
 function parseDocument(source, library) {
   let index = 0;
+  let tagStart = 0;
   let serial = 0;
   const document = { tag: '#document', key: serial++, attrs: {}, children: [] };
   const stack = [document];
+  try {
   while (index < source.length) {
+    tagStart = index;
     const rest = source.slice(index);
     if (rest.startsWith('<!--')) {
       const close = source.indexOf('-->', index + 4);
@@ -194,7 +208,7 @@ function parseDocument(source, library) {
       const selfClosing = token[0].endsWith('/>');
       if (selfClosing && !VOID_TAGS.has(tag)) throw new Error(`Self-closing <${tag}/> is not supported`);
       const attrsText = token[0].slice(tagMatch[0].length, selfClosing ? -2 : -1);
-      const node = { tag, key: serial++, attrs: readAttributes(attrsText), children: [] };
+      const node = { tag, key: serial++, attrs: readAttributes(attrsText), children: [], ...locate(source, tagStart) };
       stack.at(-1).children.push(node);
       if (!selfClosing && !(VOID_TAGS.has(tag) && tag !== 'use')) stack.push(node);
       continue;
@@ -205,7 +219,8 @@ function parseDocument(source, library) {
     const text = decodeEntities(raw.replace(/\s+/g, ' ').trim());
     if (text) stack.at(-1).children.push({ tag: '#text', key: serial++, text, attrs: {}, children: [] });
   }
-  if (stack.length !== 1) throw new Error(`Unclosed HTML element <${stack.at(-1).tag}>`);
+  } catch (error) { throw withLocation(error, locate(source, tagStart)); }
+  if (stack.length !== 1) throw withLocation(new Error(`Unclosed HTML element <${stack.at(-1).tag}>`), stack.at(-1));
   if (document.children.length !== 1) throw new Error('HTML must have one root element');
   let root = document.children[0];
   if (root.tag === 'html') {
@@ -217,10 +232,10 @@ function parseDocument(source, library) {
   const ids = new Set();
   const visit = (node, parent = null, inComponent = false) => {
     if (node.attrs.id) {
-      if (ids.has(node.attrs.id)) throw new Error(`Duplicate HTML id: ${node.attrs.id}`);
+      if (ids.has(node.attrs.id)) throw withLocation(new Error(`Duplicate HTML id: ${node.attrs.id}`), node);
       ids.add(node.attrs.id);
     }
-    checkNode(node, parent, inComponent);
+    try { checkNode(node, parent, inComponent); } catch (error) { throw withLocation(error, node); }
     const childInComponent = inComponent || (node.tag === 'template' && node.attrs['data-component'] !== undefined);
     for (const child of node.children) visit(child, node, childInComponent);
   };
@@ -229,7 +244,7 @@ function parseDocument(source, library) {
   const collect = node => {
     if (node.tag === 'template' && node.attrs['data-component']) {
       const name = node.attrs['data-component'];
-      if (!ACTION_RE.test(name) || components.has(name)) throw new Error(`Invalid or duplicate component '${name}'`);
+      if (!ACTION_RE.test(name) || components.has(name)) throw withLocation(new Error(`Invalid or duplicate component '${name}'`), node);
       components.add(name);
     }
     for (const child of node.children) collect(child);
@@ -237,7 +252,7 @@ function parseDocument(source, library) {
   collect(root);
   const checkUses = node => {
     if (node.tag === 'use' && !components.has(node.attrs.component) && !library.has(node.attrs.component)) {
-      throw new Error(`Unknown component '${node.attrs.component}'`);
+      throw withLocation(new Error(`Unknown component '${node.attrs.component}'`), node);
     }
     for (const child of node.children) checkUses(child);
   };

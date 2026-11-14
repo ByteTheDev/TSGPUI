@@ -173,3 +173,68 @@ test('main-process modules get per-module __dirname and __filename', async t => 
   const util=await readFile(path.join(output,'src/main/electron/util.ts'),'utf8');
   assert.doesNotMatch(util,/__dirname|__filename/);
 });
+
+// Real apps rarely call loadFile with a literal. These are the shapes found in open-source Electron samples.
+async function importFixture(t, mainSource, files = {'index.html': '<html><body>Hi</body></html>'}) {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpu-import-shape-'));
+  t.after(() => rm(tmp, {recursive: true, force: true}));
+  const app = path.join(tmp, 'app'), out = path.join(tmp, 'out');
+  await mkdir(app, {recursive: true});
+  await writeFile(path.join(app, 'package.json'), JSON.stringify({name: 'shape-app', main: 'main.js'}));
+  await writeFile(path.join(app, 'main.js'), mainSource);
+  for (const [name, text] of Object.entries(files)) await writeFile(path.join(app, name), text);
+  return {result: spawnSync(process.execPath, [cli, 'import', 'electron', app, '--out', out], {encoding: 'utf8'}), out};
+}
+
+test('loadURL with "file://" + __dirname + a page finds the renderer', async t => {
+  const {result, out} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+win.loadURL('file://' + __dirname + '/index.html');
+`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(await readFile(path.join(out, 'TSGPU_IMPORT_REPORT.md'), 'utf8'), /Electron import report/);
+});
+
+test('loadURL with a template literal or a const URL finds the renderer', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+const target = \`file://\${__dirname}/index.html\`;
+win.loadURL(target);
+`);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('loadURL with url.format({protocol: "file:", pathname}) finds the renderer', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const path = require('path');
+const url = require('url');
+const win = new BrowserWindow({});
+win.loadURL(url.format({ pathname: path.join(__dirname, 'index.html'), protocol: 'file:', slashes: true }));
+`);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('an app that only loads a remote site is refused with an explanation, not a build hint', async t => {
+  const {result} = await importFixture(t, `const { BrowserWindow } = require('electron');
+const win = new BrowserWindow({});
+const url = 'https://example.com/app';
+win.loadURL(url);
+`, {});
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /only loads remote page.*https:\/\/example\.com\/app.*no web view/);
+  assert.doesNotMatch(result.stderr, /No built renderer entry/);
+});
+
+test('app calls the runtime shim implements are not flagged for review, unknown ones still are', async t => {
+  const {result, out} = await importFixture(t, `const { app, BrowserWindow } = require('electron');
+app.setName('Demo');
+app.once('ready', () => {});
+if (!app.requestSingleInstanceLock()) app.quit();
+app.setAppUserModelId('x');
+new BrowserWindow({}).loadFile('index.html');
+`);
+  assert.equal(result.status, 0, result.stderr);
+  const report = await readFile(path.join(out, 'TSGPU_IMPORT_REPORT.md'), 'utf8');
+  assert.doesNotMatch(report, /potentially unsupported API app\.(setName|once|requestSingleInstanceLock)/);
+  assert.match(report, /potentially unsupported API app\.setAppUserModelId/);
+});

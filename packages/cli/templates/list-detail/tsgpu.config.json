@@ -1,0 +1,9 @@
+{
+  "name": "tsgpu-list-detail",
+  "title": "TS-GPU • List / Detail",
+  "window": {"width": 900, "height": 600},
+  "html": "src/index.html",
+  "css": "src/styles.css",
+  "backend": "src/backend.ts",
+  "outDir": "dist"
+}

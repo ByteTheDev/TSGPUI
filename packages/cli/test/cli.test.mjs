@@ -197,3 +197,72 @@ test('release manifest is deterministic and hashes artifact files', () => {
     assert.equal(manifest.files[0].sha256,createHash('sha256').update('A').digest('hex'));
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('init --list-templates names every starter', () => {
+  const result = tsgpu(['init', '--list-templates']);
+  assert.equal(result.status, 0, result.stderr);
+  for (const name of ['counter', 'form', 'list-detail', 'electron-import']) assert.match(result.stdout, new RegExp(String.raw`^\s+${name}\s`, 'm'));
+});
+
+test('init rejects an unknown template and lists the valid ones', () => {
+  const result = tsgpu(['init', path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-')), 'x'), '--template', 'nope']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown template 'nope'.*counter, form, list-detail, electron-import/);
+});
+
+for (const template of ['counter', 'form', 'list-detail']) {
+  test(`init --template ${template} creates a project that compiles`, () => {
+    const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-')), `my-${template}`);
+    // The template may come before or after the folder.
+    const created = tsgpu(['init', '--template', template, dir]);
+    assert.equal(created.status, 0, created.stderr);
+    const config = JSON.parse(fs.readFileSync(path.join(dir, 'tsgpu.config.json'), 'utf8'));
+    assert.equal(config.name, `my-${template}`);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).scripts.dev, 'tsgpu dev');
+    const compiled = tsgpu(['compile', '--project', dir]);
+    assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
+    assert.ok(fs.existsSync(path.join(dir, 'dist', `my-${template}.tgp`)));
+  });
+}
+
+test('init --template electron-import creates an Electron app that the importer converts and compiles', () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-'));
+  const dir = path.join(parent, 'demo');
+  const created = tsgpu(['init', dir, '--template', 'electron-import']);
+  assert.equal(created.status, 0, created.stderr);
+  assert.ok(fs.existsSync(path.join(dir, 'electron/main.js')));
+  assert.equal(fs.existsSync(path.join(dir, 'tsgpu.config.json')), false, 'an Electron template has no TS-GPU config');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'demo');
+  const out = path.join(parent, 'out');
+  const imported = tsgpu(['import', 'electron', dir, '--out', out]);
+  assert.equal(imported.status, 0, imported.stdout + imported.stderr);
+  assert.ok(fs.existsSync(path.join(out, 'TSGPU_IMPORT_REPORT.md')));
+  const compiled = tsgpu(['compile', '--project', out]);
+  assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
+});
+
+test('compile errors name the file, line and column', () => {
+  const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-errs-')), 'app');
+  assert.equal(tsgpu(['init', dir]).status, 0);
+  const edit = (file, change) => {
+    const target = path.join(dir, file);
+    const original = fs.readFileSync(target, 'utf8');
+    fs.writeFileSync(target, change(original));
+    const result = tsgpu(['compile', '--project', dir]);
+    fs.writeFileSync(target, original);
+    assert.notEqual(result.status, 0, `${file} should fail to compile`);
+    return result.stderr;
+  };
+  // HTML: an unsupported element on a known line (the counter template's first <button> is on line 15).
+  const html = fs.readFileSync(path.join(dir, 'src/index.html'), 'utf8');
+  const buttonLine = html.slice(0, html.indexOf('<button')).split('\n').length;
+  assert.match(edit('src/index.html', text => text.replace('<button', '<video></video><button')), new RegExp(String.raw`src/index\.html:${buttonLine}:\d+: Unsupported HTML element <video>`));
+  assert.match(edit('src/index.html', text => text.replace('<button', '<button onclick="x()"')), new RegExp(String.raw`src/index\.html:${buttonLine}:\d+: Unsupported HTML attribute 'onclick'`));
+  assert.match(edit('src/index.html', text => text.replace('</main>', '</section></main>')), /src\/index\.html:\d+:\d+: Unexpected closing tag <\/section>/);
+  // CSS: a syntax error reports its own line, not "<css input>".
+  const css = edit('src/styles.css', text => `${text}\n.broken { color: red;\n`);
+  assert.match(css, /src\/styles\.css:\d+:\d+: Unclosed block/);
+  assert.doesNotMatch(css, /css input/);
+  // Backend: TypeScript already reported file:line:col.
+  assert.match(edit('src/backend.ts', text => `${text}\nconst x = ;\n`), /src[\\/]backend\.ts:\d+:\d+: /);
+});

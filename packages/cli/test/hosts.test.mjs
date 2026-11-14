@@ -190,3 +190,20 @@ test('doctor flags a cached host whose bytes no longer match the recorded hash',
 test('source stamps are keyed by the new renderer names', () => {
   assert.notEqual(sourceStamp(path.resolve(cliRoot, '../../native'), 'rendrix'), sourceStamp(path.resolve(cliRoot, '../../native'), 'native'));
 });
+
+test('doctor checks the release manifest, and --online probes the asset URL', async () => {
+  const data = Buffer.from('rendrix host bytes');
+  await withRelease({files: {[assetName('rendrix', target)]: data}, manifestHosts: [entry('rendrix', data)]}, async ({env}) => {
+    const result = await run(['doctor', '--renderer', 'rendrix', '--online'], env);
+    assert.match(result.stdout, new RegExp(`manifest ${version.replace(/\./g, '\.')} .* lists ${assetName('rendrix', target).replace(/\./g, '\.')}`));
+    assert.match(result.stdout, /download reachable/);
+  });
+  // The manifest lists the host but the release is missing the file: --online fails and exits non-zero.
+  await withRelease({files: {}, manifestHosts: [entry('rendrix', data)]}, async ({env}) => {
+    const offline = await run(['doctor', '--renderer', 'rendrix'], env);
+    assert.doesNotMatch(offline.stdout, /\[fail\]/);
+    const online = await run(['doctor', '--renderer', 'rendrix', '--online'], env);
+    assert.equal(online.status, 1, online.stdout);
+    assert.match(online.stdout, /download answered HTTP 404/);
+  });
+});

@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
-import {existsSync, statSync} from 'node:fs';
+import {existsSync, readFileSync, statSync} from 'node:fs';
 import {readFile, writeFile, mkdir, cp, stat, readdir, realpath} from 'node:fs/promises';
 import {bundleBackend} from './backend.mjs';
 import {statusOf} from './electron-compat/coverage.mjs';
@@ -12,6 +12,30 @@ const ELECTRON_SPECS = new Set(['electron','electron/main','electron/renderer','
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = [path.join(moduleDir, 'electron-compat', 'runtime'), path.join(moduleDir, '..', 'src', 'electron-compat', 'runtime')].find(existsSync) || path.join(moduleDir, 'electron-compat', 'runtime');
+
+// Which `app.X(...)` calls the runtime shim really has, read from its App class so this list cannot drift.
+const EVENT_EMITTER_METHODS = ['on', 'once', 'off', 'addListener', 'removeListener', 'removeAllListeners', 'emit', 'listenerCount'];
+let appMethodsCache;
+function appMethods() {
+  if (appMethodsCache) return appMethodsCache;
+  appMethodsCache = new Set(EVENT_EMITTER_METHODS);
+  try {
+    const source = readFileSync(path.join(runtimeDir, 'electron.ts'), 'utf8').replace(/\r\n/g, '\n');
+    const start = source.indexOf('class App extends EventEmitter {');
+    const end = start < 0 ? -1 : source.indexOf('\n}\n', start);
+    if (start >= 0 && end > start) {
+      for (const match of source.slice(start, end).matchAll(/^  (?:async )?([A-Za-z]\w*)\(/gm)) if (match[1] !== 'constructor') appMethodsCache.add(match[1]);
+    }
+  } catch (_error) { /* with no readable runtime only the event methods are known, so other app.* calls are reviewed */ }
+  return appMethodsCache;
+}
+const OTHER_KNOWN_CALLS = /^(?:dialog\.(?:showOpenDialog|showSaveDialog|showMessageBox)|shell\.openExternal|clipboard\.(?:readText|writeText)|BrowserWindow\.(?:getAllWindows|fromWebContents)|Notification\.isSupported)$/;
+function isKnownCall(expr) {
+  // Promise chaining on the result does not change which API was called.
+  const call = expr.replace(/(?:\s*\(\)\s*\.\s*(?:then|catch|finally))+\s*$/, '').trim();
+  const app = /^app\.(\w+)$/.exec(call);
+  return app ? appMethods().has(app[1]) : OTHER_KNOWN_CALLS.test(call);
+}
 const builtins = new Map(['electron','fs','fs/promises','path','os','events','child_process','process','https'].flatMap(n => [[n,n === 'fs/promises' ? 'fs' : n],['node:'+n,n === 'fs/promises' ? 'fs' : n]]));
 for (const spec of ELECTRON_SPECS) builtins.set(spec, 'electron');
 const slash = p => p.replaceAll('\\','/');
@@ -226,6 +250,7 @@ export async function importElectron(input, {out, build = false, force = false} 
   let renderer, width=900, height=600, title, titleBarStyle;
   let contextIsolation, nodeIntegration, webviewSandbox;
   const renderers = new Set();
+  const remotePages = new Set(); // http(s) pages the app loads: there is no web view, so they cannot be imported
   const windowPreloads = new Map(), rendererWindows = new Map();
   function addRenderer(file) { renderers.add(file); if (!renderer) renderer = file; }
   const sourceDir = path.join(dest,'src'), mainDir = path.join(sourceDir,'main');
@@ -280,6 +305,46 @@ export async function importElectron(input, {out, build = false, force = false} 
       if(ts.isCallExpression(n) && /^(?:path\.)?(?:join|resolve)$/.test(n.expression.getText(ast))) {
         const parts=n.arguments.map(staticPath); if(parts.every(p=>p !== undefined)) return path.resolve(path.dirname(file),...parts);
       }
+    };
+    // A string built from literals, __dirname, `+` and template spans, such as 'file://' + __dirname + '/index.html'.
+    const staticString = n => {
+      if(!n) return undefined;
+      const v=literal(n); if(v !== undefined) return v;
+      if(ts.isIdentifier(n) && n.text==='__dirname') return path.dirname(file);
+      if(ts.isIdentifier(n)) { // a const declared in this file: const url = '...'
+        let found;
+        (function find(node) {
+          if(found) return;
+          if(ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text===n.text && node.initializer && node.parent.flags & ts.NodeFlags.Const) { found=node.initializer; return; }
+          ts.forEachChild(node,find);
+        })(ast);
+        return found && found !== n ? staticString(found) : undefined;
+      }
+      if(ts.isParenthesizedExpression(n)) return staticString(n.expression);
+      if(ts.isBinaryExpression(n) && n.operatorToken.kind===ts.SyntaxKind.PlusToken) {
+        const a=staticString(n.left), b=staticString(n.right);
+        return a !== undefined && b !== undefined ? a+b : undefined;
+      }
+      if(ts.isTemplateExpression(n)) {
+        let out=n.head.text;
+        for(const span of n.templateSpans) { const part=staticString(span.expression); if(part === undefined) return undefined; out+=part+span.literal.text; }
+        return out;
+      }
+      return staticPath(n);
+    };
+    // The local file a loadURL argument points at, when it can be worked out statically: a file: URL built by
+    // concatenation or a template, or url.format({protocol: 'file:', pathname}).
+    const staticFileUrl = n => {
+      if(!n) return undefined;
+      if(ts.isCallExpression(n) && /(?:^|\.)format$/.test(n.expression.getText(ast)) && n.arguments[0] && ts.isObjectLiteralExpression(n.arguments[0])) {
+        const props=n.arguments[0].properties.filter(ts.isPropertyAssignment);
+        const get=key => props.find(p=>p.name.getText(ast).replace(/^['"]|['"]$/g,'')===key)?.initializer;
+        const protocol=get('protocol') && literal(get('protocol'));
+        const pathname=staticString(get('pathname'));
+        return /^file:?$/.test(protocol ?? '') && pathname ? path.resolve(path.dirname(file),pathname) : undefined;
+      }
+      const text=staticString(n);
+      return text?.startsWith('file://') ? path.resolve(text.slice('file://'.length).replace(/^\/(?=[A-Za-z]:)/,'')) : undefined;
     };
     for (const d of ast.parseDiagnostics) warn(file,ast,ast,`Parse error: ${ts.flattenDiagnosticMessageText(d.messageText,' ')}`);
     function scan(node) {
@@ -384,7 +449,7 @@ export async function importElectron(input, {out, build = false, force = false} 
       if (ts.isCallExpression(node)) {
         const expr=node.expression.getText(ast), arg=literal(node.arguments[0]);
         if (/\.loadFile$/.test(expr)) { const value=node.arguments[0] && staticPath(node.arguments[0]); if(value) { const page=path.resolve(root,value); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); } } else warn(file,node,ast,'Dynamic loadFile target requires manual migration'); }
-        if (/\.loadURL$/.test(expr)) { if(arg?.startsWith('file:')) { try {const page=fileURLToPath(arg); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); }} catch {warn(file,node,ast,'Invalid loadURL file target');} } else if (arg && /^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^(?:https?|data|blob|javascript|mailto|tel):/i.test(arg)) { const scheme = arg.slice(0, arg.indexOf(':')).toLowerCase(); protocolSchemes.add(scheme); protocolNotes.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1}: loadURL target '${arg}' uses custom scheme '${scheme}' allowlisted for packaged app assets`); } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
+        if (/\.loadURL$/.test(expr)) { const target = arg ?? staticString(node.arguments[0]); if (/^https?:/i.test(target ?? '')) remotePages.add(target); const builtFile = arg === undefined ? staticFileUrl(node.arguments[0]) : undefined; if(builtFile) { addRenderer(builtFile); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(builtFile) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(builtFile,ids); } } else if(arg?.startsWith('file:')) { try {const page=fileURLToPath(arg); addRenderer(page); if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)) { const ids=rendererWindows.get(page) || new Set(); ids.add(`${file}\0${node.expression.expression.text}`); rendererWindows.set(page,ids); }} catch {warn(file,node,ast,'Invalid loadURL file target');} } else if (arg && /^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^(?:https?|data|blob|javascript|mailto|tel):/i.test(arg)) { const scheme = arg.slice(0, arg.indexOf(':')).toLowerCase(); protocolSchemes.add(scheme); protocolNotes.push(`${slash(path.relative(root,file))}:${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line+1}: loadURL target '${arg}' uses custom scheme '${scheme}' allowlisted for packaged app assets`); } else warn(file,node,ast,`loadURL target ${arg || '(dynamic)'} requires a local renderer build`); }
         if (/^(?:fetch|axios(?:\.[\w]+)?|https\.(?:get|request))$/.test(expr)) {
           const addHost = (value, isUrl) => { try { const u = new URL(isUrl ? value : 'https://'+value); hosts.add(u.hostname.toLowerCase()); } catch { warn(file,node,ast,`Network value requires review: ${value}`); } };
           const first=node.arguments[0];
@@ -409,7 +474,7 @@ export async function importElectron(input, {out, build = false, force = false} 
           else { fsNeedsReview=true; warn(file,node,ast,'Filesystem path requires review; userData and dialog-selected files are auto-granted'); }
         }
         if (/^(?:ipcMain|ipcRenderer)\./.test(expr)) usage.ipc=true;
-        if (/^(?:dialog|shell|clipboard|app|BrowserWindow|Notification)\./.test(expr) && !/^(?:app\.(?:whenReady|on|quit|getPath|getName|getVersion)|dialog\.(?:showOpenDialog|showSaveDialog|showMessageBox)|shell\.openExternal|clipboard\.(?:readText|writeText)|BrowserWindow\.(?:getAllWindows|fromWebContents)|Notification\.isSupported)(?:\s*\(\)\s*\.\s*(?:then|catch|finally))*\s*$/.test(expr)) warn(file,node,ast,`Review potentially unsupported API ${expr}`);
+        if (/^(?:dialog|shell|clipboard|app|BrowserWindow|Notification)\./.test(expr) && !isKnownCall(expr)) warn(file,node,ast,`Review potentially unsupported API ${expr}`);
       }
       if (ts.isNewExpression(node) && /(?:^|\.)Notification$/.test(node.expression.getText(ast))) usage.notifications=true;
       let spec, specNode, isRequire=false;
@@ -464,7 +529,8 @@ export async function importElectron(input, {out, build = false, force = false} 
     modules.set(file,imports.join('\n')+'\n'+(definitions.length ? definitions.join('\n')+'\n' : '')+converted);
   }
   await visit(main);
-  if (!renderer) for (const candidate of ['dist/index.html','build/index.html','out/index.html']) if(await exists(path.join(root,candidate))) { addRenderer(path.join(root,candidate)); notes.push(`Renderer inferred from ${candidate}; verify the selected entry.`); break; }
+  if (!renderer) for (const candidate of ['dist/index.html','build/index.html','out/index.html','index.html','src/index.html','app/index.html','renderer/index.html','public/index.html']) if(await exists(path.join(root,candidate))) { addRenderer(path.join(root,candidate)); notes.push(`Renderer inferred from ${candidate}; verify the selected entry.`); break; }
+  if (!renderer && remotePages.size) throw new Error(`This app only loads remote page(s) (${[...remotePages].join(', ')}). TS-GPU has no web view, so a remote site cannot be imported; only apps with a local HTML renderer can.`);
   if (!renderer || !inside(root,renderer) || !await exists(renderer)) throw new Error('No built renderer entry found; build the Electron app first or pass --build');
   for (const page of renderers) if (!inside(root,page) || !await exists(page)) throw new Error(`Renderer entry is missing or outside the project: ${page}`);
   const pagePreloads = new Map();

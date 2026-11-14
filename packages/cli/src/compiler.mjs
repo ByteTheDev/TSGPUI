@@ -245,25 +245,30 @@ function canonicalNode(node) {
   });
   return walk(node);
 }
+// "file", "file:line" or "file:line:col", depending on what the error knows.
+function where(file, error) {
+  if (!error?.line) return file;
+  return error.column ? `${file}:${error.line}:${error.column}` : `${file}:${error.line}`;
+}
 export function compileProject({html,css,backend,config,sourceFiles={},assets={},compiledTree,warnings=[],compiledBackend}) {
   for (const w of (config.permissionWarnings ?? [])) warnings.push(w);
   let root;
   try { root = compiledTree ?? parseHTML(html, {library: COMPONENT_LIBRARY}); }
-  catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
+  catch (error) { throw new Error(`${where(sourceFiles.html ?? 'HTML', error)}: ${error.message}`, {cause:error}); }
   try {
     const allowedHosts = new Set(config.permissions?.networkHosts ?? []);
     const checkNetwork = node => {
-      if (node.attrs['data-fetch']) {
+      if (node.attrs['data-fetch']) try {
         const url = new URL(node.attrs['data-fetch']);
         if (url.protocol !== 'https:' || url.username || url.password || url.port && url.port !== '443' || url.hash) {
           throw new Error('data-fetch requires an HTTPS URL on the default port with no credentials or fragment');
         }
         if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error(`Network host is not listed in permissions.network: ${url.hostname}`);
-      }
+      } catch (error) { if (error.line === undefined && node.line) { error.line = node.line; error.column = node.column; } throw error; }
       for (const child of node.children) checkNetwork(child);
     };
     checkNetwork(root);
-  } catch (error) { throw new Error(`${sourceFiles.html ?? 'HTML'}: ${error.message}`, {cause:error}); }
+  } catch (error) { throw new Error(`${where(sourceFiles.html ?? 'HTML', error)}: ${error.message}`, {cause:error}); }
   const windowChrome = {titlebar:config.window?.titlebar ?? 'system', backdrop:config.window?.backdrop ?? 'opaque'};
   const hasAttribute = (node, name) => node.attrs[name] !== undefined || node.children.some(child => hasAttribute(child, name));
   if (windowChrome.titlebar === 'unified' && !hasAttribute(root, 'data-window-drag')) {
@@ -277,7 +282,7 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
     const stylesheet = compileStylesheet(css, {strict:config.strictCss === true, prelude:COMPONENT_LIBRARY_CSS});
     rules = stylesheet.rules;
     for (const warning of stylesheet.warnings) warnings.push(`${sourceFiles.css ?? 'CSS'}: ${warning}`);
-  } catch (error) { throw new Error(`${sourceFiles.css ?? 'CSS'}: ${error.message}`, {cause:error}); }
+  } catch (error) { throw new Error(`${where(sourceFiles.css ?? 'CSS', error)}: ${error.message}`, {cause:error}); }
   root = styleTree(root,rules);
   let backend_js;
   try { backend_js = compiledBackend ?? compileBackend(backend); }
@@ -310,7 +315,7 @@ export async function buildPackage(projectPath, options = {}) {
   const bundledBackend = await bundleBackend(project.paths.backend, project.projectRoot, assertRealInside);
   let root;
   try { root = parseHTML(html, {library: COMPONENT_LIBRARY}); }
-  catch (error) { throw new Error(`${project.config.html}: ${error.message}`, {cause:error}); }
+  catch (error) { throw new Error(`${where(project.config.html, error)}: ${error.message}`, {cause:error}); }
   const imagePaths = collectImagePaths(root);
   const assets = Object.fromEntries(await Promise.all([...imagePaths].map(async source=>[source,await readAsset(project.projectRoot,source)])));
   const fonts = Object.fromEntries(await Promise.all((project.config.fontFiles ?? []).map(font=>readFont(project.projectRoot,font))));

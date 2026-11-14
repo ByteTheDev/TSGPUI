@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import {copyFile,mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import os from 'node:os';
+import {createRequire} from 'node:module';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildPackage,readProject} from '../src/compiler.mjs';
@@ -12,7 +13,7 @@ import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
 import {signArtifact,resolveSignCommand,notarizeArtifact,writeManifest,findSigntool,findCodesign,findGpg,findNotarytool} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
-import {SUPPORTED_TARGETS,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuHome,verifyCachedHost} from '../src/hosts.mjs';
+import {SUPPORTED_TARGETS,loadManifest,releaseBaseUrl,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuHome,verifyCachedHost} from '../src/hosts.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -202,32 +203,70 @@ async function releaseManifest() {
   files.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
   console.log(JSON.stringify({schema:1,files},null,2));
 }
+// Starter templates live in packages/cli/templates/<directory>. `tsgpu init --template NAME` copies one.
+// "app" templates are TS-GPU projects and get a package.json with the tsgpu scripts; the electron template is
+// a plain Electron project (it carries its own package.json) meant to be run through `tsgpu import electron`.
+const TEMPLATES = {
+  counter: {dir:'basic', kind:'app', summary:'a click counter: state, actions and styling in the smallest app'},
+  form: {dir:'form', kind:'app', summary:'a validated form: text, email, number, select, checkbox and a repeated result list'},
+  'list-detail': {dir:'list-detail', kind:'app', summary:'a searchable list next to a detail pane, driven by backend state'},
+  'electron-import': {dir:'electron-import', kind:'electron', summary:'a plain Electron app to try `tsgpu import electron` on'}
+};
+async function copyTree(from,to,transform) {
+  await mkdir(to,{recursive:true});
+  for (const entry of await fs.promises.readdir(from,{withFileTypes:true})) {
+    const source = path.join(from,entry.name), target = path.join(to,entry.name);
+    if (entry.isDirectory()) await copyTree(source,target,transform);
+    else await writeFile(target,transform(await readFile(source,'utf8'),entry.name));
+  }
+}
 async function init() {
-  const folder = args.find(x => !x.startsWith('--')) ?? 'my-tsgpu-app';
+  if (args.includes('--list-templates')) {
+    for (const [name,info] of Object.entries(TEMPLATES)) console.log(`  ${name.padEnd(16)} ${info.summary}`);
+    return;
+  }
+  const requested = flag('template','counter');
+  const templateName = requested === 'basic' ? 'counter' : requested;
+  const info = TEMPLATES[templateName];
+  if (!info) throw new Error(`Unknown template '${requested}'. Available: ${Object.keys(TEMPLATES).join(', ')} (see \`tsgpu init --list-templates\`)`);
+  // The folder is the first argument that is not a flag or a flag's value.
+  const positional = args.filter((x,i) => !x.startsWith('--') && !(i>0 && args[i-1]==='--template'));
+  const folder = positional[0] ?? (info.kind==='electron' ? 'my-electron-app' : 'my-tsgpu-app');
   const destination = path.resolve(folder);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error('Project destination is not empty');
-  await mkdir(path.join(destination,'src'),{recursive:true});
-  const template = path.join(pkgRoot,'templates/basic');
-  for(const file of ['tsgpu.config.json','src/index.html','src/styles.css','src/backend.ts']) {
-    const input = await readFile(path.join(template,file),'utf8');
-    await writeFile(path.join(destination,file),file === 'tsgpu.config.json' ? input.replace(/tsgpu-counter/g, path.basename(destination)) : input);
+  const appName = path.basename(destination);
+  const template = path.join(pkgRoot,'templates',info.dir);
+  const relative = path.relative(process.cwd(),destination) || '.';
+  const cd = relative === '.' ? '' : `cd ${relative.includes(' ') ? `"${relative}"` : relative}\n  `;
+  if (info.kind === 'electron') {
+    await copyTree(template,destination,(text,name) => name==='package.json' ? text.replace(/"name": "electron-import-demo"/,`"name": ${JSON.stringify(appName)}`) : text);
+    console.log(`Created ${destination}
+
+This is a plain Electron app. Try the importer on it:
+  ${cd}tsgpu import electron . --out ../${appName}-tsgpu --build
+  tsgpu run ../${appName}-tsgpu
+
+Or run it in place (TS-GPU converts it into a temporary project first):
+  tsgpu run .
+
+The import writes TSGPU_IMPORT_REPORT.md, which lists every Electron API the app uses and how well TS-GPU supports it.`);
+    return;
   }
+  await copyTree(template,destination,(text,name) => name==='tsgpu.config.json' ? text.replace(/"name": "[^"]*"/,`"name": ${JSON.stringify(appName)}`) : text);
   const pkg = {
-    name: path.basename(destination),private:true,type:'module',
+    name: appName,private:true,type:'module',
     scripts:{dev:'tsgpu dev',build:'tsgpu build',compile:'tsgpu compile'},
     devDependencies:{tsgpu:`^${VERSION}`}
   };
   await writeFile(path.join(destination,'package.json'),JSON.stringify(pkg,null,2)+'\n');
-  const relative = path.relative(process.cwd(),destination) || '.';
-  const cd = relative === '.' ? '' : `cd ${relative.includes(' ') ? `"${relative}"` : relative}
-  `;
-  console.log(`Created ${destination}
+  console.log(`Created ${destination} (template: ${templateName})
 
 Next:
   ${cd}tsgpu dev      # opens the app and reloads on every save
   tsgpu build   # packages a single executable into dist/
 
-The first run downloads a verified prebuilt host (no Rust needed). \`tsgpu doctor\` checks your setup.`);
+The first run downloads a verified prebuilt host (no Rust needed). \`tsgpu doctor\` checks your setup.
+Other starters: \`tsgpu init --list-templates\`.`);
 }
 // Skipped CSS declarations are reported, not silent. With strictCss in the config they are errors instead.
 function printWarnings(warnings=[]) {
@@ -378,6 +417,54 @@ function systemLibraryCheck(renderer) {
   }
   return null;
 }
+// The release manifest (hosts.json) is what a download is verified against. Check that it is readable,
+// matches this CLI, and lists a host for this machine; with --online, also that the asset can be reached.
+async function checkReleaseManifest(renderer,report,{explicit,cached}) {
+  if (explicit) return;
+  let loaded;
+  try { loaded = await loadManifest({version:VERSION,pkgRoot}); }
+  catch (error) {
+    // A repository checkout has no bundled manifest and its version has no release, so a missing one is only a note there.
+    const offline = downloadsDisabled();
+    if (offline || nativeSource()) { report('ok',`release manifest not checked (${offline ? 'downloads are disabled' : 'repository checkout'}): ${error.message}`); return; }
+    report(cached.state==='ok' ? 'warn' : 'fail',`cannot read the host manifest: ${error.message}`,'update tsgpu (npm i -g @bytethedeveloper/tsgpu@latest) or check your network and TSGPU_HOST_BASE_URL');
+    return;
+  }
+  const entry = loaded.manifest.hosts.find(host=>host.renderer===renderer && host.target===currentTarget());
+  if (!entry) {
+    const offered = [...new Set(loaded.manifest.hosts.filter(host=>host.renderer===renderer).map(host=>host.target))];
+    report('warn',`release ${loaded.manifest.version} has no prebuilt ${renderer} host for ${currentTarget()}${offered.length?` (it has: ${offered.join(', ')})`:''}`,`tsgpu host build --renderer ${renderer}   (compiles one; needs Rust)`);
+    return;
+  }
+  report('ok',`manifest ${loaded.manifest.version} (${loaded.origin}) lists ${entry.asset}, ${(entry.size/1048576).toFixed(1)} MiB, sha256 ${entry.sha256.slice(0,12)}...`);
+  if (cached.state==='ok' && cached.record?.sha256 && cached.record.source !== 'local cargo build' && cached.record.sha256 !== entry.sha256) {
+    report('warn',`the cached ${renderer} host differs from the manifest's hash for this release`,`tsgpu host fetch --renderer ${renderer} --force`);
+  }
+  if (args.includes('--online')) {
+    const url = `${releaseBaseUrl(VERSION)}/${entry.asset}`;
+    try {
+      const response = await fetch(url,{method:'HEAD',redirect:'follow',signal:AbortSignal.timeout(15000)});
+      if (response.ok) report('ok',`download reachable: ${url}`);
+      else report('fail',`download answered HTTP ${response.status}: ${url}`,'check your network, a proxy, or TSGPU_HOST_BASE_URL');
+    } catch (error) {
+      report('fail',`cannot reach ${url} (${error.cause?.code || error.message})`,'check your network, a proxy, or TSGPU_HOST_BASE_URL; or install a host with `tsgpu host install --file PATH --sha256 HASH`');
+    }
+  }
+}
+// What compiling a project needs: TypeScript to lower the backend and PostCSS to read the stylesheet.
+function checkToolchain(report) {
+  for (const [name,fix] of [['typescript','npm install typescript'],['postcss','npm install postcss']]) {
+    try {
+      const file = createRequire(import.meta.url).resolve(`${name}/package.json`);
+      report('ok',`${name} ${JSON.parse(fs.readFileSync(file,'utf8')).version}`);
+    } catch (_error) {
+      // The published CLI inlines its dependencies, so a missing package only matters in a source checkout.
+      if (nativeSource()) report('fail',`${name} is not installed`,fix);
+    }
+  }
+  const gh = spawnSync('gh',['--version'],{stdio:'ignore'});
+  if (gh.status !== 0) console.log('Note: GitHub CLI (gh) not found; it is only needed to run `gh attestation verify` on release hosts.');
+}
 async function doctor() {
   const target = currentTarget();
   const lines = [];
@@ -431,7 +518,9 @@ async function doctor() {
     }
     const libs = systemLibraryCheck(renderer);
     if (libs) report(libs.level,libs.text,libs.fix);
+    await checkReleaseManifest(renderer,report,{ explicit: Boolean(explicit), cached });
   }
+  checkToolchain(report);
   console.log(lines.join('\n'));
   const rust = rustAvailable();
   console.log(`Rust: ${rust ? 'available' : 'not installed'} (only needed to compile a host yourself${rust||nativeSource()?'':'; this installation also has no Rust sources'})`);
@@ -492,7 +581,7 @@ async function signCommand() {
 }
 function help() {
   console.log(`tsgpu ${VERSION}
-  init [dir]                   Create a starter project
+  init [dir] [--template NAME] Create a starter project (counter, form, list-detail, electron-import; --list-templates)
   import electron <dir> [--out DIR] [--build] [--force] [--fix]  Import an Electron app
   run [--project PATH]         Run a TS-GPU or Electron project (default)
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
@@ -506,7 +595,7 @@ function help() {
   release manifest --file PATH Write a deterministic SHA-256 manifest to stdout
   package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]  Build the exe, sign it, make an installer and manifest (Windows)
   sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via TSGPU_SIGN_COMMAND or platform env vars)
-  doctor [--renderer MODE]     Check the setup and print the exact fix for anything missing
+  doctor [--renderer MODE] [--online]  Check the host, its hashes, the manifest and the toolchain; --online also probes the download URL
 Options: renderer is "rendrix" (default) or "native" (deprecated GPUI host); "webview" was removed; --host PATH overrides the selected host.`);
 }
 async function main() {

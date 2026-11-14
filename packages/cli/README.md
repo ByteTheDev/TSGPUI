@@ -60,7 +60,7 @@ That needs Rust (https://rustup.rs) and, on Windows, the MSVC C++ build tools. Y
 | Command | Purpose |
 | --- | --- |
 | `tsgpu run [--project PATH]` | Start a TS-GPU or Electron project (the default command) |
-| `tsgpu init [dir]` | Create a starter project |
+| `tsgpu init [dir] [--template NAME]` | Create a starter: `counter` (default), `form`, `list-detail`, `electron-import` (`--list-templates`) |
 | `tsgpu import electron <dir> [--out DIR] [--build] [--force]` | Convert an Electron project into a TS-GPU project and write its review report |
 | `tsgpu compile [--project PATH]` | Write `dist/<name>.tgp` |
 | `tsgpu dev [--project PATH]` | Build, launch the host, and rebuild on change |

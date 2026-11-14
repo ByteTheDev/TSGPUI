@@ -438,7 +438,14 @@ function mediaSupported(query) {
 // properties override them, so `:root { --ts-accent: red }` also restyles the library's rules.
 // `overrides` is the same mechanism, passed down when this call is compiling a prelude.
 export function compileStylesheet(cssText, { strict = false, prelude = '', overrides = null } = {}) {
-  const parsed = postcss.parse(cssText);
+  let parsed;
+  try { parsed = postcss.parse(cssText); }
+  catch (error) {
+    if (error?.name !== 'CssSyntaxError') throw error;
+    const located = new Error(error.reason ?? error.message, { cause: error });
+    located.line = error.line; located.column = error.column;
+    throw located;
+  }
   const warnings = [];
   const own = new Map();
   collectVariables(parsed, own);
