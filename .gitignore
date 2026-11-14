@@ -20,3 +20,8 @@ smoke-report.json
 smoke-screenshot.png
 benchmark-report.json
 e2e-report.json
+
+# Rendrix engine
+engine/target/
+.rendrix-shots/
+*.rdxapp

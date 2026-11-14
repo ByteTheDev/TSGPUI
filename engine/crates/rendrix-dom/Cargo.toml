@@ -1,0 +1,11 @@
+[package]
+name = "rendrix-dom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rendrix-css.workspace = true

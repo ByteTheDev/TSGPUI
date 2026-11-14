@@ -1,28 +1,35 @@
-# Safety and trust model
+# Safety and permissions
 
-- This project never edits existing application installations or executables; packaging **copies** a host to an output directory before appending the bundle.
-- No cleanup tools, disk wipes, uninstallers, system registry edits, elevation requests, or background services are included.
-- The development command watches only project files and restarts only the host process it spawned.
-- The native binary must be trusted: use a local source build or a checksum-verified CI artifact.
-- Importing an Electron project runs project code. `rendrix import electron --build` runs the source project's `build` script, and `rendrix run` and `rendrix build` run it when no built renderer exists. The script runs with your user's rights. Conversion writes to a new directory and leaves the source unchanged, but it does not sandbox the script. Import only Electron projects you trust.
-- Cross-target packaging copies a verified prebuilt host for another platform and appends the bundle. It does not run that host. `rendrix package --sign` runs the command in `RENDRIX_SIGN_COMMAND` on each artifact; see the [release guide](RELEASING.md).
-- The QuickJS backend has no ambient filesystem, process or network APIs. Its only host access is `api.native`, and the host checks each call against the bundle's `permissions`: filesystem paths stay inside granted roots (symlinks included), only listed executables run, without a shell, and window, notification and IPC calls need their own grants. HTTPS requests reach only hosts listed in `permissions.network`. Clipboard, dialog and external-link calls need no grant, but each dialog-picked file is granted only for that one file for the rest of the run. Host calls run on background threads. Each backend load, action, or state write has a 2-second wall-clock limit and a 32 MiB heap limit, and time spent waiting on a host call does not count against it. An action that exceeds the limit is aborted and its state is rolled back. Limits do not cover memory used outside the JS heap, so still do not execute untrusted backend code.
-- The Rendrix engine renders a validated document subset: the compiler rejects anything outside the documented HTML/CSS/TypeScript surface at build time, and the host draws that resolved tree directly. There is no in-page script engine and no browser surface to attack. The content-security-policy and permission model therefore applies to the QuickJS backend and the host-side grants above, not to a page.
-- IPC listens on `127.0.0.1` with a random token. Any process running as the same user can read the token from a child process's environment or from the app's memory, so IPC is for coordinating your own processes, not a security boundary against local malware. A peer that sends the wrong token is disconnected before any message is read.
-- `rendrix preview` serves host operations to its own page only. Each request needs a random token that only the page receives, and the exact `Host` header of the preview server, so another website, or a DNS name rebound to `127.0.0.1`, cannot call them. Preview calls still run with your user's rights, limited by the same grants.
-- The browser preview runs the backend in a browser page, not in QuickJS, so its limits are the browser's, not the host's. The page's content security policy allows script from the page itself (the preview needs `unsafe-eval` to run the backend), and limits connections through `connect-src` to the preview origin and configured HTTPS hosts. Other request types are governed separately by the policy. The preview server listens on 127.0.0.1 only, and it serves only the page and a version number. Do not treat a preview as a sandbox for untrusted backend code.
-- Appending an overlay invalidates any existing signature. Use an unsigned prebuilt host, package it, then sign the finished Windows executable or macOS `.app`. macOS distribution also requires the app to be notarized for a smooth Gatekeeper experience.
-- The release packaging replaces the **generated output file** when rebuilt; keep backups of outputs you need to retain. It never targets existing installed apps.
-- Dependencies, gpui versions and GitHub Actions permissions should be audited/pinned before public releases.
+**Rendrix runs your application's code with the privileges of the user who starts it, plus a small set of
+capability checks. It is not a sandbox for hostile code.** Only run applications you trust.
 
-## Removed: WebView renderer
+## What is enforced
 
-The WebView renderer was removed in the rewrite. The paragraphs below are its historical safety narrative, kept because the CSP/trust reasoning may matter to anyone consulting the pre-rewrite tree at `backup/webview-era`. Today the Rendrix engine renders a validated document subset (see the top of this page); there is no page, no browser engine, and no CSP surface.
+| Capability | Default | How it is enforced |
+|---|---|---|
+| Network (`fetch` to `http(s)`) | **denied** | `permissions.network` in `rendrix.json`; otherwise `fetch` rejects with a `TypeError`. There is no per-host allow-list yet. |
+| File reads | **denied** | Only through `rendrix.fs`; paths are canonicalised and must lie inside a directory listed in `permissions.fs_read`. Plain Web APIs cannot touch the filesystem. |
+| File writes | **denied** | Same, with `permissions.fs_write`. |
+| Relative `fetch`, images, fonts, stylesheets | bundled assets only | `DirAssets` and bundle assets reject `..` segments. |
+| Process spawning, native add-ons, Node/Bun APIs | **do not exist** | There is no such API in the runtime. |
+| Remote script/module loading | **do not exist** | The build refuses `http(s):`/`node:` imports; the module loader only reads the bundle. |
 
-Historical: WebView HTML, authored scripts and the compiled backend ran together in the browser engine and had to be trusted. Page scripts could call `window.rendrix.invoke`; host operations were checked against the bundle's filesystem, process, notification, IPC and window grants. Those grants did not isolate scripts from each other or prevent access to browser APIs. The backend's shadowed API names were not a security boundary.
+Covered by tests: `filesystem_access_is_permission_gated` (reads, writes, denied paths, denied network),
+bundle trailer/format validation, and build-time rejection of Node built-ins and CommonJS.
 
-Historical: the generated page's CSP defaulted to denying resource types. Scripts from the page origin and script elements bearing a fresh build nonce were allowed; inline event-handler attributes were blocked. `unsafe-eval` remained necessary because the backend bootstrap executed its source with `new Function`; removing it required a different backend execution strategy. Inline styles remained allowed because generated and authored styles and style attributes were embedded in the page. Images, fonts and media allowed the page origin and data URLs; connections allowed the page origin and configured HTTPS network hosts; forms, frames and base URLs were restricted to the page origin, and objects were denied. The nonce authorized authored script elements, not untrusted content, and the policy was defense in depth, not a sandbox. Navigation and browser behavior outside these directives were not governed by `connect-src`. CSP also could not replace host-side permission checks.
+## What is not enforced
 
-Historical: before that policy change, `default-src 'self'` supplied a same-origin fallback; `script-src 'self' 'unsafe-inline' 'unsafe-eval'` allowed local and arbitrary inline scripts and dynamic compilation; `style-src 'self' 'unsafe-inline'` allowed local and embedded styles; `img-src`, `font-src`, and `media-src` allowed same-origin and data resources; `connect-src` allowed same-origin and the configured HTTPS hosts; `object-src 'none'` blocked plugins; and `base-uri 'self'` restricted base URLs. Forms and frames had no dedicated restriction. The fallback was broader than the generated bootstrap needed; the explicit resource directives remained for application content. The generated CSS and existing inline style attributes required inline styles, and the backend bootstrap required dynamic compilation.
+* No memory or CPU limit on script execution: an infinite loop freezes the window (QuickJS memory cap is
+  1 GiB, stack 2 MiB).
+* QuickJS and native crates are not hardened against malicious inputs; treat untrusted images, fonts and
+  HTML as a risk.
+* Scripts can read the whole bundle and their own `localStorage` (a plain JSON file in the user data
+  directory). Nothing is encrypted.
+* A bundle appended to an executable is not signed or integrity-checked by the runtime. Code signing is not
+  implemented.
+* `crypto.getRandomValues` uses the OS CSPRNG, but `crypto.subtle` does not exist.
 
-Historical: Electron preload scripts ran in the same WebView JavaScript world as renderer scripts, before renderer scripts. A facade scoped ordinary window and globalThis property assignments to the preload, but it was not an Electron isolated world or a security boundary: shared browser objects, DOM access, indirect access to the real window, and other APIs remained available, and preloads had to be trusted. contextBridge rejected existing global names and copied and froze exposed plain objects and arrays, but exposed functions still executed in the shared world and were not a security boundary.
+## Reporting
+
+Open a private security advisory on the repository. Please include the bundle or script that reproduces
+the behaviour.

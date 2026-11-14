@@ -1,74 +1,93 @@
-# Architecture and milestones
+# Architecture
 
-## Source pipeline
+Rendrix is a rendering engine and application runtime. TypeScript applications run inside it and are
+drawn by its own GPU pipeline: there is no Chromium, Electron, WebView or system browser involved,
+and Rendrix makes no attempt to be API-compatible with any of them.
 
-The `renderer` setting selects the host:
+```
+ your TypeScript / TSX            rendrix CLI (Node)                       rendrix-runtime (Rust)
+ ───────────────────  build ───▶  type-check, transpile to ES modules ──▶  ┌──────────────────────────────┐
+ index.html, styles.css           pack  .rdxapp  (JSON bundle)             │ rendrix-js   QuickJS + Web APIs│
+                                  or  standalone executable                │ rendrix-core DOM → style →     │
+                                                                           │              boxes → layout →  │
+        OS input ◀──────────────────────────────────────────────────────── │              display list      │
+        (winit)  ──▶ Session ──▶ DOM events ──▶ your handlers ──▶ DOM ───▶ │ rendrix-gfx  wgpu renderer    │
+                                                                           └──────────────────────────────┘
+```
 
-- `rendrix` (default): parse the supported HTML subset into a keyed tree, expand static components, parse CSS with PostCSS, and render through the Rendrix engine (winit + wgpu + taffy + cosmic-text). Actions run in embedded QuickJS. **Rendrix is in early beta**; feature coverage is limited, and state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility, and animations are on the Rendrix M1–M3 ladder (see [RENDERER_RENDRIX.md](RENDERER_RENDRIX.md) and [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
-- `native`: the deprecated legacy host. Accepted with a deprecation warning until the Rendrix M1 gate removes it.
-- `webview`: a hard error. The WebView renderer was removed in the rewrite; see below.
+## Crates (`engine/crates/`)
 
-Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.rdx` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][RENDRI01]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/rendrix.rdx`. Packaged apps do not need Node or Bun at runtime.
+| Crate | Responsibility | Interface other crates rely on |
+|---|---|---|
+| `rendrix-css` | Tokenizer/parser, selectors + specificity, cascade, inheritance, custom properties (`var()`), media queries, `@keyframes`, timing functions, interpolation, computed style | `SelectorElement` trait (style any tree), `ComputedStyle`, `compute_style` |
+| `rendrix-dom` | Arena DOM: nodes, attributes, mutation records, selector queries, tolerant HTML parser/serializer, form state, dirty tracking, node GC | `Document`; `ElRef` implements `SelectorElement` |
+| `rendrix-layout` | Layout-engine-neutral box tree and the `LayoutEngine` trait; a persistent Taffy backend (flex, grid, block) that only re-lays out what changed | `LayoutNode`, `LayoutEngine`, `TextMeasurer` |
+| `rendrix-gfx` | Display list, cosmic-text shaping + paragraph cache, glyph atlas, wgpu renderer (SDF rounded rects/borders/gradients/shadows/clips/transforms, images, text) | `DisplayList`, `TextSystem`, `Renderer` |
+| `rendrix-core` | `Engine`: DOM → styles (+transitions/animations) → box generation (block/inline/flex/grid, anonymous boxes, whitespace, replaced elements, form controls) → layout → painting; hit testing, scrolling, text editing | `Engine::update(now)`, `hit_test`, `edit`, `display_list` |
+| `rendrix-js` | `JsEngine` trait + QuickJS backend, ES module loader, DOM and Web API prelude (JavaScript), host operations, event-loop glue | `JsEngine`, `Host`, `JsRuntime` |
+| `rendrix-runtime` | App bundle loader, `Session` (input state machine and frame loop), winit window driver, headless driver, benchmark | `Session`, `AppBundle` |
 
-## Removed: WebView renderer
+## One frame
 
-The WebView renderer (Wry, WebView2/WKWebView/WebKitGTK) and all of its paths were deleted in the rewrite: the webview host binary and `webview-host` feature, the `gtk`/`tao`/`wry` dependencies, the webview compiler/packaging paths, the page bridge and custom protocol, CDP-based e2e, and the WebKitGTK Linux CI dependencies. The pre-rewrite implementation is preserved at branch `backup/webview-era` (commit `0fc860b`). Historical summaries of the removed protocol/bridge behavior live in [SUPPORTED_SYNTAX.md](SUPPORTED_SYNTAX.md) and [SAFETY.md](SAFETY.md).
+1. **Platform events** (winit) are translated by the window driver into `Session` calls: `pointer_move`,
+   `pointer_down`, `key_down`, `wheel`, `text_commit`, `resize`.
+2. `Session` hit-tests against the previous frame's geometry and dispatches **real DOM events**
+   (`pointerover/enter/move/down/up`, `mouse*`, `click`, `keydown`, `input`, `change`, `focus*`, `wheel`…)
+   through the JavaScript event system with capture → target → bubble phases. Default actions run only if
+   no handler called `preventDefault()`: focus, click activation (checkbox, radio, label, form submit),
+   caret placement and drag-selection, Tab traversal, text editing, scrolling.
+3. Timers, completed fetches and microtasks run; then `requestAnimationFrame` callbacks.
+4. `Engine::update(now)`:
+   - rebuild stylesheets if `<style>`/`<link>` or the media context changed;
+   - **restyle** only what changed: dirty subtrees for attribute/class/inline-style changes; for
+     hover/active/focus and child-list changes only the element itself, descending when the computed style
+     changed or the stylesheet has non-local state/structural selectors;
+   - if no computed style actually changed (most hovers), the frame stops here;
+   - start transitions/keyframe animations from style changes and sample running ones;
+   - build the box tree (formatting-context rules, anonymous boxes) and run layout (Taffy keeps its tree
+     between frames, so unchanged subtrees reuse cached results);
+   - paint to a **display list** with stacking order, clips, transforms and viewport culling, producing
+     the hit-test list in the same traversal.
+5. `Renderer` flattens the display list into one instance buffer and draws it in a single pipeline and
+   usually one draw call.
 
-[`platform.rs`](../native/src/platform.rs) holds the operations the hosts share: clipboard, native dialogs, power blockers, external links and the HTTPS transport. Each is implemented once, so `api.native` answers the same way on the Rendrix and legacy hosts.
+An idle application does no work: no timer, no animation and no pending change means no frame.
 
-`rendrix import electron <dir> [--out DIR] [--build] [--force]` imports an Electron project using [`import-electron.mjs`](../packages/cli/src/import-electron.mjs). The importer produces a review report; compatibility is limited to implemented shims and must be reviewed for each app. `--build` runs the source project's build script. Every Electron export is classified as implemented, partial or unsupported in the coverage ledger ([`coverage.mjs`](../packages/cli/src/electron-compat/coverage.mjs)). A test checks the ledger against an extracted snapshot of Electron 33's public API, and each unsupported shim throws an error that points to the import report.
+## Replaceable parts
 
-The Electron shims speak the host call protocol: `host(operation, args)` with named arguments and normalized results. In the renderer backend the shim has no bridge object, so [`host.ts`](../packages/cli/src/electron-compat/runtime/host.ts) routes each operation to `api.native` and reshapes its result. An operation with no route rejects and names the renderer that provides it. The routes are tested in [`electron-native.test.mjs`](../packages/cli/test/electron-native.test.mjs). (The webview-era page bridge that also spoke this protocol was removed with the WebView renderer.)
+* **JavaScript engine.** Only `quickjs.rs` names `rquickjs`. The rest of the runtime talks to a `JsEngine`
+  trait (eval script/module, call a global, drain jobs) and exposes native functionality through a single
+  entry point, `__native(op, ...args)`, implemented by `Host`. The Web API surface is JavaScript
+  (`prelude/*.js`) built on those operations, so another engine needs the trait implementation and the same
+  entry point.
+* **Layout engine.** Layout consumes `LayoutNode` + `ComputedStyle`, never DOM types. Taffy is one
+  implementation of `LayoutEngine`.
+* **Text.** Layout measures through `TextMeasurer`; only `rendrix-gfx` shapes text.
 
-## Native host modules
+## Modules and TypeScript
 
-The deprecated legacy host is organized under `native/src/view/`: `mod.rs` owns app state and window lifecycle, `rendering.rs` builds the element tree, `inputs.rs` handles text editing and IME, `overlays.rs` draws menus and development panels, `layout.rs` resolves styles and grid tracks, and `bindings.rs` handles state paths, text interpolation, shortcuts, and form validation. The remaining host concerns stay in focused sibling modules such as `package.rs`, `runtime.rs`, `network.rs`, and `menus.rs`. The Rendrix engine lives in `native/src/gpu/` (that directory is extracted into an independent open-source `rendrix` crate in Phase B).
+The runtime never sees TypeScript. `rendrix build` type-checks with the project's `tsconfig.json`, transpiles
+every module to ES2022 with the TypeScript compiler API, resolves bare specifiers from `node_modules`
+(ESM only), rewrites imports to bundle paths and emits a `rendrix-app/1` JSON bundle. QuickJS loads the
+modules natively (static imports, `import()`, top-level `await`). JSX compiles to
+`rendrix/jsx-runtime`, which builds DOM nodes directly (no virtual DOM).
 
-## Build and development
+## Memory model
 
-Build a host when Rust host code changes. Use `rendrix host build --renderer rendrix` for the Rendrix engine or `rendrix host build --renderer native` for the deprecated legacy host. HTML, CSS, TypeScript, and asset changes only rebuild the `.rdx` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `rendrix build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `rendrix all` package the same bundle for other supported targets, each with its own verified prebuilt host.
+DOM nodes live in a Rust arena. JavaScript wrappers are weak handles registered with a
+`FinalizationRegistry`; wrappers of connected nodes are also held strongly so identity, expando properties
+and listeners survive GC. Listener state is keyed by node id, never stored on the wrapper. Detached subtrees
+with no live wrapper are freed by a periodic sweep and their ids reused.
 
-`rendrix dev` watches the configured source files and rewrites the bundle. Host processes reload the bundle in the existing window. The legacy host preserves backend state across reloads by merging user-changed values into the new script; the Rendrix host's reload behavior is part of the early beta and follows the same merge model as it matures. A failed build is shown in the legacy host's in-window panel while the last successful document keeps running. The browser preview (`rendrix preview`) preserves state on reload.
+## Known architectural limits
 
-## Native controls and capabilities
+* The box tree is rebuilt in full after any style or structure change (≈5 ms per 9,000 nodes); only layout
+  results are incremental. Incremental box generation is the next performance step.
+* Overlay scrollbars are painted but not interactive; there is no accessibility tree yet
+  ([ACCESSIBILITY_PLAN.md](ACCESSIBILITY_PLAN.md)).
+* Absolutely positioned boxes use the containing block's origin when their insets are `auto` (no static
+  position), and inline elements with box styling (padding, background…) behave as inline-blocks.
+* A single window and a single JavaScript context per process.
 
-The host implements buttons, text inputs, textareas, checkboxes, selects, form submission, numeric validation, keyboard shortcuts, Tab focus traversal, repeated state arrays, scrolling, CSS grid layout, and packaged images. Single-line `<input>` fields register with GPUI's text input handler, so platform text input and IME composition go through the OS text services. They draw a blinking caret and selection highlight, support mouse click and drag selection, Shift+arrow, Home/End, word-wise navigation and deletion, Ctrl/Cmd+A/C/X/V/Z, Shift+Ctrl/Cmd+Z, Ctrl/Cmd+Y, and Backspace/Delete. Undo history is bounded and kept per field. Caret and selection are measured with the element's inherited text style. Double-click selects a word. Multi-line `<textarea>` fields share the same path: each logical line is shaped to the field width in GPUI's text system, and paint draws the selection, text, and caret from that layout, so positions match what is drawn. The field scrolls with the wheel and keeps the caret in view.
-
-Application menus are declared in the document and installed through GPUI's application menu API. Menu actions and shortcuts dispatch through the backend action path. Context menus render as host popups; disabled entries work there. Native application menu items cannot currently be disabled, and checked menu items are not supported. Elements with `data-ondrop` receive user-dropped local file paths and names through GPUI's `ExternalPaths`; the host does not read file contents.
-
-Lists marked `data-virtual` become GPUI uniform lists, so only the visible rows are built. A unified title bar is an app-drawn bar with `appears_transparent`. Its drag area and window buttons are reported to Windows as caption and caption-button hit regions, so no control can sit inside a drag area. An optional blurred backdrop uses GPUI's `Blurred` background, which Windows applies only on some systems. Selects open a positioned native popup with the current option marked; Up/Down keys change the value directly.
-
-The development overlay is host UI drawn above the document. `F12` or `Ctrl+Shift+I` toggles it, and the inspector mode disables app controls while a click selects the deepest element and records its attributes, computed style, and state styles. A stale element selection is cleared on reload.
-
-With `"persist": true`, a background task serializes backend state every 400 ms when it changes, caps it at 256 KiB, and writes it through a temporary file plus rename. Startup merges the saved values with the script's current defaults through the same compatibility rules as hot reload.
-
-The GPUI 0.2.2 API in this project does not expose an accessibility tree interface. HTML `aria-*` and `role` metadata is preserved, but screen-reader semantics are not wired to the native OS APIs yet. The Rendrix roadmap adds an accesskit tree at M3; see [ACCESSIBILITY_PLAN.md](ACCESSIBILITY_PLAN.md).
-
-Clipboard actions run only after a button click. File reads and writes require the native file picker/save dialog, operate on the user-selected path, and are limited to 1 MiB. Network actions are user-initiated HTTPS requests to exact hosts listed in `permissions.network`; GET and POST are supported, callers can send a state value as JSON or text, redirects are disabled, requests time out after 15 seconds, and request and response bodies are limited to 1 MiB. Backend JavaScript does not receive a general filesystem or `fetch` API.
-
-## Backend design
-
-The backend runs in one embedded QuickJS context with in-memory application state. Actions receive `get`, `set`, and `update`, plus a read-only event object. Actions can await the native host bridge, whose operations run asynchronously. Arbitrary external JavaScript APIs are not available in the native backend.
-
-QuickJS memory and execution time are limited as described in the safety documentation; the runtime is not a malicious-code sandbox. Only load backend code you trust.
-
-## Versioned binary format
-
-On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `RENDRI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
-
-## Remaining roadmap
-
-1. Run platform-level interaction and packaging checks on Windows, macOS, and Linux. Windows host build and interaction have also been exercised by hand; check workflow results separately.
-2. Connect role, label, and value metadata to a native accessibility tree when the supported GPUI API provides it.
-3. Improve the Rendrix layout model: grid item placement, stacking contexts beyond sibling paint order, and more CSS layout properties. Fixed, automatic, and unequal `fr` column tracks now preserve their proportions through flex-based layout. CSS transitions, animations, and element transforms need the animation/drawing primitives on the Rendrix M3 ladder; no in-tree engine supports them today.
-4. Add a nonblocking async backend bridge with cancellation and explicit per-operation permission grants.
-5. Add a native code editor or terminal component for apps that need one, and executable signing/update support.
-
-## Alternatives considered
-
-- Rewriting the renderer in TypeScript would abandon the native engine and require a complete GUI toolkit.
-- Transpiling arbitrary TypeScript to Rust is not practical with broad JavaScript semantics.
-- Keeping the WebView renderer as a compatibility path was rejected in the rewrite decision: two rendering stacks double the maintenance surface, and the Rendrix engine is the product's direction ([REWRITE_RENDRIX.md](REWRITE_RENDRIX.md)).
-- Recompiling Rust for every developer edit is much slower than reusing one host executable.
-
-The design keeps rendering native and iteration fast, with a documented HTML subset and explicit host capabilities. Rendrix replaces the GPUI renderer as the sole engine; the legacy host stays deprecated in the tree until the Rendrix M1 gate.
+See [COMPATIBILITY.md](COMPATIBILITY.md) for exactly what is and is not supported, and
+[ENGINE_ASSESSMENT.md](ENGINE_ASSESSMENT.md) for the roadmap.

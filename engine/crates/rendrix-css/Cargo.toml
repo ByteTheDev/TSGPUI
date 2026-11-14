@@ -1,0 +1,10 @@
+[package]
+name = "rendrix-css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rendrix CSS engine: parser, selectors, cascade, computed style"
+[lib]
+doctest = false
+
+[dependencies]

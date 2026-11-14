@@ -1,0 +1,34 @@
+name: ci
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  engine:
+    name: engine tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Linux system libraries (windowing, clipboard, software Vulkan)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxkbcommon-dev libwayland-dev libxcb1-dev mesa-vulkan-drivers
+      - name: Rust tests (GPU tests skip themselves when no adapter exists)
+        run: cargo test --workspace --manifest-path engine/Cargo.toml
+      - name: Build the release runtime
+        run: cargo build --release -p rendrix-runtime --manifest-path engine/Cargo.toml
+      - name: CLI tests (uses the runtime built above)
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          export RENDRIX_RUNTIME="$PWD/engine/target/release/rendrix-runtime"
+          [ -f "$RENDRIX_RUNTIME.exe" ] && export RENDRIX_RUNTIME="$RENDRIX_RUNTIME.exe"
+          node --test packages/cli/test/*.test.mjs
