@@ -1,14 +1,14 @@
 export const compatWarnings: string[] = [];
 
 // Native events (tray clicks, global shortcut presses, failed registrations) arrive through one
-// global that both hosts call: `__tsgpui_host_event(channel, payload)`. Shards subscribe here so a
+// global that both hosts call: `__rendrix_host_event(channel, payload)`. Shards subscribe here so a
 // later host feature can add its own channel without another runtime hook.
 const hostEventHandlers: ((channel: string, payload: any) => void)[] = [];
 export function onHostEvent(handler: (channel: string, payload: any) => void): void {
   hostEventHandlers.push(handler);
 }
 const hostGlobal: any = globalThis;
-hostGlobal.__tsgpui_host_event = (channel: string, payload: any) => {
+hostGlobal.__rendrix_host_event = (channel: string, payload: any) => {
   for (const handler of [...hostEventHandlers]) {
     try { handler(String(channel), payload); } catch (error) { try { console.error('Host event failed:', error); } catch {} }
   }
@@ -128,13 +128,13 @@ const nativeRoutes: Record<string, Route> = {
 };
 function nativeHost(op: string, args: any): Promise<any> {
   const route = nativeRoutes[op];
-  if (!route) return Promise.reject(new Error(`${op} is not available in this host. Pages, extra windows and page messages are not supported by the Rendrix host yet; run on the deprecated GPUI host or restructure the app.`));
-  try { return Promise.resolve(route((globalThis as any).__tsgpui_native, args ?? {})); } catch (error) { return Promise.reject(error); }
+  if (!route) return Promise.reject(new Error(`${op} is not available in this host. Pages, extra windows and page messages are not supported by the Rendrix host yet; run on the deprecated legacy host or restructure the app.`));
+  try { return Promise.resolve(route((globalThis as any).__rendrix_native, args ?? {})); } catch (error) { return Promise.reject(error); }
 }
 export function host(op: string, args: any = {}): Promise<any> {
   const g: any = globalThis;
-  const fn = g.__tsgpui_host || g.window?.tsgpui?.invoke;
-  if (!fn && g.__tsgpui_native) return nativeHost(op, args);
+  const fn = g.__rendrix_host || g.window?.rendrix?.invoke;
+  if (!fn && g.__rendrix_native) return nativeHost(op, args);
   if (!fn) return Promise.reject(new Error(`Host operation unavailable: ${op}`));
   try { return Promise.resolve(fn(op, args)); } catch (error) { return Promise.reject(error); }
 }
@@ -145,10 +145,10 @@ export function removeHandler(channel: string) { handlers.delete(channel); }
 export function listen(channel: string, fn: Function) { listeners.set(channel, [...(listeners.get(channel) || []), fn]); }
 export function unlisten(channel: string, fn: Function) { listeners.set(channel, (listeners.get(channel) || []).filter(f => f !== fn && (f as any).listener !== fn)); }
 const g: any = globalThis;
-g.__tsgpui_ipc_dispatch = async (kind: string, channel: string, payload: any, sourceId?: number) => {
+g.__rendrix_ipc_dispatch = async (kind: string, channel: string, payload: any, sourceId?: number) => {
   // In a hidden backend window (id 0) every page is a renderer, so replies always go through the host to the sender.
-  const backendWindow = g.__tsgpui_window_id === 0;
-  const event = { sender: { send: (c: string, p: any) => sourceId !== undefined && (backendWindow || (sourceId && sourceId !== 1)) ? host('window.send', {windowId: sourceId, channel: c, payload: p}) : g.__tsgpui_emit ? g.__tsgpui_emit(c, p) : g.window?.__tsgpui_receive?.(c, p) } };
+  const backendWindow = g.__rendrix_window_id === 0;
+  const event = { sender: { send: (c: string, p: any) => sourceId !== undefined && (backendWindow || (sourceId && sourceId !== 1)) ? host('window.send', {windowId: sourceId, channel: c, payload: p}) : g.__rendrix_emit ? g.__rendrix_emit(c, p) : g.window?.__rendrix_receive?.(c, p) } };
   if (kind === 'invoke') { const fn = handlers.get(channel); if (!fn) throw new Error(`No handler registered for ${channel}`); return fn(event, payload); }
   for (const fn of [...(listeners.get(channel) || [])]) fn(event, payload);
 };

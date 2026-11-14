@@ -1,7 +1,7 @@
-# Project Rendrix — TS-GPU rewrite charter
+# Project Rendrix — Rendrix rewrite charter
 
 Decision (2026-11-11, owner-authorized): **Rendrix becomes the sole rendering engine. WebView
-is removed completely. The product renames from TSGPUI to TS-GPU.** This file is the shared
+is removed completely. The product renames from Rendrix to Rendrix.** This file is the shared
 contract for the rewrite agents: naming, ownership, interfaces, and the verification bar.
 
 The pre-rewrite implementation is preserved at branch `backup/webview-era` (tag
@@ -11,18 +11,18 @@ The pre-rewrite implementation is preserved at branch `backup/webview-era` (tag
 
 | Thing                     | Old                       | New                              |
 |---------------------------|---------------------------|----------------------------------|
-| Product                   | TSGPUI                    | TS-GPU                           |
+| Product                   | Rendrix                    | Rendrix                           |
 | Engine                    | gpu (module `native/src/gpu`) | **Rendrix**                  |
 | Renderer config key       | `"webview"` / `"native"` / `"gpu"` | `"rendrix"` (default)   |
-| Cargo package             | `tsgpui-host`             | `tsgpu-host`                     |
-| Rendrix binary/feature    | `tsgpui-gpu-host` / `gpu-host` | `rendrix-host` / `rendrix`   |
-| GPUI binary (deprecated)  | `tsgpui-host` / `native-host` | `tsgpu-gpui-host` / `native-host` |
-| WebView binary            | `tsgpui-webview-host`     | **deleted**                      |
-| Bundle magic (8 bytes)    | `TSGPUI01`                | `TSGPU001`                       |
+| Cargo package             | `rendrix-host`             | `rendrix-host`                     |
+| Rendrix binary/feature    | `rendrix-gpu-host` / `gpu-host` | `rendrix-host` / `rendrix`   |
+| GPUI binary (deprecated)  | `rendrix-host` / `native-host` | `rendrix-legacy-host` / `native-host` |
+| WebView binary            | `rendrix-webview-host`     | **deleted**                      |
+| Bundle magic (8 bytes)    | `RENDRIX01`                | `RENDRIX001`                       |
 | Bundle file extension     | `.tgp`                    | `.tgp` (unchanged)               |
-| Home env var              | `TSGPUI_HOME`             | `TSGPU_HOME`                     |
-| CLI entry                 | `packages/cli/bin/tsgpui.mjs` | `packages/cli/bin/tsgpu.mjs` |
-| CLI package/command       | `tsgpui`                  | `tsgpu`                          |
+| Home env var              | `RENDRIX_HOME`             | `RENDRIX_HOME`                     |
+| CLI entry                 | `packages/cli/bin/rendrix.mjs` | `packages/cli/bin/rendrix.mjs` |
+| CLI package/command       | `rendrix`                  | `rendrix`                          |
 
 Renderer key semantics: `"rendrix"` = Rendrix host (the engine). `"native"` = deprecated GPUI
 host, accepted with a warning until the Rendrix M1 gate, then removed. `"webview"` = hard
@@ -30,7 +30,7 @@ error with migration guidance. Absent key = `"rendrix"`.
 
 Preserved (works independent of WebView, kept through this rewrite): the Electron-compat
 runtime (renderer-agnostic TypeScript), the updater (host-side download/verify/install),
-QuickJS backend + permissions model, the GPUI host (deprecated, compiles, removed at the
+QuickJS backend + permissions model, the legacy host (deprecated, compiles, removed at the
 Rendrix M1 gate), smoke/benchmark scripts (renderer-agnostic).
 
 Removed with WebView: webview host bin + `webview-host` feature + `gtk`/`tao`/`wry` deps,
@@ -70,13 +70,13 @@ of raw Parley. Re-evaluation is a later refactor, not a blocker.
 
 - Renderer key `"rendrix"` (see table). The Rendrix host (`gpu_main.rs`) already accepts
   exactly `"rendrix"`.
-- Bundle magic `b"TSGPU001"` — Agent R writes it in `package.rs`, Agent J writes it in the
+- Bundle magic `b"RENDRIX001"` — Agent R writes it in `package.rs`, Agent J writes it in the
   packer; both sides must agree byte-for-byte.
 - `hosts.json` v2: targets unchanged (`win32-x64`, `win32-arm64`, `darwin-arm64`, `linux-x64`,
-  `linux-arm64`); entries reference `rendrix-host-<target>` (and `tsgpu-gpui-host-<target>`
+  `linux-arm64`); entries reference `rendrix-host-<target>` (and `rendrix-legacy-host-<target>`
   while deprecated). No webview entries.
-- Host resolution in the CLI: cache dir `$TSGPU_HOME/host/<target>/`, binary names per the
-  table; `tsgpu doctor` re-hashes as before.
+- Host resolution in the CLI: cache dir `$RENDRIX_HOME/host/<target>/`, binary names per the
+  table; `rendrix doctor` re-hashes as before.
 
 ## Verification bar (every agent, in your final report)
 
@@ -87,7 +87,7 @@ of raw Parley. Re-evaluation is a later refactor, not a blocker.
 4. The next engineering priority.
 
 Baseline commands (from repo root):
-- `cargo check --manifest-path native/Cargo.toml` (GPUI host compiles — deprecated, kept)
+- `cargo check --manifest-path native/Cargo.toml` (legacy host compiles — deprecated, kept)
 - `cargo check --manifest-path native/Cargo.toml --no-default-features --features rendrix`
 - `cargo test --manifest-path native/Cargo.toml --features rendrix --bin rendrix-host`
 - `bun run test` (JS suite; Agent T adjudicates which tests survive the WebView removal)

@@ -37,7 +37,7 @@ impl AppView {
                         row = row.on_click(cx.listener(move |this, _, _, cx| {
                             this.active_context_menu = None;
                             if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"contextmenu"})) {
-                                eprintln!("TSGPUI context menu action: {error}");
+                                eprintln!("Rendrix context menu action: {error}");
                             }
                             cx.notify();
                         }));
@@ -61,14 +61,14 @@ impl AppView {
     fn commit_select_value(&mut self, value: &str, binding: Option<&str>, action: Option<&str>, local_key: u64) {
         if let Some(binding) = binding {
             if let Err(error) = self.backend.set_state(binding, Value::String(value.to_string())) {
-                eprintln!("TSGPUI: {error}");
+                eprintln!("Rendrix: {error}");
             }
         } else {
             self.local_values.insert(local_key, Value::String(value.to_string()));
         }
         if let Some(action) = action {
             if let Err(error) = self.backend.invoke_with_event(action, serde_json::json!({"type":"input","value":value})) {
-                eprintln!("TSGPUI: {error}");
+                eprintln!("Rendrix: {error}");
             }
         }
         self.active_select = None;
@@ -81,7 +81,7 @@ impl AppView {
         let bounds = window.bounds();
         let left = f32::from(popup.at.x).min((f32::from(bounds.size.width) - 200.0).max(0.0));
         let top = (f32::from(popup.at.y) + 2.0).min((f32::from(bounds.size.height) - 290.0).max(0.0));
-        let mut menu = div().id("tsgpui-select-menu").absolute().left(px(left)).top(px(top))
+        let mut menu = div().id("rendrix-select-menu").absolute().left(px(left)).top(px(top))
             .min_w(px(180.0)).max_w(px(320.0)).max_h(px(280.0)).overflow_scroll()
             .p(px(4.0)).bg(rgba(0x252525ff)).border_1().border_color(rgba(0x555555ff))
             .rounded_md().shadow_lg();
@@ -116,7 +116,7 @@ impl AppView {
 
     // The development panel shares one overlay for build problems and element inspection.
     pub(super) fn dev_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut panel = div().id("tsgpui-dev-panel").absolute().top(px(10.0)).right(px(10.0))
+        let mut panel = div().id("rendrix-dev-panel").absolute().top(px(10.0)).right(px(10.0))
             .w(px(380.0)).max_h(px(480.0)).flex().flex_col().overflow_hidden()
             .bg(rgba(0x18181bff)).border_1().border_color(rgba(0x52525bff)).rounded_lg().shadow_lg()
             .text_size(px(12.0)).text_color(rgba(0xe4e4e7ff));

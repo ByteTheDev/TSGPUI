@@ -1,10 +1,10 @@
-# Rendrix — the TS-GPU rendering engine (decision record + plan)
+# Rendrix — the Rendrix rendering engine (decision record + plan)
 
-Original decision (2026-11-11): TS-GPU builds its **own GPU renderer** that consumes the same
+Original decision (2026-11-11): Rendrix builds its **own GPU renderer** that consumes the same
 compiled document IR the GPUI renderer eats today (`package::Node` — a resolved style tree),
 with the Electron-compat runtime on top. Rewritten the same day by
 [REWRITE_RENDRIX.md](REWRITE_RENDRIX.md): **Rendrix becomes the sole rendering engine** and the
-product renames from TSGPUI to TS-GPU. The renderer key is `"rendrix"` (default); the GPUI host
+product renames from Rendrix to Rendrix. The renderer key is `"rendrix"` (default); the legacy host
 is deprecated and is removed at the Rendrix M1 gate.
 
 ## Why the assembly, and what is genuinely ours
@@ -20,10 +20,10 @@ GPUI. The commodity parts we assemble (and would never rewrite):
 | Text       | `cosmic-text` | Shaping, bidi, font fallback |
 | A11y       | `accesskit`   | UIA/NSAccessibility/AT-SPI bridges |
 
-**Ours, written by us:** the paint pipeline (draw lists → GPU), the mapping from TS-GPU's CSS
+**Ours, written by us:** the paint pipeline (draw lists → GPU), the mapping from Rendrix's CSS
 subset to layout/paint, input + hit testing, text editing state, and the bridge that keeps the
 QuickJS backend, permission model, and Electron-compat runtime working on top. That is the
-renderer. Everything TS-GPU-specific stays ours; nothing else is re-derived.
+renderer. Everything Rendrix-specific stays ours; nothing else is re-derived.
 
 Known deviation from the original brief: text shaping uses **cosmic-text** (already
 implemented, tested, and by construction the same Linebender stack family as Parley) instead
@@ -58,7 +58,7 @@ an independent, open-source `rendrix` crate with its own document types; the hos
 - `gpu/text.rs` — cosmic-text shaping, glyph cache, measurement, caret/selection geometry
 - `gpu/backend.rs` — glues document → layout → paint; re-layouts on state change
 - `gpu/input.rs` — pointer/keyboard hit testing, button/checkbox/textarea state machines
-- `gpu_main.rs` — the `rendrix-host` binary shell (feature `rendrix`; package `tsgpu-host`)
+- `gpu_main.rs` — the `rendrix-host` binary shell (feature `rendrix`; package `rendrix-host`)
 
 ## Milestones (honest)
 
@@ -70,13 +70,13 @@ an independent, open-source `rendrix` crate with its own document types; the hos
 - **M3:** accesskit tree, multi-window, per-display scale (free with winit), animations
   (rAF-driven interpolation of opacity/color/position — the thing GPUI 0.2.2 never gave us).
 - **M4:** macOS/Linux verification on CI runners; renderer naming/rebrand decision. **Done —
-  the engine is named Rendrix and the product is TS-GPU.**
+  the engine is named Rendrix and the product is Rendrix.**
 
 ## Non-goals (deliberately)
 
 CSS transforms are M3+; video is never (open it in the system browser); full CSS selectors stay
 in the compiler. With the WebView renderer removed, Rendrix owns everything in-tree; the
-deprecated GPUI host is the temporary fallback for anything Rendrix has not caught up with,
+deprecated legacy host is the temporary fallback for anything Rendrix has not caught up with,
 until the M1 gate.
 
 ## Risks, stated plainly

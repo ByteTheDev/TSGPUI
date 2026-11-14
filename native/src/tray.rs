@@ -12,7 +12,7 @@
 //!   menu.
 //!
 //! Events are queued for the host to deliver to the compatibility shim through
-//! `__tsgpui_host_event("tray.event", ...)`.
+//! `__rendrix_host_event("tray.event", ...)`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -239,7 +239,7 @@ mod platform {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
         std::thread::Builder::new()
-            .name("tsgpui-tray".into())
+            .name("rendrix-tray".into())
             .spawn(move || run(cmd_rx, ready_tx))
             .map_err(|error| format!("Unable to start the tray thread: {error}"))?;
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
@@ -299,8 +299,8 @@ mod platform {
     fn run(rx: Receiver<Cmd>, ready: Sender<Result<u32, String>>) {
         unsafe {
             let instance = GetModuleHandleW(std::ptr::null());
-            let class_name = wide("TSGPUITrayWindow");
-            let window_name = wide("TSGPUI tray");
+            let class_name = wide("RendrixTrayWindow");
+            let window_name = wide("Rendrix tray");
             let window_class = WNDCLASSW {
                 style: 0,
                 lpfnWndProc: Some(wndproc),
@@ -616,7 +616,7 @@ mod platform {
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "TSGPUITTrayTarget"]
+        #[name = "RendrixTTrayTarget"]
         #[ivars = TargetIvars]
         struct TrayTarget;
 
@@ -780,7 +780,7 @@ mod platform {
 
     impl ksni::Tray for LinuxTray {
         fn id(&self) -> String {
-            format!("tsgpui-{}", self.id)
+            format!("rendrix-{}", self.id)
         }
 
         fn title(&self) -> String {

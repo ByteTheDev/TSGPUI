@@ -1,4 +1,4 @@
-import type { AppDefinition, BackendAPI } from "tsgpu/types";
+import type { AppDefinition, BackendAPI } from "rendrix/types";
 
 type Task = { id: string; title: string; body: string; done: boolean };
 type Row = { marker: string; title: string; meta: string };
@@ -17,8 +17,8 @@ type ListState = {
 const SEED: Task[] = [
   { id: "1", title: "Write the README", body: "Explain what the app does and how to run it.", done: true },
   { id: "2", title: "Add a settings screen", body: "Theme, window size and where data is stored.", done: false },
-  { id: "3", title: "Package for Windows", body: "Run tsgpu build and test the executable on a clean machine.", done: false },
-  { id: "4", title: "Sign the release", body: "Use tsgpu sign so SmartScreen does not warn.", done: false }
+  { id: "3", title: "Package for Windows", body: "Run rendrix build and test the executable on a clean machine.", done: false },
+  { id: "4", title: "Sign the release", body: "Use rendrix sign so SmartScreen does not warn.", done: false }
 ];
 
 const NOTHING: Detail = { title: "Nothing selected", meta: "", body: "Use Previous and Next to pick a task.", action: "Mark done" };

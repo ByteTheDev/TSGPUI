@@ -468,7 +468,7 @@ impl Capabilities {
                 let title = options.get("title").and_then(Value::as_str).ok_or("Notification title must be a string")?;
                 let body = options.get("body").and_then(Value::as_str).unwrap_or("");
                 let mut notification = notify_rust::Notification::new();
-                notification.appname("TS-GPU").summary(title).body(body);
+                notification.appname("Rendrix").summary(title).body(body);
                 notification.show().map(|_| Value::Null).map_err(|error| error.to_string())
             }
             // OS tray icons and global hotkeys. The backend is trusted app code, so no grant is
@@ -959,7 +959,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("tsgpui-cap-{name}-{stamp}"));
+        let dir = std::env::temp_dir().join(format!("rendrix-cap-{name}-{stamp}"));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

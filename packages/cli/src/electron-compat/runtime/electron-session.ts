@@ -126,7 +126,7 @@ function hashText(text: string): string {
 
 function cookieFileName(key: string): string {
   const safe = key.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'default';
-  return `tsgpui-session-cookies-${safe}-${hashText(key)}.json`;
+  return `rendrix-session-cookies-${safe}-${hashText(key)}.json`;
 }
 
 function sessionStoreKey(partition: string, storagePath: string | null): string {
@@ -558,7 +558,7 @@ export class Session extends EventEmitter {
     this.userAgentValue = userAgent;
     this.acceptLanguagesValue = acceptLanguages;
     const g: any = globalThis;
-    g.__tsgpui_user_agent = userAgent;
+    g.__rendrix_user_agent = userAgent;
     const r = await hostOp('session.setUserAgent', { partition: this.partition || undefined, userAgent, acceptLanguages });
     if (r == null || (typeof r === 'object' && !Array.isArray(r) && !Object.keys(r).length)) {
       let applied = false;
@@ -909,7 +909,7 @@ export class DownloadItem extends EventEmitter {
 const partitions = new Map<string, Session>();
 
 function native(): Session {
-  return new Session('persist:tsgpui-default');
+  return new Session('persist:rendrix-default');
 }
 
 export const session = Object.assign(native(), {

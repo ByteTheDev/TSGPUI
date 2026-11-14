@@ -1,7 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Exe)
 $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
-$work = Join-Path ([IO.Path]::GetTempPath()) ('tsgpui-smoke-' + [guid]::NewGuid())
+$work = Join-Path ([IO.Path]::GetTempPath()) ('rendrix-smoke-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path (Join-Path $work 'notes') -Force | Out-Null
 $copy = Join-Path $work 'notes-app.exe'
 Copy-Item -LiteralPath $Exe -Destination $copy
@@ -9,7 +9,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class TsgpuiSmoke {
+public class RendrixSmoke {
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
@@ -18,9 +18,9 @@ public class TsgpuiSmoke {
 }
 "@
 function Click-At([int]$x,[int]$y) {
-  [TsgpuiSmoke]::SetCursorPos($rect.Left + $x, $rect.Top + $y) | Out-Null
-  [TsgpuiSmoke]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
-  [TsgpuiSmoke]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+  [RendrixSmoke]::SetCursorPos($rect.Left + $x, $rect.Top + $y) | Out-Null
+  [RendrixSmoke]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+  [RendrixSmoke]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
   Start-Sleep -Milliseconds 200
 }
 function Wait-ForFile([string]$file) {
@@ -32,10 +32,10 @@ try {
   $process = Start-Process -FilePath $copy -PassThru
   for ($i=0; $i -lt 100; $i++) { $process.Refresh(); if ($process.HasExited) { throw 'App exited before its window appeared' }; if ($process.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 100 }
   if ($process.MainWindowHandle -eq 0) { throw 'App window did not appear' }
-  [TsgpuiSmoke]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+  [RendrixSmoke]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
   Start-Sleep -Seconds 2
-  $rect = New-Object TsgpuiSmoke+RECT
-  [TsgpuiSmoke]::GetWindowRect($process.MainWindowHandle, [ref]$rect) | Out-Null
+  $rect = New-Object RendrixSmoke+RECT
+  [RendrixSmoke]::GetWindowRect($process.MainWindowHandle, [ref]$rect) | Out-Null
   # Tab order: name, Save, Open, Delete, Refresh, editor.
   [System.Windows.Forms.SendKeys]::SendWait('{TAB}smoke{TAB}{TAB}{TAB}{TAB}{TAB}hello smoke')
   Click-At 360 116

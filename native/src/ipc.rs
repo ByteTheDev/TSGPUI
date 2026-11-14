@@ -1,7 +1,7 @@
 //! Messages between an app and other local processes, for apps that grant `ipc`.
 //!
 //! The host listens on 127.0.0.1 on a free port and requires a random token. Both are passed to
-//! processes started with `process.spawn` as `TSGPU_IPC_ADDR` and `TSGPU_IPC_TOKEN`. A peer
+//! processes started with `process.spawn` as `RENDRIX_IPC_ADDR` and `RENDRIX_IPC_TOKEN`. A peer
 //! connects and sends `{"token":"..."}` as its first line, then exchanges newline-delimited
 //! `{"channel":"...","payload":...}` messages. Messages the app sends reach every connected peer
 //! and the app's own listeners. Messages from peers reach the app's listeners only.
@@ -64,8 +64,8 @@ impl IpcHub {
     /// The variables a child process needs to find this hub.
     pub fn environment(&self) -> Vec<(String, String)> {
         vec![
-            ("TSGPU_IPC_ADDR".to_string(), self.addr.to_string()),
-            ("TSGPU_IPC_TOKEN".to_string(), self.token.clone()),
+            ("RENDRIX_IPC_ADDR".to_string(), self.addr.to_string()),
+            ("RENDRIX_IPC_TOKEN".to_string(), self.token.clone()),
         ]
     }
 

@@ -7,21 +7,21 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {SUPPORTED_TARGETS} from '../src/hosts.mjs';
 
-const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '../bin/tsgpu.mjs');
+const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '../bin/rendrix.mjs');
 
 test('the supported targets cover Windows, macOS and Linux on x64 and arm64', () => {
   assert.deepEqual(SUPPORTED_TARGETS, ['win32-x64', 'win32-arm64', 'darwin-arm64', 'linux-x64', 'linux-arm64']);
 });
 
 test('build --target all attempts every target and reports each outcome', async t => {
-  const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-all-')); t.after(() => rm(tmp, {recursive: true, force: true}));
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'rendrix-all-')); t.after(() => rm(tmp, {recursive: true, force: true}));
   const project = path.join(tmp, 'app');
   await mkdir(path.join(project, 'src'), {recursive: true});
-  await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify({name: 'allapp', title: 'allapp', version: '1.0.0', renderer: 'rendrix', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts', window: {width: 400, height: 300}}));
+  await writeFile(path.join(project, 'rendrix.config.json'), JSON.stringify({name: 'allapp', title: 'allapp', version: '1.0.0', renderer: 'rendrix', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts', window: {width: 400, height: 300}}));
   await writeFile(path.join(project, 'src/index.html'), '<html><body>x</body></html>');
   await writeFile(path.join(project, 'src/styles.css'), '');
   await writeFile(path.join(project, 'src/backend.ts'), 'export default { state: {}, actions: {} };');
-  const env = {...process.env, TSGPU_NO_DOWNLOAD: '1', TSGPU_HOME: path.join(tmp, 'home')};
+  const env = {...process.env, RENDRIX_NO_DOWNLOAD: '1', RENDRIX_HOME: path.join(tmp, 'home')};
   // This test checks failure reporting, not a potentially expensive local Rust build.
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
   env.PATH = tmp;
@@ -38,10 +38,10 @@ test('a comma-separated target list is accepted and an unknown entry is rejected
 });
 
 test('target shortcuts preserve separate output files', async t => {
-  const tmp = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-target-')); t.after(() => rm(tmp, {recursive: true, force: true}));
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'rendrix-target-')); t.after(() => rm(tmp, {recursive: true, force: true}));
   const project = path.join(tmp, 'app');
   await mkdir(path.join(project, 'src'), {recursive: true});
-  await writeFile(path.join(project, 'tsgpu.config.json'), JSON.stringify({name:'demo', title:'demo', version:'1.0.0', renderer:'rendrix', html:'src/index.html', css:'src/styles.css', backend:'src/backend.ts', window:{width:400,height:300}}));
+  await writeFile(path.join(project, 'rendrix.config.json'), JSON.stringify({name:'demo', title:'demo', version:'1.0.0', renderer:'rendrix', html:'src/index.html', css:'src/styles.css', backend:'src/backend.ts', window:{width:400,height:300}}));
   await writeFile(path.join(project, 'src/index.html'), '<html><body>x</body></html>');
   await writeFile(path.join(project, 'src/styles.css'), '');
   await writeFile(path.join(project, 'src/backend.ts'), 'export default { state: {}, actions: {} };');

@@ -44,7 +44,7 @@ test('the page embeds the bundle as JSON that cannot end its script element', ()
     warnings: [],
   });
   const page = renderPreviewHTML(bundle);
-  const json = page.slice(page.indexOf('id="tsgpu-bundle">') + 'id="tsgpu-bundle">'.length, page.indexOf('</script>', page.indexOf('id="tsgpu-bundle">')));
+  const json = page.slice(page.indexOf('id="rendrix-bundle">') + 'id="rendrix-bundle">'.length, page.indexOf('</script>', page.indexOf('id="rendrix-bundle">')));
   assert.doesNotMatch(json, /</, 'angle brackets are escaped in the JSON');
   assert.equal(JSON.parse(json).backend_js.includes('</script>'), true, 'the value survives as data');
   assert.match(page, /<title>Preview &lt;App&gt;<\/title>/);
@@ -80,10 +80,10 @@ test('preview state merge matches the native rules', () => {
 });
 
 test('startPreview serves the page and a version that changes only on rebuild', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'tsgpui-preview-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'rendrix-preview-'));
   try {
     await mkdir(path.join(dir, 'src'), { recursive: true });
-    await writeFile(path.join(dir, 'tsgpu.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', renderer: 'native', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
+    await writeFile(path.join(dir, 'rendrix.config.json'), JSON.stringify({ name: 'serve-test', title: 'Serve', renderer: 'native', html: 'src/index.html', css: 'src/styles.css', backend: 'src/backend.ts' }));
     await writeFile(path.join(dir, 'src/index.html'), '<body><p>Hello</p></body>');
     await writeFile(path.join(dir, 'src/styles.css'), 'p { color: #ff0000; }');
     await writeFile(path.join(dir, 'src/backend.ts'), backend);
@@ -93,7 +93,7 @@ test('startPreview serves the page and a version that changes only on rebuild', 
       const page = await fetch(session.url);
       assert.equal(page.status, 200);
       const html = await page.text();
-      assert.match(html, /id="tsgpu-bundle"/);
+      assert.match(html, /id="rendrix-bundle"/);
       assert.match(html, /"live":1/);
       const version = await (await fetch(new URL('/version', session.url))).json();
       assert.deepEqual(version, { version: 1 });

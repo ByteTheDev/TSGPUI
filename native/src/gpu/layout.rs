@@ -4,7 +4,7 @@
 //! - `LayoutOutput { rects: HashMap<u64, Rect>, content: (f32, f32) }` — rect per node key in
 //!   logical pixels (already scaled), plus the laid-out content size.
 //! - `measure(root: &crate::package::Node, viewport: (f32, f32), scale: f32) -> LayoutOutput`
-//!   Maps the CSS subset TSGPUI compiles (see docs/SUPPORTED_SYNTAX.md): flex direction/wrap/
+//!   Maps the CSS subset Rendrix compiles (see docs/SUPPORTED_SYNTAX.md): flex direction/wrap/
 //!   gap, padding/margin, border-radius/border, background colors, opacity, width/height
 //!   (px, %, auto), text styling (font-size/weight/color/align). Ignore unsupported properties
 //!   silently for M0; a skipped list comes in M1.
@@ -203,7 +203,7 @@ fn collect(
 /// Map the supported CSS declarations of one node onto a taffy `Style`.
 ///
 /// Every declaration that fails to parse is skipped silently (M0 contract); the same policy
-/// applies to declarations TSGPUI compiles that this module does not model yet.
+/// applies to declarations Rendrix compiles that this module does not model yet.
 fn style_for(node: &Node, vp: (f32, f32)) -> Style {
     let s = &node.style;
     // HTML default is block flow; `Style::default()` is flex, so be explicit.
@@ -459,7 +459,7 @@ fn parse_length_value(value: &str, vp: (f32, f32)) -> Option<ParsedLength> {
         "%" => Some(ParsedLength::Percent(n / 100.0)),
         "rem" | "em" => Some(ParsedLength::Px(n * REM_PX)),
         // Viewport units resolve against the window; nested percentages-of-parent would differ
-        // from browsers, but TSGPUI only compiles vw/vh on near-root elements. Approximation OK.
+        // from browsers, but Rendrix only compiles vw/vh on near-root elements. Approximation OK.
         "vw" => Some(ParsedLength::Px(n * vp.0 / 100.0)),
         "vh" => Some(ParsedLength::Px(n * vp.1 / 100.0)),
         "vmin" => Some(ParsedLength::Px(n * vp.0.min(vp.1) / 100.0)),
@@ -573,7 +573,7 @@ fn align_content(value: &str) -> Option<AlignContent> {
     }
 }
 
-/// Parse any CSS color syntax TSGPUI compiles: `#rgb #rgba #rrggbb #rrggbbaa`, `rgb()/rgba()`
+/// Parse any CSS color syntax Rendrix compiles: `#rgb #rgba #rrggbb #rrggbbaa`, `rgb()/rgba()`
 /// (comma or space separated, optional `/ alpha`), and the named colors that appear in
 /// documents. Returns linear-ish [r, g, b, a] in 0.0–1.0, or None to skip the declaration.
 pub fn parse_color(value: &str) -> Option<Color> {
@@ -648,7 +648,7 @@ fn expand_nibble(n: u8) -> u8 {
     n * 17
 }
 
-/// The named colors that appear in TSGPUI documents and the library styles (a practical
+/// The named colors that appear in Rendrix documents and the library styles (a practical
 /// subset of the CSS named colors; anything else is skipped by the caller).
 fn named_color(v: &str) -> Option<Color> {
     Some(match v {

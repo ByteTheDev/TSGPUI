@@ -18,18 +18,18 @@ mod hotkeys;
 fn main(){
     let bundle_file=match package::bundle_path(){
         Ok(path)=>path,
-        Err(err)=>{eprintln!("tsgpu-gpui-host: {err}");std::process::exit(2)}
+        Err(err)=>{eprintln!("rendrix-legacy-host: {err}");std::process::exit(2)}
     };
     let doc=match package::load(){
         Ok(doc)=>doc,
-        Err(err)=>{eprintln!("tsgpu-gpui-host: {err}");std::process::exit(2)}
+        Err(err)=>{eprintln!("rendrix-legacy-host: {err}");std::process::exit(2)}
     };
     if doc.renderer != "native" {
-        eprintln!("tsgpu-gpui-host: app bundle selects the '{}' renderer; this deprecated host only runs renderer \"native\" bundles (use rendrix-host)",doc.renderer);
+        eprintln!("rendrix-legacy-host: app bundle selects the '{}' renderer; this deprecated host only runs renderer \"native\" bundles (use rendrix-host)",doc.renderer);
         std::process::exit(2);
     }
     // The GPUI host is deprecated: accepted with a warning until the Rendrix M1 gate, then removed.
-    eprintln!("tsgpu-gpui-host: the native renderer is deprecated; migrate bundles to renderer \"rendrix\"");
+    eprintln!("rendrix-legacy-host: the native renderer is deprecated; migrate bundles to renderer \"rendrix\"");
     // Relative filesystem grants resolve against the bundle's folder for `--bundle` runs, and
     // against the app's own folder otherwise.
     let base=bundle_file.as_ref().and_then(|file|file.parent().map(|p|p.to_path_buf()))
@@ -38,7 +38,7 @@ fn main(){
     let grants=capabilities::Capabilities::from_permissions(&doc.permissions,base).with_app(&doc.name,&doc.version);
     let backend=match runtime::JsBackend::with_capabilities(&doc.backend_js,grants){
         Ok(backend)=>backend,
-        Err(err)=>{eprintln!("TSGPUI backend: {err}");std::process::exit(3)}
+        Err(err)=>{eprintln!("Rendrix backend: {err}");std::process::exit(3)}
     };
     view::run(doc,backend,bundle_file);
 }

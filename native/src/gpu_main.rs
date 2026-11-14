@@ -1,5 +1,5 @@
-//! The Rendrix host: the TS-GPU renderer for TS-GPU bundles.
-//! Milestone 0 shell: load the package, hand it to gpu::surface::run. See RENDERER_TSGPU.md.
+//! The Rendrix host: the Rendrix renderer for Rendrix bundles.
+//! Milestone 0 shell: load the package, hand it to gpu::surface::run. See RENDERER_RENDRIX.md.
 #![cfg_attr(all(target_os="windows",not(debug_assertions)),windows_subsystem="windows")]
 #[path = "package.rs"] mod package;
 mod gpu;

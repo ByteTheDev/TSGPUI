@@ -105,7 +105,7 @@ function nearestDisplay(point: Point): Display {
 }
 
 export const screen = Object.assign(new EventEmitter(), {
-  /** TS-GPU addition: re-read the displays from the host and wait for the result. */
+  /** Rendrix addition: re-read the displays from the host and wait for the result. */
   async refresh() { await refreshDisplays(true); if (displaysError) throw displaysError; },
   getPrimaryDisplay(): Display { requireDisplays(); return primaryDisplay as Display; },
   getAllDisplays(): Display[] { return [...requireDisplays()]; },
@@ -169,9 +169,9 @@ function handleDisplayEvent(name: string, display?: any, details?: any) {
     if (evt.startsWith('display-')) void refreshDisplays(false);
   } catch (error) { try { console.error('screen event failed:', error); } catch {} }
 }
-gScreen.__tsgpui_display_event = (name: string, ...args: any[]) => handleDisplayEvent(name, args[0], args[1]);
-gScreen.__tsgpui_screen_event = gScreen.__tsgpui_display_event;
-gScreen.__tsgpui_display_changed = (payload?: any) => {
+gScreen.__rendrix_display_event = (name: string, ...args: any[]) => handleDisplayEvent(name, args[0], args[1]);
+gScreen.__rendrix_screen_event = gScreen.__rendrix_display_event;
+gScreen.__rendrix_display_changed = (payload?: any) => {
   void refreshDisplays(false);
   handleDisplayEvent('display-metrics-changed', payload);
 };
@@ -340,7 +340,7 @@ export const webFrame: any = {
   insertCSS(css: string, _options?: any): Promise<string> {
     const doc = pageDocument();
     if (!doc) return Promise.reject(new Error('webFrame.insertCSS requires a page'));
-    const key = 'tsgpui-css-' + (++insertedCount);
+    const key = 'rendrix-css-' + (++insertedCount);
     const style = doc.createElement('style');
     style.textContent = css;
     (doc.head || doc.documentElement).appendChild(style);

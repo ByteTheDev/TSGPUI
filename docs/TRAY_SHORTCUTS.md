@@ -1,9 +1,9 @@
 # Tray icons and global shortcuts
 
-TS-GPU backs Electron's `Tray` and `globalShortcut` with real OS objects instead of keeping them
+Rendrix backs Electron's `Tray` and `globalShortcut` with real OS objects instead of keeping them
 in memory. The JS shims stay in
 `packages/cli/src/electron-compat/runtime/electron-tray.ts`; everything platform-specific lives in
-`native/src/tray.rs` and `native/src/hotkeys.rs`, so the Rendrix and GPUI hosts share
+`native/src/tray.rs` and `native/src/hotkeys.rs`, so the Rendrix and legacy hosts share
 the same implementation.
 
 Neither feature needs a permission grant. (Historical: the removed WebView renderer's bridge only
@@ -184,7 +184,7 @@ Both are wired in
 `packages/cli/src/electron-compat/runtime/host.ts`.
 
 Host events are delivered through one hook,
-`globalThis.__tsgpu_host_event(channel, payload)`. The native runtime evaluates it as a task in the
+`globalThis.__rendrix_host_event(channel, payload)`. The native runtime evaluates it as a task in the
 backend VM (`native/src/runtime.rs`). (Historical: the removed WebView renderer evaluated it on
 the backend page in `native/src/webview_main.rs`.)
 

@@ -111,10 +111,10 @@ impl WindowState {
 
         // Debug: render the same frame into a copyable texture and dump raw pixels, so the
         // live GPU output can be compared with the window contents directly.
-        if std::env::var_os("TSGPU_DEBUG_PIXELS").is_some() && !self.debug_pixels_done {
+        if std::env::var_os("RENDRIX_DEBUG_PIXELS").is_some() && !self.debug_pixels_done {
             self.debug_pixels_done = true;
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("tsgpu live debug"),
+                label: Some("rendrix live debug"),
                 size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -124,17 +124,17 @@ impl WindowState {
                 view_formats: &[],
             });
             let view = texture.create_view(&Default::default());
-            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu live debug") });
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("rendrix live debug") });
             self.painter.paint(&self.device, &mut encoder, &view, &frame);
             self.queue.submit(Some(encoder.finish()));
             let padded = (width * 4 + 255) / 256 * 256;
             let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("tsgpu live readback"),
+                label: Some("rendrix live readback"),
                 size: (padded * height) as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             });
-            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tsgpu live readback") });
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("rendrix live readback") });
             encoder.copy_texture_to_buffer(
                 texture.as_image_copy(),
                 wgpu::TexelCopyBufferInfo {
@@ -155,7 +155,7 @@ impl WindowState {
                     let start = (row * padded) as usize;
                     out.extend_from_slice(&data[start..start + (width * 4) as usize]);
                 }
-                let _ = std::fs::write(std::env::temp_dir().join("tsgpu-live-pixels.bin"), out);
+                let _ = std::fs::write(std::env::temp_dir().join("rendrix-live-pixels.bin"), out);
             }
             readback.unmap();
         }
@@ -168,13 +168,13 @@ impl WindowState {
                 return;
             }
             Err(err) => {
-                eprintln!("tsgpui-gpu-host: acquire surface failed: {err}");
+                eprintln!("rendrix-gpu-host: acquire surface failed: {err}");
                 return;
             }
         };
         let view = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("tsgpu frame"),
+            label: Some("rendrix frame"),
         });
         self.painter.paint(&self.device, &mut encoder, &view, &frame);
         self.queue.submit([encoder.finish()]);
@@ -216,7 +216,7 @@ impl GpuApp {
         }))
         .map_err(|err| format!("request adapter: {err}"))?;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("tsgpu device"),
+            label: Some("rendrix device"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
             memory_hints: wgpu::MemoryHints::default(),
@@ -376,7 +376,7 @@ pub fn run(doc: &crate::package::AppPackage) -> i32 {
     let event_loop = match EventLoop::new() {
         Ok(loop_) => loop_,
         Err(err) => {
-            eprintln!("tsgpui-gpu-host: event loop: {err}");
+            eprintln!("rendrix-gpu-host: event loop: {err}");
             return 1;
         }
     };
@@ -391,7 +391,7 @@ pub fn run(doc: &crate::package::AppPackage) -> i32 {
     match event_loop.run_app(&mut app) {
         Ok(()) => i32::from(app.error.is_some()),
         Err(err) => {
-            eprintln!("tsgpui-gpu-host: event loop: {err}");
+            eprintln!("rendrix-gpu-host: event loop: {err}");
             1
         }
     }

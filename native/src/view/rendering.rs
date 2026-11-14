@@ -72,7 +72,7 @@ impl AppView {
         crate::accessibility::apply(&_aria);
         let form_action = if is_form { node.attrs.get("data-submit").cloned().or(inherited_submit) } else { inherited_submit };
         let form_node = if is_form { Some(node.clone()) } else { inherited_form };
-        let element_id: gpui::SharedString = format!("tsgpui:{}{}", node.key, repeat_suffix).into();
+        let element_id: gpui::SharedString = format!("rendrix:{}{}", node.key, repeat_suffix).into();
         let mut element = div().id(element_id);
         match style.get("display").map(String::as_str) {
             Some("block") => element = element.block(),
@@ -187,7 +187,7 @@ impl AppView {
                 element = element.on_click(cx.listener(move |this, _, _, cx| {
                     match this.backend.invoke_with_event(&action, serde_json::json!({"type":"click"})) {
                         Ok(()) => cx.notify(),
-                        Err(error) => eprintln!("TSGPUI: {error}"),
+                        Err(error) => eprintln!("Rendrix: {error}"),
                     }
                 }));
             }
@@ -203,13 +203,13 @@ impl AppView {
                         .unwrap_or_else(|| Value::Bool(initially_checked));
                     let checked = !previous.as_bool().unwrap_or(false);
                     if let Some(binding) = &binding {
-                        if let Err(error) = this.backend.set_state(binding, Value::Bool(checked)) { eprintln!("TSGPUI: {error}"); }
+                        if let Err(error) = this.backend.set_state(binding, Value::Bool(checked)) { eprintln!("Rendrix: {error}"); }
                     } else {
                         this.local_values.insert(key, Value::Bool(checked));
                     }
                     if let Some(action) = &action {
                         let event = serde_json::json!({"type":"input","checked":checked,"value":checked,"name":input_name});
-                        if let Err(error) = this.backend.invoke_with_event(action, event) { eprintln!("TSGPUI: {error}"); }
+                        if let Err(error) = this.backend.invoke_with_event(action, event) { eprintln!("Rendrix: {error}"); }
                     }
                     cx.notify();
                 }));
@@ -270,10 +270,10 @@ impl AppView {
                     let next = if event.keystroke.key.eq_ignore_ascii_case("down") { (old + 1) % key_options.len() } else { (old + key_options.len() - 1) % key_options.len() };
                     let value = key_options[next].clone();
                     if let Some(binding) = &binding {
-                        if let Err(error) = this.backend.set_state(binding, Value::String(value.clone())) { eprintln!("TSGPUI: {error}"); }
+                        if let Err(error) = this.backend.set_state(binding, Value::String(value.clone())) { eprintln!("Rendrix: {error}"); }
                     } else { this.local_values.insert(key, Value::String(value.clone())); }
                     if let Some(action) = &key_action {
-                    if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"input","value":value})) { eprintln!("TSGPUI: {error}"); }
+                    if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"input","value":value})) { eprintln!("Rendrix: {error}"); }
                     }
                     this.active_select = None;
                     cx.notify();
@@ -300,7 +300,7 @@ impl AppView {
             let paste_key = paste_key.clone();
             element = element.on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                    if let Err(error) = this.backend.set_state(&paste_key, Value::String(text)) { eprintln!("TSGPUI: {error}"); }
+                    if let Err(error) = this.backend.set_state(&paste_key, Value::String(text)) { eprintln!("Rendrix: {error}"); }
                     cx.notify();
                 }
             }));
@@ -317,11 +317,11 @@ impl AppView {
             element = element.on_click(cx.listener(move |this, _, _, cx| {
                 let parsed = match http_client::Url::parse(&request_url) {
                     Ok(url) => url,
-                    Err(error) => { eprintln!("TSGPUI network request: invalid URL: {error}"); return; }
+                    Err(error) => { eprintln!("Rendrix network request: invalid URL: {error}"); return; }
                 };
                 let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
                 if parsed.scheme() != "https" || parsed.port_or_known_default() != Some(443) || !allowed_hosts.iter().any(|allowed| allowed == &host) {
-                    eprintln!("TSGPUI network request: host is not permitted: {host}");
+                    eprintln!("Rendrix network request: host is not permitted: {host}");
                     return;
                 }
                 // A POST body is a state key. Strings are sent as text; other values are serialized
@@ -332,7 +332,7 @@ impl AppView {
                     if json && !value.is_string() { serde_json::to_string(&value).unwrap_or_default() } else { as_input_string(&value) }
                 }).unwrap_or_default();
                 if body_text.len() > 1024 * 1024 {
-                    eprintln!("TSGPUI network request: request body exceeds 1 MiB");
+                    eprintln!("Rendrix network request: request body exceeds 1 MiB");
                     return;
                 }
                 let target_key = target_key.clone();
@@ -362,25 +362,25 @@ impl AppView {
                     }.await;
                     match result {
                         Ok((status, text)) => { let _ = this.update(cx, |this, cx| {
-                            if let Err(error) = this.backend.set_state(&target_key, Value::String(text)) { eprintln!("TSGPUI network request: {error}"); }
+                            if let Err(error) = this.backend.set_state(&target_key, Value::String(text)) { eprintln!("Rendrix network request: {error}"); }
                             if let Some(key) = &status_key {
-                                if let Err(error) = this.backend.set_state(key, Value::from(status)) { eprintln!("TSGPUI network request: {error}"); }
+                                if let Err(error) = this.backend.set_state(key, Value::from(status)) { eprintln!("Rendrix network request: {error}"); }
                             }
                             if let Some(key) = &error_key {
-                                if let Err(error) = this.backend.set_state(key, Value::String(String::new())) { eprintln!("TSGPUI network request: {error}"); }
+                                if let Err(error) = this.backend.set_state(key, Value::String(String::new())) { eprintln!("Rendrix network request: {error}"); }
                             }
                             cx.notify();
                         }); }
                         Err((status, error)) => {
-                            eprintln!("TSGPUI network request: {error}");
+                            eprintln!("Rendrix network request: {error}");
                             let _ = this.update(cx, |this, cx| {
                                 if let Some(key) = &status_key {
                                     if let Some(status) = status {
-                                        if let Err(error) = this.backend.set_state(key, Value::from(status)) { eprintln!("TSGPUI network request: {error}"); }
+                                        if let Err(error) = this.backend.set_state(key, Value::from(status)) { eprintln!("Rendrix network request: {error}"); }
                                     }
                                 }
                                 if let Some(key) = &error_key {
-                                    if let Err(error) = this.backend.set_state(key, Value::String(error.to_string())) { eprintln!("TSGPUI network request: {error}"); }
+                                    if let Err(error) = this.backend.set_state(key, Value::String(error.to_string())) { eprintln!("Rendrix network request: {error}"); }
                                 }
                                 cx.notify();
                             });
@@ -410,19 +410,19 @@ impl AppView {
                                         match file.take(1024 * 1024 + 1).read_to_end(&mut bytes) {
                                             Ok(_) if bytes.len() <= 1024 * 1024 => match String::from_utf8(bytes) {
                                                 Ok(text) => Some(text),
-                                                Err(_) => { eprintln!("TSGPUI file picker: selected file is not UTF-8 text"); None }
+                                                Err(_) => { eprintln!("Rendrix file picker: selected file is not UTF-8 text"); None }
                                             },
-                                            Ok(_) => { eprintln!("TSGPUI file picker: text files must be at most 1 MiB"); None }
-                                            Err(error) => { eprintln!("TSGPUI file picker: {error}"); None }
+                                            Ok(_) => { eprintln!("Rendrix file picker: text files must be at most 1 MiB"); None }
+                                            Err(error) => { eprintln!("Rendrix file picker: {error}"); None }
                                         }
                                     }
-                                    Err(error) => { eprintln!("TSGPUI file picker: {error}"); None }
+                                    Err(error) => { eprintln!("Rendrix file picker: {error}"); None }
                                 }
                             } else { None };
                             let _ = this.update(cx, |this, cx| {
-                                if let Err(error) = this.backend.set_state(&target_key, Value::String(path)) { eprintln!("TSGPUI: {error}"); }
+                                if let Err(error) = this.backend.set_state(&target_key, Value::String(path)) { eprintln!("Rendrix: {error}"); }
                                 if let (Some(key), Some(contents)) = (&read_key, contents) {
-                                    if let Err(error) = this.backend.set_state(key, Value::String(contents)) { eprintln!("TSGPUI: {error}"); }
+                                    if let Err(error) = this.backend.set_state(key, Value::String(contents)) { eprintln!("Rendrix: {error}"); }
                                 }
                                 cx.notify();
                             });
@@ -438,7 +438,7 @@ impl AppView {
                 let source_key = source_key.clone();
                 let contents = lookup_path(this.backend.state(), &source_key).map(as_input_string).unwrap_or_default();
                 if contents.len() > 1024 * 1024 {
-                    eprintln!("TSGPUI file picker: text files must be at most 1 MiB");
+                    eprintln!("Rendrix file picker: text files must be at most 1 MiB");
                     return;
                 }
                 let suggested_name = suggested_name.clone();
@@ -447,7 +447,7 @@ impl AppView {
                 cx.spawn(async move |_this, _cx| {
                     if let Ok(Ok(Some(path))) = receiver.await {
                         if let Err(error) = std::fs::write(path, contents.as_bytes()) {
-                            eprintln!("TSGPUI file picker: save failed: {error}");
+                            eprintln!("Rendrix file picker: save failed: {error}");
                         }
                     }
                 }).detach();
@@ -464,7 +464,7 @@ impl AppView {
                         let _ = this.update(cx, |this, cx| {
                             match this.backend.invoke_with_event(&action, serde_json::json!({"type":"confirm"})) {
                                 Ok(()) => cx.notify(),
-                                Err(error) => eprintln!("TSGPUI: {error}"),
+                                Err(error) => eprintln!("Rendrix: {error}"),
                             }
                         });
                     }
@@ -507,17 +507,17 @@ impl AppView {
                 if let Some(button) = find_shortcut(&this.document.root, event) {
                     if !this.inspector {
                         if let Some(action) = button.attrs.get("data-onclick") {
-                            if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"shortcut","key":event.keystroke.key})) { eprintln!("TSGPUI: {error}"); }
+                            if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"shortcut","key":event.keystroke.key})) { eprintln!("Rendrix: {error}"); }
                             cx.notify();
                             cx.stop_propagation();
                         }
                     }
                 }
             }));
-            element = element.on_action(cx.listener(|this, action: &TSGPUIAction, _, cx| {
+            element = element.on_action(cx.listener(|this, action: &RendrixAction, _, cx| {
                 if this.inspector { return; }
                 if let Err(error) = this.backend.invoke_with_event(&action.action, serde_json::json!({"type":"menu"})) {
-                    eprintln!("TSGPUI menu action: {error}");
+                    eprintln!("Rendrix menu action: {error}");
                 }
                 cx.notify();
             }));
@@ -540,7 +540,7 @@ impl AppView {
                     })
                 }).collect();
                 if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"drop","files":files})) {
-                    eprintln!("TSGPUI file drop action: {error}");
+                    eprintln!("Rendrix file drop action: {error}");
                 }
                 cx.notify();
             }));
@@ -612,7 +612,7 @@ impl AppView {
                     if form_is_valid(&active_form, this.backend.state(), &this.local_values) {
                         this.validation_errors.remove(&key);
                         if let Some(action) = &submit_action {
-                            if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"submit","submit":true})) { eprintln!("TSGPUI: {error}"); }
+                            if let Err(error) = this.backend.invoke_with_event(action, serde_json::json!({"type":"submit","submit":true})) { eprintln!("Rendrix: {error}"); }
                         }
                     } else { this.validation_errors.insert(key, "Check the required fields and values.".into()); }
                     cx.notify();
@@ -625,7 +625,7 @@ impl AppView {
                 element = element.on_click(cx.listener(move |this, _, _, cx| {
                     if form_is_valid(&active_form, this.backend.state(), &this.local_values) {
                         this.validation_errors.clear();
-                        if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"submit","submit":true})) { eprintln!("TSGPUI: {error}"); }
+                        if let Err(error) = this.backend.invoke_with_event(&action, serde_json::json!({"type":"submit","submit":true})) { eprintln!("Rendrix: {error}"); }
                     } else { this.validation_errors.insert(active_form.key, "Check the required fields and values.".into()); }
                     cx.notify();
                 }));
@@ -679,7 +679,7 @@ impl AppView {
                 this.render_node(&row, cx, window, &scoped, &scoped_paths, inherited_submit.clone(), inherited_form.clone(), &suffix, true)
             }).collect()
         });
-        let list_id: gpui::SharedString = format!("tsgpui-list:{list_key}").into();
+        let list_id: gpui::SharedString = format!("rendrix-list:{list_key}").into();
         uniform_list(list_id, count, rows)
             .track_scroll(scroll)
             .w_full()

@@ -5,7 +5,7 @@ import path from './path';
 import { info, infoReady } from './os';
 
 // netLog: Electron exposes a network log file for traffic captured by the browser process.
-// TS-GPU records the `net.request` traffic its shim sees and writes a JSON log file. Chromium's
+// Rendrix records the `net.request` traffic its shim sees and writes a JSON log file. Chromium's
 // internal sockets, DNS and QUIC events are not available in the embedded engines.
 let netLogCurrentlyLogging = false;
 let netLogFilePath = '';
@@ -31,13 +31,13 @@ export function recordNetLog(entry: any): void {
 function netLogText(state: string): string {
   const payload: any = {
     version: 1,
-    source: 'tsgpu',
+    source: 'rendrix',
     state,
     startedAt: new Date(netLogStartedAt || Date.now()).toISOString(),
     entries: netLogEntries,
   };
   if (netLogStoppedAt) payload.stoppedAt = new Date(netLogStoppedAt).toISOString();
-  try { return JSON.stringify(payload, null, 2); } catch { return JSON.stringify({version: 1, source: 'tsgpu', state}); }
+  try { return JSON.stringify(payload, null, 2); } catch { return JSON.stringify({version: 1, source: 'rendrix', state}); }
 }
 
 async function writeNetLog(state: string): Promise<void> {
@@ -91,7 +91,7 @@ export const netLog = new NetLog();
 
 // powerMonitor state tracking. The host answers `power.state` with the current AC/battery,
 // idle, thermal and lock state, and pushes transitions through
-// `globalThis.__tsgpui_power_event`. The shim re-emits the matching Electron event.
+// `globalThis.__rendrix_power_event`. The shim re-emits the matching Electron event.
 let powerOnBatteryState = false;
 let powerStateKnown = false;
 let powerIdleTimeState = 0;
@@ -123,7 +123,7 @@ function applyHostPowerState(state: any): void {
   }
 }
 
-/** TS-GPU addition: re-read the host's power state. */
+/** Rendrix addition: re-read the host's power state. */
 export function refreshPowerState(): Promise<void> {
   return host('power.state').then(applyHostPowerState, () => undefined);
 }
@@ -176,7 +176,7 @@ export class PowerMonitor extends EventEmitter {
   isOnBatteryPower(): boolean {
     return powerOnBatteryState;
   }
-  /** TS-GPU addition: re-read the host's power state. */
+  /** Rendrix addition: re-read the host's power state. */
   refresh(): Promise<void> {
     return refreshPowerState();
   }
@@ -187,13 +187,13 @@ export const powerMonitor = new PowerMonitor();
 // Host-driven power events. The native/WebView host calls this global when the OS reports a
 // transition; it updates cached state and re-emits the Electron event.
 const gPower: any = globalThis;
-gPower.__tsgpui_power_event = (name: string, ...args: any[]) => {
+gPower.__rendrix_power_event = (name: string, ...args: any[]) => {
   try { (powerMonitor as any).handlePowerEvent?.(String(name), ...args); }
   catch (error) { try { console.error('powerMonitor event failed:', error); } catch {} }
 };
 // Aliases that hosts or tests may use.
-gPower.__tsgpui_powerEvent = gPower.__tsgpui_power_event;
-gPower.__tsgpui_power = gPower.__tsgpui_power_event;
+gPower.__rendrix_powerEvent = gPower.__rendrix_power_event;
+gPower.__rendrix_power = gPower.__rendrix_power_event;
 
 // Seed the cached state from the host once the shim loads. Failures are expected in page-only
 // builds and leave the media-query/local defaults in place.

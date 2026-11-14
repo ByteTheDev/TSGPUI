@@ -17,7 +17,7 @@ use crate::{
     network::NativeHttpClient,
     package::{self, AppPackage, Node},
     runtime::{JsBackend, UiCommand},
-    menus::TSGPUIAction,
+    menus::RendrixAction,
     style as styles,
     text_input::{self, Selection},
 };
@@ -243,7 +243,7 @@ impl AppView {
                 if bytes.len() as u64 <= package::MAX_STATE_BYTES {
                     match serde_json::from_slice::<Value>(&bytes) {
                         Ok(saved) => backend.merge_saved(saved),
-                        Err(error) => eprintln!("TSGPUI persisted state: ignoring invalid JSON: {error}"),
+                        Err(error) => eprintln!("Rendrix persisted state: ignoring invalid JSON: {error}"),
                     }
                 }
             }
@@ -286,8 +286,8 @@ impl AppView {
                 };
                 if error_text != last_error {
                     match &error_text {
-                        Some(message) => eprintln!("TSGPUI hot reload: {message}"),
-                        None if last_error.is_some() => eprintln!("TSGPUI hot reload: build error cleared"),
+                        Some(message) => eprintln!("Rendrix hot reload: {message}"),
+                        None if last_error.is_some() => eprintln!("Rendrix hot reload: build error cleared"),
                         None => {}
                     }
                     last_error = error_text.clone();
@@ -309,7 +309,7 @@ impl AppView {
                     Ok(document) => document,
                     Err(error) => {
                         let message = format!("Build failed: {error}");
-                        eprintln!("TSGPUI hot reload: {message}");
+                        eprintln!("Rendrix hot reload: {message}");
                         let _ = this.update(cx, |view, cx| {
                             view.build_error = Some(message);
                             view.panel_open = true;
@@ -380,14 +380,14 @@ impl AppView {
                 if json == last { continue; }
                 if json.len() as u64 > package::MAX_STATE_BYTES {
                     if !reported_size {
-                        eprintln!("TSGPUI persisted state: state exceeds {} bytes; not saving", package::MAX_STATE_BYTES);
+                        eprintln!("Rendrix persisted state: state exceeds {} bytes; not saving", package::MAX_STATE_BYTES);
                         reported_size = true;
                     }
                     continue;
                 }
                 match write_state_file(&path, json.as_bytes()) {
                     Ok(()) => { last = json; reported_size = false; }
-                    Err(error) => eprintln!("TSGPUI persisted state: {error}"),
+                    Err(error) => eprintln!("Rendrix persisted state: {error}"),
                 }
             }
         }).detach();
@@ -402,7 +402,7 @@ impl AppView {
                 let result = this.update_in(cx, |view, window, cx| {
                     let pump = view.backend.pump();
                     for error in &pump.errors {
-                        eprintln!("TSGPUI: {error}");
+                        eprintln!("Rendrix: {error}");
                     }
                     let commands = view.backend.take_ui_commands();
                     let mut changed = pump.changed || !commands.is_empty();
@@ -432,7 +432,7 @@ impl AppView {
         if self.last_power_poll.map_or(true, |last| now.duration_since(last) >= Duration::from_millis(500)) {
             self.last_power_poll = Some(now);
             for event in crate::platform::take_power_events() {
-                if self.backend.emit_global("__tsgpui_power_event", &[Value::from(event)]).is_ok() { changed = true; }
+                if self.backend.emit_global("__rendrix_power_event", &[Value::from(event)]).is_ok() { changed = true; }
             }
         }
         if self.last_state_poll.map_or(true, |last| now.duration_since(last) >= Duration::from_secs(3)) {
@@ -441,7 +441,7 @@ impl AppView {
             if self.last_system_preferences.as_ref() != Some(&preferences) {
                 let first = self.last_system_preferences.is_none();
                 self.last_system_preferences = Some(preferences);
-                if !first && self.backend.emit_global("__tsgpui_system_preferences_event", &[Value::from("color-changed")]).is_ok() {
+                if !first && self.backend.emit_global("__rendrix_system_preferences_event", &[Value::from("color-changed")]).is_ok() {
                     changed = true;
                 }
             }
@@ -453,13 +453,13 @@ impl AppView {
                 let next_ids: std::collections::HashSet<u64> = next.iter().map(display_id).collect();
                 for display in &next {
                     if !previous_ids.contains(&display_id(display)) {
-                        let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-added"), display.clone(), Value::Null]);
+                        let _ = self.backend.emit_global("__rendrix_display_event", &[Value::from("display-added"), display.clone(), Value::Null]);
                         changed = true;
                     }
                 }
                 for display in &previous {
                     if !next_ids.contains(&display_id(display)) {
-                        let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-removed"), display.clone(), Value::Null]);
+                        let _ = self.backend.emit_global("__rendrix_display_event", &[Value::from("display-removed"), display.clone(), Value::Null]);
                         changed = true;
                     }
                 }
@@ -467,7 +467,7 @@ impl AppView {
                     if let Some(old) = previous.iter().find(|old| display_id(old) == display_id(display)) {
                         if old != display {
                             let details = serde_json::json!({"bounds": true, "workArea": true, "scaleFactor": old["scaleFactor"] != display["scaleFactor"], "rotation": false});
-                            let _ = self.backend.emit_global("__tsgpui_display_event", &[Value::from("display-metrics-changed"), display.clone(), details]);
+                            let _ = self.backend.emit_global("__rendrix_display_event", &[Value::from("display-metrics-changed"), display.clone(), details]);
                             changed = true;
                         }
                     }
@@ -569,7 +569,7 @@ pub fn run(doc: AppPackage, backend: JsBackend, bundle_file: Option<PathBuf>) {
             STANDARD.decode(encoded).ok().map(std::borrow::Cow::Owned)
         }).collect();
         if let Err(error) = cx.text_system().add_fonts(fonts) {
-            eprintln!("TSGPUI font load error: {error}");
+            eprintln!("Rendrix font load error: {error}");
         }
         let bounds = Bounds::centered(None, size(px(doc.width as f32), px(doc.height as f32)), cx);
         let mut options = WindowOptions {

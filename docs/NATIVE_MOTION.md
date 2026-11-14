@@ -4,10 +4,10 @@
 > "use `renderer: "webview"`" guidance below no longer works — it is a hard error. CSS
 > `transition`, `animation`, and `transform` are unsupported in every in-tree engine today.
 > The Rendrix roadmap (M3) plans rAF-driven interpolation of opacity, color, and position
-> ([RENDERER_TSGPU.md](RENDERER_TSGPU.md)). The GPUI investigation below is kept as the
+> ([RENDERER_RENDRIX.md](RENDERER_RENDRIX.md)). The GPUI investigation below is kept as the
 > record of why no native path was chosen for GPUI.
 
-This note records the investigation of CSS motion support on TS-GPU's native
+This note records the investigation of CSS motion support on Rendrix's native
 renderer (`renderer: "native"`): transitions, animations, and transforms. It
 complements [`SUPPORTED_SYNTAX.md`](./SUPPORTED_SYNTAX.md) and
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
@@ -125,14 +125,14 @@ transforms unsupported. It is not justified for motion alone.
 4. **Small improvement made:** the CSS compiler's unsupported-property warning
    for `transition`, `transform`, and `animation` now names the cause and points
    at the Rendrix animation plan (`packages/cli/src/css.mjs`), so users hitting this
-   in `tsgpu dev`/`build` get an actionable message. Other unsupported
+   in `rendrix dev`/`build` get an actionable message. Other unsupported
    properties keep the shorter message. Existing tests still match the
    `'...' is not supported yet` prefix.
 
 ## How to use motion today
 
 You cannot, on any in-tree engine. The webview-era instructions (setting
-`{ "renderer": "webview" }` in `tsgpu.config.json` and relying on the platform
+`{ "renderer": "webview" }` in `rendrix.config.json` and relying on the platform
 browser engine, as in `examples/electron-sample`) are historical — that renderer
 was removed and the key now fails the build. Until Rendrix M3 ships animations,
 CSS `transition`, `animation`, and `transform` remain unsupported.

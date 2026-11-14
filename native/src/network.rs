@@ -22,7 +22,7 @@ impl NativeHttpClient {
 
 impl HttpClient for NativeHttpClient {
     fn type_name(&self) -> &'static str {
-        "TSGPUI allowlisted HTTP client"
+        "Rendrix allowlisted HTTP client"
     }
 
     fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
@@ -39,7 +39,7 @@ impl HttpClient for NativeHttpClient {
             let mut request_bytes = Vec::new();
             body.take(1024 * 1024 + 1).read_to_end(&mut request_bytes).await?;
             if request_bytes.len() > 1024 * 1024 {
-                anyhow::bail!("TSGPUI request body exceeds 1 MiB");
+                anyhow::bail!("Rendrix request body exceeds 1 MiB");
             }
             let mut request_builder = client.request(parts.method, parts.uri.to_string())
                 .headers(parts.headers)
@@ -53,7 +53,7 @@ impl HttpClient for NativeHttpClient {
             let mut response_bytes = Vec::new();
             while let Some(chunk) = response.chunk().await? {
                 if response_bytes.len() + chunk.len() > 1024 * 1024 {
-                    anyhow::bail!("TSGPUI response body exceeds 1 MiB");
+                    anyhow::bail!("Rendrix response body exceeds 1 MiB");
                 }
                 response_bytes.extend_from_slice(&chunk);
             }

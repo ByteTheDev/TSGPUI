@@ -10,23 +10,23 @@ const COMPONENT_LIBRARY = parseComponentLibrary(COMPONENT_LIBRARY_HTML);
 const NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const HOST_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i;
 // Renderer key semantics (Project Rendrix charter): "rendrix" is the engine and the default (an
-// absent key selects it). "native" is the deprecated GPUI host, accepted with a warning until the
+// absent key selects it). "native" is the deprecated legacy host, accepted with a warning until the
 // Rendrix M1 gate. "gpu" is the old name of the engine, accepted with the same warning. "webview"
 // is a hard error with migration guidance.
 function rendererKey(raw) {
   if (raw === undefined || raw === null || raw === 'rendrix') return 'rendrix';
   if (raw === 'gpu') return 'rendrix';
   if (raw === 'native') return 'native';
-  if (raw === 'webview') throw new Error('renderer "webview" was removed; TS-GPU renders natively with Rendrix. Remove the renderer key from tsgpu.config.json (it defaults to "rendrix"), or set it to "rendrix", and write the app UI in src/index.html + styles.css.');
-  throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated GPUI host), not ${JSON.stringify(raw)}`);
+  if (raw === 'webview') throw new Error('renderer "webview" was removed; Rendrix renders natively with Rendrix. Remove the renderer key from rendrix.config.json (it defaults to "rendrix"), or set it to "rendrix", and write the app UI in src/index.html + styles.css.');
+  throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated legacy host), not ${JSON.stringify(raw)}`);
 }
 export function validateConfig(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('tsgpu.config.json must be an object');
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('rendrix.config.json must be an object');
   for (const key of ['name','html','css','backend']) if (typeof raw[key] !== 'string' || !raw[key]) throw new Error(`Missing string config property: ${key}`);
   if (!NAME_RE.test(raw.name)) throw new Error('Invalid name; use letters, digits, _ or -');
   const version = raw.version ?? '1.0.0';
   if (typeof version !== 'string' || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version)) throw new Error('version must be a three-part numeric version, e.g. 1.2.3');
-  const bundleId = raw.bundleId ?? `dev.tsgpu.${raw.name.replaceAll('_','-')}`;
+  const bundleId = raw.bundleId ?? `dev.rendrix.${raw.name.replaceAll('_','-')}`;
   if (typeof bundleId !== 'string' || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(bundleId)) throw new Error('bundleId must be a reverse-DNS identifier');
   if (raw.icon !== undefined && (typeof raw.icon !== 'string' || !raw.icon.endsWith('.icns'))) throw new Error('icon must be a project-relative .icns file');
   const width = raw.window?.width ?? 900;
@@ -112,14 +112,14 @@ export function validateConfig(raw) {
   }
   const renderer = rendererKey(raw.renderer);
   const rendererWarnings = [];
-  if (raw.renderer === 'native') rendererWarnings.push('renderer "native" selects the deprecated GPUI host; migrate to "rendrix" (the default) before the Rendrix M1 gate');
+  if (raw.renderer === 'native') rendererWarnings.push('renderer "native" selects the deprecated legacy host; migrate to "rendrix" (the default) before the Rendrix M1 gate');
   if (raw.renderer === 'gpu') rendererWarnings.push('renderer "gpu" is the old name of the Rendrix renderer; rename it to "rendrix" or remove the key');
-  if (raw.webviewPages !== undefined) throw new Error('webviewPages was removed with the WebView renderer; delete the key from tsgpu.config.json');
+  if (raw.webviewPages !== undefined) throw new Error('webviewPages was removed with the WebView renderer; delete the key from rendrix.config.json');
   const maxBundleSize = raw.maxBundleSize ?? 256 * 1024 * 1024;
   if (!Number.isSafeInteger(maxBundleSize) || maxBundleSize <= 0) throw new Error('maxBundleSize must be a positive integer in bytes');
   // Custom in-page schemes allowlisted for packaged assets (derived by the Electron importer).
   const protocolRaw = raw.protocolSchemes ?? [];
-  if (!Array.isArray(protocolRaw) || protocolRaw.some(s => typeof s !== 'string' || !/^[a-z][a-z0-9+.-]*$/i.test(s) || ['http','https','ws','wss'].includes(s.toLowerCase()) || s.toLowerCase() === 'tsgpui')) throw new Error('protocolSchemes must contain valid in-page scheme names (no http/https/ws/wss or tsgpui)');
+  if (!Array.isArray(protocolRaw) || protocolRaw.some(s => typeof s !== 'string' || !/^[a-z][a-z0-9+.-]*$/i.test(s) || ['http','https','ws','wss'].includes(s.toLowerCase()) || s.toLowerCase() === 'rendrix')) throw new Error('protocolSchemes must contain valid in-page scheme names (no http/https/ws/wss or rendrix)');
   const protocolSchemes = [...new Set(protocolRaw.map(s => s.toLowerCase()))].sort();
   // "unified" hides the system title bar; the app draws one and marks its drag area with data-window-drag.
   // "blur" asks the window for a blurred backdrop, which Windows supports only on some systems.
@@ -189,18 +189,18 @@ function collectImagePaths(node, paths = new Set()) {
 }
 export async function readProject(projectPath) {
   const projectRoot = path.resolve(projectPath);
-  // tsgpu.config.json is the canonical name since the TS-GPU rename; the old
-  // tsgpui.config.json still loads with a deprecation warning for one transition.
-  const newFile = path.join(projectRoot,'tsgpu.config.json');
-  const legacyFile = path.join(projectRoot,'tsgpui.config.json');
+  // rendrix.config.json is the canonical name since the Rendrix rename; the old
+  // rendrix.config.json still loads with a deprecation warning for one transition.
+  const newFile = path.join(projectRoot,'rendrix.config.json');
+  const legacyFile = path.join(projectRoot,'rendrix.config.json');
   const legacyExists = await readFile(legacyFile,'utf8').then(() => true,() => false);
   const newExists = await readFile(newFile,'utf8').then(() => true,() => false);
   if (!newExists && legacyExists) {
-    console.error('Warning: this project uses tsgpui.config.json; rename it to tsgpu.config.json (the old name is deprecated by the TS-GPU rename).');
+    console.error('Warning: this project uses rendrix.config.json; rename it to rendrix.config.json (the old name is deprecated by the Rendrix rename).');
   }
   const configFile = newExists ? newFile : legacyFile;
-  const label = newExists ? 'tsgpu.config.json' : 'tsgpui.config.json';
-  if (!newExists && !legacyExists) throw new Error('No tsgpu.config.json found in the project root');
+  const label = newExists ? 'rendrix.config.json' : 'rendrix.config.json';
+  if (!newExists && !legacyExists) throw new Error('No rendrix.config.json found in the project root');
   await assertRealInside(projectRoot,configFile,label);
   const config = validateConfig(JSON.parse(await readFile(configFile,'utf8')));
   const paths = {
@@ -289,9 +289,9 @@ export function compileProject({html,css,backend,config,sourceFiles={},assets={}
   catch (error) { throw new Error(`${sourceFiles.backend ?? 'backend.ts'}: ${error.message}`, {cause:error}); }
   root = canonicalNode(root);
   return {
-    format:'tsgpu-1',
+    format:'rendrix-1',
     renderer:config.renderer ?? 'rendrix',
-    name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.tsgpu.${config.name.replaceAll("_", "-")}`,
+    name:config.name,title:config.title,version:config.version ?? "1.0.0",bundle_id:config.bundleId ?? `dev.rendrix.${config.name.replaceAll("_", "-")}`,
     width:config.width,height:config.height,
     root,backend_js,assets,fonts:config.fonts ?? {},
     persist:config.persist === true,

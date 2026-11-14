@@ -88,7 +88,7 @@ class SystemPreferences extends EventEmitter {
     void this.refresh();
   }
 
-  /** TS-GPU addition: re-read the host's system preference values. */
+  /** Rendrix addition: re-read the host's system preference values. */
   async refresh(): Promise<void> {
     try {
       const values = await host('systemPreferences.info');
@@ -236,15 +236,15 @@ class SystemPreferences extends EventEmitter {
 export const systemPreferences = new SystemPreferences();
 
 const gSystem: any = globalThis;
-gSystem.__tsgpui_system_preferences_event = (name: string, ...args: any[]) => {
+gSystem.__rendrix_system_preferences_event = (name: string, ...args: any[]) => {
   try {
     const sp = systemPreferences as any;
     if (typeof sp.handleSystemEvent === 'function') sp.handleSystemEvent(String(name), ...args);
     else sp.emit?.(String(name), ...args);
   } catch (error) { try { console.error('systemPreferences event failed:', error); } catch {} }
 };
-gSystem.__tsgpui_system_event = gSystem.__tsgpui_system_preferences_event;
-gSystem.__tsgpui_theme_event = gSystem.__tsgpui_system_preferences_event;
+gSystem.__rendrix_system_event = gSystem.__rendrix_system_preferences_event;
+gSystem.__rendrix_theme_event = gSystem.__rendrix_system_preferences_event;
 
 // Partial shim for Electron's TouchBar. Returns an inspectable object.
 export class TouchBarButton { constructor(options?: any) { Object.assign(this, options || {}); } }

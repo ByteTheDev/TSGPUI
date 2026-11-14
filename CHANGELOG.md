@@ -2,14 +2,14 @@
 
 ## Unreleased — the Rendrix rewrite
 
-**TS-GPU renames from TSGPUI; WebView renderer removed; Rendrix is the sole rendering engine.**
+**Rendrix renames from Rendrix; WebView renderer removed; Rendrix is the sole rendering engine.**
 Owner-authorized decision of 2026-11-11; the full contract is
 [docs/REWRITE_RENDRIX.md](docs/REWRITE_RENDRIX.md). The pre-rewrite implementation is preserved
 at branch `backup/webview-era` (tag `webview-era-checkpoint`, commit `0fc860b`).
 
-- **Developer experience.** Compile errors in HTML and CSS now print `file:line:col` (CSS no longer shows `<css input>`). `tsgpu doctor` also checks the release manifest, can probe the download URL (`--online`) and checks the TypeScript/PostCSS toolchain. `tsgpu init --template` adds `form`, `list-detail` and `electron-import` starters. The Electron importer resolves concatenated/templated/`url.format` `file:` page URLs, falls back to a root `index.html`, explains remote-only apps, and no longer flags `app.*` calls the runtime implements. Results on real apps: [docs/ELECTRON_IMPORT_RESULTS.md](docs/ELECTRON_IMPORT_RESULTS.md).
-$2** Product TS-GPU (was TSGPUI); CLI package/command `tsgpu`; bundle magic `TSGPU001`;
-  home env var `TSGPU_HOME`; renderer config key `"rendrix"` (the default). Entries below the
+- **Developer experience.** Compile errors in HTML and CSS now print `file:line:col` (CSS no longer shows `<css input>`). `rendrix doctor` also checks the release manifest, can probe the download URL (`--online`) and checks the TypeScript/PostCSS toolchain. `rendrix init --template` adds `form`, `list-detail` and `electron-import` starters. The Electron importer resolves concatenated/templated/`url.format` `file:` page URLs, falls back to a root `index.html`, explains remote-only apps, and no longer flags `app.*` calls the runtime implements. Results on real apps: [docs/ELECTRON_IMPORT_RESULTS.md](docs/ELECTRON_IMPORT_RESULTS.md).
+$2** Product Rendrix (was Rendrix); CLI package/command `rendrix`; bundle magic `RENDRIX001`;
+  home env var `RENDRIX_HOME`; renderer config key `"rendrix"` (the default). Entries below the
   Unreleased section describe releases as they shipped under the old name and are left as
   written.
 - **WebView renderer removed.** `renderer: "webview"` is a hard error with migration guidance;
@@ -18,7 +18,7 @@ $2** Product TS-GPU (was TSGPUI); CLI package/command `tsgpu`; bundle magic `TSG
   (`rendrix-host`, feature `rendrix`) is the only rendering engine. It is in **early beta**:
   feature coverage is limited and a long way from stable; state-driven re-render, hover/active/
   focus, scrolling, images, text editing, accessibility, and animations are on the M1–M3 ladder.
-- **Deprecated GPUI host.** `tsgpu-gpui-host` (renderer key `"native"`) still works with a
+- **Deprecated legacy host.** `rendrix-legacy-host` (renderer key `"native"`) still works with a
   deprecation warning and is scheduled for removal at the Rendrix M1 gate.
 - **Preserved.** The Electron-compat runtime, the updater (host-side download/verify/install),
   the QuickJS backend + permissions model, and the renderer-agnostic smoke/benchmark scripts
@@ -36,7 +36,7 @@ This is a beta. Interfaces may change before 0.4.0, and the platform hosts for m
 
 ### Added
 
-- **Electron import.** `tsgpui import electron <dir>` converts an Electron project into a TSGPUI project and writes a review report. `tsgpui run`, `build` and the target shortcuts also accept Electron project directories. The importer does not modify the source project.
+- **Electron import.** `rendrix import electron <dir>` converts an Electron project into a Rendrix project and writes a review report. `rendrix run`, `build` and the target shortcuts also accept Electron project directories. The importer does not modify the source project.
 - **Electron compatibility runtime.** `require('electron')`, `fs`, `path`, `os`, `child_process`, `https` and `net` are provided by shims. Every Electron 33 export is classified as implemented, partial or unsupported in the coverage ledger, and a test fails when the ledger is out of date.
 - **Electron shims on the native renderer.** The native renderer runs the same shims through new `api.native` operations: `app`, `clipboard`, `dialog`, `shell`, `net`, `power` and `screen`.
 - **Named filesystem roots.** `api.native.filesystem` operations accept `{ root, path }`. The root can be a permission root, `userData`, or a file the user picked in a dialog. Picked files are granted for that one file only.

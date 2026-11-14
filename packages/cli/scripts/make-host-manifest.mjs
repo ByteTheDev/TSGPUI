@@ -1,7 +1,7 @@
 // Writes hosts.json (schema 2) for a release: one entry per host executable found in a directory.
 //   node scripts/make-host-manifest.mjs <directory-with-hosts> <version>
-// Hosts must be named like rendrix-host-win32-x64.exe or tsgpu-gpui-host-win32-x64.exe
-// (see assetName in src/hosts.mjs). The deprecated GPUI host is published while it is supported.
+// Hosts must be named like rendrix-host-win32-x64.exe or rendrix-legacy-host-win32-x64.exe
+// (see assetName in src/hosts.mjs). The deprecated legacy host is published while it is supported.
 import {createHash} from 'node:crypto';
 import {readdir, readFile, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -12,8 +12,8 @@ if (!directory || !/^\d+\.\d+\.\d+/.test(version ?? '')) {
   console.error('usage: make-host-manifest.mjs <directory> <version>');
   process.exit(2);
 }
-const pattern = /^(rendrix-host|tsgpu-gpui-host)-((?:win32|darwin|linux)-(?:x64|arm64))(?:\.exe)?$/;
-const RENDERER_OF = {'rendrix-host': 'rendrix', 'tsgpu-gpui-host': 'native'};
+const pattern = /^(rendrix-host|rendrix-legacy-host)-((?:win32|darwin|linux)-(?:x64|arm64))(?:\.exe)?$/;
+const RENDERER_OF = {'rendrix-host': 'rendrix', 'rendrix-legacy-host': 'native'};
 const hosts = [];
 for (const name of (await readdir(directory)).sort()) {
   const match = pattern.exec(name);

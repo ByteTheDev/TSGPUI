@@ -1,4 +1,4 @@
-// Packaged-app smoke test: launches a built TSGPUI executable, waits for its main window,
+// Packaged-app smoke test: launches a built Rendrix executable, waits for its main window,
 // captures a frame, and asserts the window rendered something (not a blank frame), stays
 // responsive, and appeared within 30 seconds.
 //
@@ -19,7 +19,7 @@ if (!exe) {
 const script = fileURLToPath(new URL('./smoke-packaged.ps1', import.meta.url));
 // The report travels through a file, not stdout: PowerShell's console encoding can mangle
 // non-ASCII window titles into control characters that break JSON.parse.
-const raw = mkdtempSync(join(tmpdir(), 'tsgpui-smoke-'));
+const raw = mkdtempSync(join(tmpdir(), 'rendrix-smoke-'));
 let report;
 try {
   const json = execFileSync('powershell.exe', [

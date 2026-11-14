@@ -16,7 +16,7 @@ test('unsigned artifact is reported', async () => {
   try { assert.equal(await signArtifact('a', ''), false); assert.match(message, /unsigned/); } finally {console.log = old;}
 });
 test('manifest hashes bytes and signs exact contents', async () => {
-  const dir = await mkdtemp(path.join(tmpdir(),'tsgpui-sign-'));
+  const dir = await mkdtemp(path.join(tmpdir(),'rendrix-sign-'));
   try {
     const file = path.join(dir,'a.tgp'), manifest = path.join(dir,'manifest.json'), keyfile = path.join(dir,'key.pem');
     await writeFile(file,'abc');

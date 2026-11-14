@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TS-GPU · Web markup. Native pixels.</title>
+    <title>Rendrix · Web markup. Native pixels.</title>
     <meta
       name="description"
-      content="TS-GPU compiles a strict subset of HTML and CSS into a native desktop executable rendered by the Rendrix engine, with TypeScript actions running in embedded QuickJS."
+      content="Rendrix compiles a strict subset of HTML and CSS into a native desktop executable rendered by the Rendrix engine, with TypeScript actions running in embedded QuickJS."
     />
     <meta name="theme-color" content="#0b0a09" />
-    <link rel="icon" type="image/png" href="assets/tsgpu-logo.png" />
+    <link rel="icon" type="image/png" href="assets/rendrix-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -23,9 +23,9 @@
 
     <header class="site-nav">
       <div class="nav-inner">
-        <a class="brand" href="#top" aria-label="TS-GPU home">
-          <img class="brand-mark" src="assets/tsgpu-logo.png" alt="" aria-hidden="true" />
-          <span>TS-GPU</span>
+        <a class="brand" href="#top" aria-label="Rendrix home">
+          <img class="brand-mark" src="assets/rendrix-logo.png" alt="" aria-hidden="true" />
+          <span>Rendrix</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
           <a href="#demo">Demo</a>
@@ -34,7 +34,7 @@
           <a href="#docs">Docs</a>
           <a href="#status">Status</a>
         </nav>
-        <a class="nav-github" href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">GitHub</a>
+        <a class="nav-github" href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">GitHub</a>
         <a class="btn btn-primary btn-small" href="#quick-start">Quick start</a>
       </div>
     </header>
@@ -47,7 +47,7 @@
             Web markup<br />Native pixels.
           </h1>
           <p class="lede reveal" style="--d: 1">
-            TS-GPU compiles a strict subset of HTML and CSS into one native Windows
+            Rendrix compiles a strict subset of HTML and CSS into one native Windows
             executable. The Rendrix engine draws the window, and no browser or Node runtime ships
             with the app. It is an experimental prototype, and Rendrix is in early beta.
           </p>
@@ -57,7 +57,7 @@
               <span class="arrow" aria-hidden="true">→</span>
             </a>
             <a class="btn btn-ghost" href="#demo">See the demo</a>
-            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/tsgpu" target="_blank" rel="noopener">Install from npm</a>
+            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener">Install from npm</a>
           </div>
 
           <dl class="compare reveal" style="--d: 3">
@@ -66,7 +66,7 @@
               <dd>Ships Chromium and Node.js with every app.</dd>
             </div>
             <div>
-              <dt>TS-GPU</dt>
+              <dt>Rendrix</dt>
               <dd>The Rendrix engine is the only renderer. No browser engine ships with the app.</dd>
             </div>
           </dl>
@@ -76,12 +76,12 @@
           <div class="app app-hero" data-counter data-ui>
             <div class="app-titlebar">
               <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span>TS-GPU · Native counter</span>
+              <span>Rendrix · Native counter</span>
             </div>
             <div class="app-body">
               <div class="app-card">
                 <span class="app-badge">Rendrix rendering · beta</span>
-                <h3 class="app-title">TS-GPU</h3>
+                <h3 class="app-title">Rendrix</h3>
                 <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
                 <div class="app-panel">
                                     <span class="app-count" data-count aria-live="polite">0</span>
@@ -98,7 +98,7 @@
           </div>
           <p class="visual-caption">
             Simulated preview of <code>examples/counter</code>. Its buttons run in the browser
-            and do not use the TS-GPU runtime.
+            and do not use the Rendrix runtime.
           </p>
         </div>
       </section>
@@ -131,7 +131,7 @@
     &lt;main class="shell"&gt;
       &lt;section class="card"&gt;
         &lt;div class="badge"&gt;RENDRIX RENDERING (BETA)&lt;/div&gt;
-        &lt;h1&gt;TS-GPU&lt;/h1&gt;
+        &lt;h1&gt;Rendrix&lt;/h1&gt;
         &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. Native Rendrix rendering (beta).&lt;/p&gt;
         &lt;div class="counter-panel"&gt;
           &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt; <!-- taste-skill-ignore -->
@@ -170,7 +170,7 @@ button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; 
             </div>
 
             <div role="tabpanel" id="panel-ts" aria-labelledby="tab-ts" class="panel" hidden>
-              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "tsgpu/types";
+              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "rendrix/types";
 
 type CounterState = { count: number };
 
@@ -198,12 +198,12 @@ export default app;</code></pre>
             <div class="app app-demo" data-counter data-ui>
               <div class="app-titlebar">
                 <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span>TS-GPU · Native counter · 900 × 600</span>
+                <span>Rendrix · Native counter · 900 × 600</span>
               </div>
               <div class="app-body">
                 <div class="app-card">
                   <span class="app-badge">Rendrix rendering · beta</span>
-                  <h3 class="app-title">TS-GPU</h3>
+                  <h3 class="app-title">Rendrix</h3>
                   <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
                   <div class="app-panel">
                                         <span class="app-count" data-count aria-live="polite">0</span>
@@ -288,22 +288,22 @@ export default app;</code></pre>
               <li><code>src/index.html</code></li>
               <li><code>src/styles.css</code></li>
               <li><code>src/backend.ts</code></li>
-              <li><code>tsgpu.config.json</code></li>
+              <li><code>rendrix.config.json</code></li>
             </ul>
           </div>
 
           <div class="link" aria-hidden="true"><span></span></div>
 
           <div class="stage" style="--s: 1">
-            <h3><code>tsgpu compile</code></h3>
+            <h3><code>rendrix compile</code></h3>
             <p>
               Parses the HTML subset, resolves CSS, transpiles the backend and writes a
               <code>.tgp</code> document.
             </p>
             <pre class="tgp" aria-label="Excerpt of the compiled counter bundle"><code>{
-  "format": "tsgpu-1",
-  "name": "tsgpu-counter",
-  "title": "TS-GPU • Native Counter",
+  "format": "rendrix-1",
+  "name": "rendrix-counter",
+  "title": "Rendrix • Native Counter",
   "width": 900,
   "height": 600,
   "root": { "tag": "body", … },
@@ -314,19 +314,19 @@ export default app;</code></pre>
           <div class="link" aria-hidden="true"><span></span></div>
 
           <div class="stage" style="--s: 2">
-            <h3><code>tsgpu build</code></h3>
+            <h3><code>rendrix build</code></h3>
             <p>Copies the prebuilt host and appends the bundle, then the host reads it back at startup.</p>
             <div class="layout-bar" aria-label="Executable layout: host, bundle, length, marker">
               <span class="seg seg-host">host</span>
               <span class="seg seg-bundle">bundle</span>
               <span class="seg seg-len">len</span>
-              <span class="seg seg-magic">TSGPU001</span>
+              <span class="seg seg-magic">RENDRIX001</span>
             </div>
             <p class="layout-caption">
               Host executable, then the bundle JSON, an 8-byte little-endian length and
-              the <code>TSGPU001</code> marker.
+              the <code>RENDRIX001</code> marker.
             </p>
-            <p class="stage-result">→ <code>dist/tsgpu-counter.exe</code></p>
+            <p class="stage-result">→ <code>dist/rendrix-counter.exe</code></p>
           </div>
         </div>
       </section>
@@ -367,7 +367,7 @@ export default app;</code></pre>
         <div class="facts">
           <div class="fact reveal">
             <h3>One rendering engine</h3>
-            <p>Rendrix is the only engine, in early beta; the deprecated GPUI host stays available until the Rendrix M1 gate.</p>
+            <p>Rendrix is the only engine, in early beta; the deprecated legacy host stays available until the Rendrix M1 gate.</p>
           </div>
           <div class="fact reveal">
             <h3>No Node or Bun at runtime</h3>
@@ -406,62 +406,62 @@ export default app;</code></pre>
           <div class="step reveal">
             <h3>Check and compile the example</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun install&#10;bun run test&#10;bun run gpui:compile" aria-label="Copy commands">Copy</button>
+              <button type="button" class="copy" data-copy-text="bun install&#10;bun run test&#10;bun run rendrix:compile" aria-label="Copy commands">Copy</button>
               <pre><code>bun install
 bun run test
-bun run gpui:compile</code></pre>
+bun run rendrix:compile</code></pre>
             </div>
-            <p>Writes <code>examples/counter/dist/tsgpu-counter.tgp</code>.</p>
+            <p>Writes <code>examples/counter/dist/rendrix-counter.tgp</code>.</p>
           </div>
 
           <div class="step reveal">
             <h3>Get a native host, once per machine</h3>
             <p>
-              Either point <code>TSGPU_HOST</code> at a host you trust, or compile one
+              Either point <code>RENDRIX_HOST</code> at a host you trust, or compile one
               with the Rust toolchain. On Windows that also needs the MSVC build tools.
             </p>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun run gpui:host" aria-label="Copy host build command">Copy</button>
-              <pre><code>bun run gpui:host</code></pre>
+              <button type="button" class="copy" data-copy-text="bun run rendrix:host" aria-label="Copy host build command">Copy</button>
+              <pre><code>bun run rendrix:host</code></pre>
             </div>
           </div>
 
           <div class="step reveal">
             <h3>Package the executable</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun run gpui" aria-label="Copy package command">Copy</button>
-              <pre><code>bun run gpui</code></pre>
+              <button type="button" class="copy" data-copy-text="bun run rendrix" aria-label="Copy package command">Copy</button>
+              <pre><code>bun run rendrix</code></pre>
             </div>
-            <p>Writes <code>examples/counter/dist/tsgpu-counter.exe</code>.</p>
+            <p>Writes <code>examples/counter/dist/rendrix-counter.exe</code>.</p>
           </div>
 
           <div class="step reveal">
             <h3>Or install the CLI from npm</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/tsgpu&#10;tsgpu --version" aria-label="Copy install command">Copy</button>
-              <pre><code>bun install -g @bytethedeveloper/tsgpu
-tsgpu --version</code></pre>
+              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/rendrix&#10;rendrix --version" aria-label="Copy install command">Copy</button>
+              <pre><code>bun install -g @bytethedeveloper/rendrix
+rendrix --version</code></pre>
             </div>
             <p>
-              <code>-g</code> installs <code>tsgpu</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
-              npm works too: <code>npm install -g @bytethedeveloper/tsgpu</code>.
-              <a href="https://www.npmjs.com/package/@bytethedeveloper/tsgpu" target="_blank" rel="noopener">View the package on npm</a>.
+              <code>-g</code> installs <code>rendrix</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
+              npm works too: <code>npm install -g @bytethedeveloper/rendrix</code>.
+              <a href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener">View the package on npm</a>.
             </p>
           </div>
 
           <div class="step reveal">
             <h3>Or start a new project with the CLI</h3>
             <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="tsgpu init my-app&#10;cd my-app&#10;tsgpu dev" aria-label="Copy CLI commands">Copy</button>
-              <pre><code>tsgpu init my-app
+              <button type="button" class="copy" data-copy-text="rendrix init my-app&#10;cd my-app&#10;rendrix dev" aria-label="Copy CLI commands">Copy</button>
+              <pre><code>rendrix init my-app
 cd my-app
-tsgpu dev</code></pre>
+rendrix dev</code></pre>
             </div>
             <p>
-              <code>tsgpu dev</code> rebuilds and restarts the host on save. It is a fast
+              <code>rendrix dev</code> rebuilds and restarts the host on save. It is a fast
               reload, not state-preserving hot module replacement.
-              <code>tsgpu build</code> writes the single executable, and <code>tsgpu build --target linux-x64</code> or <code>tsgpu all</code> packages the other platforms.
-              <code>tsgpu run</code> also opens an Electron project directory, converting it first.
+              <code>rendrix build</code> writes the single executable, and <code>rendrix build --target linux-x64</code> or <code>rendrix all</code> packages the other platforms.
+              <code>rendrix run</code> also opens an Electron project directory, converting it first.
             </p>
           </div>
         </div>
@@ -469,9 +469,9 @@ tsgpu dev</code></pre>
         <p class="docs-links reveal">
           Read the
           <a href="#docs">full docs</a> below, the
-          <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
+          <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
           and the
-          <a href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">repository</a>.
+          <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">repository</a>.
         </p>
       </section>
 
@@ -501,9 +501,9 @@ tsgpu dev</code></pre>
         <header class="section-head reveal">
           <h2>Status: an experimental prototype, stated plainly.</h2>
           <p class="section-lede">
-            TS-GPU is not a production-ready GUI SDK. The Rendrix engine is the sole
+            Rendrix is not a production-ready GUI SDK. The Rendrix engine is the sole
             renderer and is in <strong>early beta</strong>: feature coverage is limited and a long way
-            from stable. The list below reflects what the deprecated GPUI host (available until
+            from stable. The list below reflects what the deprecated legacy host (available until
             the Rendrix M1 gate) documents today.
           </p>
         </header>
@@ -523,7 +523,7 @@ tsgpu dev</code></pre>
               <li>Compile-time <code>&lt;template&gt;</code> components</li>
               <li>Single-executable packaging with the appended bundle, plus an optional NSIS installer on Windows</li>
               <li>Cross-target builds for Windows, macOS and Linux on x64 and arm64, using verified prebuilt hosts</li>
-              <li>Electron project conversion into a TS-GPU project, with a report that lists what needs review</li>
+              <li>Electron project conversion into a Rendrix project, with a report that lists what needs review</li>
             </ul>
           </div>
           <div class="status-col reveal" style="--d: 1">
@@ -559,7 +559,7 @@ tsgpu dev</code></pre>
             </p>
             <div class="actions">
               <a class="btn btn-primary" href="#quick-start">Read the quick start</a>
-              <a class="btn btn-ghost" href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">View on GitHub</a>
+              <a class="btn btn-ghost" href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">View on GitHub</a>
             </div>
           </div>
         </div>
@@ -568,14 +568,14 @@ tsgpu dev</code></pre>
 
     <footer class="site-footer">
       <div class="footer-inner">
-        <a class="footer-wordmark" href="#top" aria-label="Back to top">TS-GPU</a>
+        <a class="footer-wordmark" href="#top" aria-label="Back to top">Rendrix</a>
         <div class="footer-row">
           <p class="footer-tagline">Web markup. Native pixels. An experimental framework.</p>
           <nav class="footer-links" aria-label="Project links">
-            <a href="https://github.com/ByteTheDev/TS-GPU" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">GitHub</a>
             <a href="#docs">Docs</a>
-            <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
-            <a href="https://github.com/ByteTheDev/TS-GPU/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+            <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
+            <a href="https://github.com/ByteTheDev/Rendrix/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
           </nav>
         </div>
       </div>

@@ -7,7 +7,7 @@ This document describes the deepened Electron compatibility shims in
 - [`electron-session.ts`](../packages/cli/src/electron-compat/runtime/electron-session.ts)
 - the `webContents` object in [`electron.ts`](../packages/cli/src/electron-compat/runtime/electron.ts)
 
-They are a compatibility layer for apps converted with `tsgpu import`, not a
+They are a compatibility layer for apps converted with `rendrix import`, not a
 Chromium replacement. The shims keep the Electron-shaped state and route what the
 host supports. (Historical: the removed WebView renderer's page owned navigation,
 cookies, network access and rendering; with that renderer gone, cookies are
@@ -21,7 +21,7 @@ shim-state and network access is the permission-checked host transport.)
 | --- | --- |
 | `handle(scheme, handler)` | Registers a handler for an in-page scheme. |
 | `unhandle(scheme)` | Removes a handler. |
-| `registerFileProtocol(scheme, handler?)` | With no handler, rewrites the request URL onto the packaged `tsgpu://localhost/` space. |
+| `registerFileProtocol(scheme, handler?)` | With no handler, rewrites the request URL onto the packaged `rendrix://localhost/` space. |
 | `registerBufferProtocol`, `registerStringProtocol`, `registerStreamProtocol`, `registerHttpProtocol` | Register a handler with the same dispatch path. |
 | `interceptFileProtocol`, `interceptBufferProtocol`, `interceptStringProtocol`, `interceptStreamProtocol`, `interceptHttpProtocol` | Register a handler and mark the scheme intercepted. |
 | `isProtocolHandled`, `isProtocolRegistered`, `isProtocolIntercepted` | Query the corresponding registry state. |
@@ -35,7 +35,7 @@ Privileged-scheme records are separate from handlers:
 `getSchemePrivileges(scheme)` and `getPrivilegedSchemes()` report privilege
 records.
 
-Scheme names are lowercased and validated. `tsgpu` is host-owned. Registering
+Scheme names are lowercased and validated. `rendrix` is host-owned. Registering
 `http`, `https`, `ws` or `wss` with `handle` or `register*Protocol` throws:
 remote traffic must use the permission-checked HTTPS transport
 (`permissions.network`). `registerHttpProtocol` is therefore for a **custom**
@@ -49,7 +49,7 @@ page-network requests itself, so a remote interception handler affects explicit
 page-network interception.
 
 `BrowserWindow.loadURL('app://...')` and `loadURL('file://...')` are rewritten to
-`tsgpu://localhost/...`, so the packaged document loads (`html` / `webviewPages`
+`rendrix://localhost/...`, so the packaged document loads (`html` / `webviewPages`
 was the webview-era multi-page list and is historical). The importer allowlists
 literal schemes in `protocolSchemes`; dynamic
 scheme names need manual review.
@@ -147,7 +147,7 @@ Call `registerSchemesAsPrivileged` during startup, before windows load pages.
 
 ### Partitions
 
-`session.defaultSession` is a persistent session (`persist:tsgpu-default`).
+`session.defaultSession` is a persistent session (`persist:rendrix-default`).
 `session.fromPartition(partition)` caches one `Session` per partition; a
 `persist:` prefix makes it persistent. `session.fromPath(path)` creates a
 persistent session keyed by the path. `isPersistent()`, `storagePath` and
@@ -171,7 +171,7 @@ matching.
 For persistent sessions, the in-memory store is also mirrored to disk:
 
 - one file per partition under the host-provided `userData` root, named
-  `tsgpu-session-cookies-<sanitized-partition>-<hash>.json`;
+  `rendrix-session-cookies-<sanitized-partition>-<hash>.json`;
 - the file is loaded on the first cookie operation for that session;
 - only non-session cookies (those with an `expirationDate` and without
   `session: true`) are written;
@@ -275,7 +275,7 @@ is recorded; the shim never invents downloaded bytes. If the host reports
 `event.preventDefault()` or `item.cancel()` prevents the host call.
 
 `createInterruptedDownload(options)` records an interrupted item and
-`getDownloadItems()` returns the session's items (a TS-GPU extension).
+`getDownloadItems()` returns the session's items (a Rendrix extension).
 Actual byte transfer, resumption and OS download UI remain host work.
 
 ### Remaining session stubs

@@ -1,5 +1,5 @@
-// A small, ordinary Electron main process. TS-GPU imports it unchanged:
-//   tsgpu import electron . --out ../electron-import-demo-tsgpu
+// A small, ordinary Electron main process. Rendrix imports it unchanged:
+//   rendrix import electron . --out ../electron-import-demo-rendrix
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');

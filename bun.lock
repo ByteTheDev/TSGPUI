@@ -3,17 +3,17 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "tsgpu-monorepo",
+      "name": "rendrix-monorepo",
       "devDependencies": {
         "postcss": "^8.5.6",
         "typescript": "^5.9.3",
       },
     },
     "examples/counter": {
-      "name": "tsgpu-counter-example",
+      "name": "rendrix-counter-example",
       "version": "0.3.0",
       "devDependencies": {
-        "@bytethedeveloper/tsgpu": "workspace:*",
+        "@bytethedeveloper/rendrix": "workspace:*",
       },
     },
     "examples/electron-sample": {
@@ -24,17 +24,17 @@
       },
     },
     "examples/notes": {
-      "name": "tsgpu-notes-example",
+      "name": "rendrix-notes-example",
       "version": "0.3.0",
       "devDependencies": {
-        "@bytethedeveloper/tsgpu": "workspace:*",
+        "@bytethedeveloper/rendrix": "workspace:*",
       },
     },
     "packages/cli": {
-      "name": "@bytethedeveloper/tsgpu",
+      "name": "@bytethedeveloper/rendrix",
       "version": "0.4.0",
       "bin": {
-        "tsgpu": "dist/tsgpu.mjs",
+        "rendrix": "dist/rendrix.mjs",
       },
       "devDependencies": {
         "postcss": "^8.5.6",
@@ -43,7 +43,7 @@
     },
   },
   "packages": {
-    "@bytethedeveloper/tsgpu": ["@bytethedeveloper/tsgpu@workspace:packages/cli"],
+    "@bytethedeveloper/rendrix": ["@bytethedeveloper/rendrix@workspace:packages/cli"],
 
     "@electron/get": ["@electron/get@2.0.3", "", { "dependencies": { "debug": "^4.1.1", "env-paths": "^2.2.0", "fs-extra": "^8.1.0", "got": "^11.8.5", "progress": "^2.0.3", "semver": "^6.2.0", "sumchecker": "^3.0.1" }, "optionalDependencies": { "global-agent": "^3.0.0" } }, "sha512-Qkzpg2s9GnVV2I2BjRksUi43U5e6+zaQMcjoJy0C+C5oxaKl+fmckGDQFtRpZpZV0NQekuZZ+tGz7EA9TVnQtQ=="],
 
@@ -181,9 +181,9 @@
 
     "sumchecker": ["sumchecker@3.0.1", "", { "dependencies": { "debug": "^4.1.0" } }, "sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg=="],
 
-    "tsgpu-counter-example": ["tsgpu-counter-example@workspace:examples/counter"],
+    "rendrix-counter-example": ["rendrix-counter-example@workspace:examples/counter"],
 
-    "tsgpu-notes-example": ["tsgpu-notes-example@workspace:examples/notes"],
+    "rendrix-notes-example": ["rendrix-notes-example@workspace:examples/notes"],
 
     "type-fest": ["type-fest@0.13.1", "", {}, "sha512-34R7HTnG0XIJcBSn5XhDd7nNFPRcXYRZrBB2O2jdKqYODldSzBAqzsWoZYYvduky73toYS/ESqxPvkDf/F0XMg=="],
 

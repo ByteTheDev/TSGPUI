@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {assetName, currentTarget, exeSuffix, sourceStamp, BUNDLE_FORMAT, validateManifest} from '../src/hosts.mjs';
 
 const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bin = path.join(cliRoot, 'bin/tsgpu.mjs');
+const bin = path.join(cliRoot, 'bin/rendrix.mjs');
 const version = JSON.parse(fs.readFileSync(path.join(cliRoot, 'package.json'), 'utf8')).version;
 const target = currentTarget();
 
@@ -35,32 +35,32 @@ async function withRelease({files, manifestHosts, manifestVersion = version}, bo
     response.statusCode = 404; response.end('missing');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tsgpu-hosts-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rendrix-hosts-'));
   try {
-    await body({home, env: {TSGPU_HOME: home, TSGPU_HOST_BASE_URL: `http://127.0.0.1:${server.address().port}`}});
+    await body({home, env: {RENDRIX_HOME: home, RENDRIX_HOST_BASE_URL: `http://127.0.0.1:${server.address().port}`}});
   } finally {
     server.close();
     fs.rmSync(home, {recursive: true, force: true});
   }
 }
 const entry = (renderer, data) => ({renderer, target, asset: assetName(renderer, target), sha256: sha(data), size: data.length});
-// hosts.json v2 naming (charter): rendrix-host-<target>, and tsgpu-gpui-host-<target> while deprecated.
-const cached = (home, renderer) => path.join(home, 'host', target, `${renderer === 'rendrix' ? 'rendrix-host' : 'tsgpu-gpui-host'}${exeSuffix()}`);
+// hosts.json v2 naming (charter): rendrix-host-<target>, and rendrix-legacy-host-<target> while deprecated.
+const cached = (home, renderer) => path.join(home, 'host', target, `${renderer === 'rendrix' ? 'rendrix-host' : 'rendrix-legacy-host'}${exeSuffix()}`);
 
 test('release asset names follow the hosts.json v2 naming', () => {
   assert.equal(assetName('rendrix', 'win32-x64'), 'rendrix-host-win32-x64.exe');
   assert.equal(assetName('rendrix', 'linux-arm64'), 'rendrix-host-linux-arm64');
-  assert.equal(assetName('native', 'darwin-arm64'), 'tsgpu-gpui-host-darwin-arm64');
+  assert.equal(assetName('native', 'darwin-arm64'), 'rendrix-legacy-host-darwin-arm64');
   assert.equal(assetName('rendrix', target), `rendrix-host-${target}${exeSuffix(target)}`);
 });
 
 test('hosts.json v2 accepts rendrix and deprecated gpui entries and rejects webview entries', () => {
   const ok = {schema: 2, version, bundleFormat: BUNDLE_FORMAT, hosts: [
     {renderer: 'rendrix', target, asset: `rendrix-host-${target}${exeSuffix(target)}`, sha256: sha('r'), size: 1},
-    {renderer: 'native', target, asset: `tsgpu-gpui-host-${target}${exeSuffix(target)}`, sha256: sha('g'), size: 1},
+    {renderer: 'native', target, asset: `rendrix-legacy-host-${target}${exeSuffix(target)}`, sha256: sha('g'), size: 1},
   ]};
   assert.equal(validateManifest(ok, version), ok);
-  for (const webviewEntry of [{renderer: 'webview', target, asset: 'tsgpu-webview-host.exe', sha256: sha('w'), size: 1}]) {
+  for (const webviewEntry of [{renderer: 'webview', target, asset: 'rendrix-webview-host.exe', sha256: sha('w'), size: 1}]) {
     assert.throws(() => validateManifest({...ok, hosts: webviewEntry}, version));
   }
 });
@@ -74,14 +74,14 @@ test('installed CLI fetches a host on first build with or without packaged nativ
   else data.set([0x7f, 0x45, 0x4c, 0x46]);
   await withRelease({files: {[assetName('rendrix', target)]: data}, manifestHosts: [entry('rendrix', data)]}, async ({home, env}) => {
     const pkg = path.join(home, 'installed');
-    const binary = path.join(pkg, 'dist', 'tsgpu.mjs');
+    const binary = path.join(pkg, 'dist', 'rendrix.mjs');
     fs.mkdirSync(path.dirname(binary), {recursive:true});
     fs.copyFileSync(path.join(cliRoot, 'package.json'), path.join(pkg, 'package.json'));
     const bundled = spawnSync(bun, ['build', bin, '--target=node', `--outfile=${binary}`], {encoding:'utf8'});
     assert.equal(bundled.status, 0, bundled.stderr);
     const project = path.join(home, 'app');
     fs.mkdirSync(path.join(project, 'src'), {recursive:true});
-    fs.writeFileSync(path.join(project, 'tsgpu.config.json'), JSON.stringify({name:'app', title:'app', version:'1.0.0', html:'src/index.html', css:'src/style.css', backend:'src/backend.ts'}));
+    fs.writeFileSync(path.join(project, 'rendrix.config.json'), JSON.stringify({name:'app', title:'app', version:'1.0.0', html:'src/index.html', css:'src/style.css', backend:'src/backend.ts'}));
     fs.writeFileSync(path.join(project, 'src', 'index.html'), '<html><body>Hello</body></html>');
     fs.writeFileSync(path.join(project, 'src', 'style.css'), '');
     fs.writeFileSync(path.join(project, 'src', 'backend.ts'), 'export default {state:{}, actions:{}};');
@@ -92,7 +92,7 @@ test('installed CLI fetches a host on first build with or without packaged nativ
         fs.writeFileSync(path.join(pkg, 'native', 'Cargo.lock'), 'lock');
       }
       const cacheHome = path.join(home, packagedSource ? 'with-source' : 'without-source');
-      const result = await run(['build', '--project', project], {...env, TSGPU_HOME:cacheHome, TSGPU_NO_DOWNLOAD:'', TSGPU_HOST:''}, binary);
+      const result = await run(['build', '--project', project], {...env, RENDRIX_HOME:cacheHome, RENDRIX_NO_DOWNLOAD:'', RENDRIX_HOST:''}, binary);
       assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.deepEqual(fs.readFileSync(cached(cacheHome, 'rendrix')), data);
     }
@@ -171,7 +171,7 @@ test('doctor fails, with the fix, for a cached host from an incompatible release
     const doctor = await run(['doctor', '--renderer', 'rendrix'], env);
     assert.equal(doctor.status, 1);
     assert.match(doctor.stdout, /does not fit this CLI/);
-    assert.match(doctor.stdout, /fix: tsgpu host fetch --renderer rendrix --force/);
+    assert.match(doctor.stdout, /fix: rendrix host fetch --renderer rendrix --force/);
   });
 });
 

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap,fs::File,io::{Read,Seek,SeekFrom},path::PathBuf};
 use serde::Deserialize;
 
-pub const MAGIC: &[u8;8] = b"TSGPU001";
+pub const MAGIC: &[u8;8] = b"RENDRIX001";
 pub const MAX_PAYLOAD: u64 = 16 * 1024 * 1024;
 /// Persisted backend state is small by design; larger values are not written.
 pub const MAX_STATE_BYTES: u64 = 256 * 1024;
@@ -133,7 +133,7 @@ pub fn state_file(name: &str) -> Option<PathBuf> {
         std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
     };
-    root.map(|root| root.join("tsgpui").join(safe).join("state.json"))
+    root.map(|root| root.join("rendrix").join(safe).join("state.json"))
 }
 
 pub fn load_bundle(file: &std::path::Path) -> Result<AppPackage,String> {
@@ -190,7 +190,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
 fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
     let doc: AppPackage = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Invalid .tgp document: {e}"))?;
-    if doc.format != "tsgpu-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
+    if doc.format != "rendrix-1" {return Err(format!("Incompatible bundle format: {}",doc.format));}
     if !(200..=4096).contains(&doc.width) || !(200..=4096).contains(&doc.height) {
         return Err("Invalid window dimensions".into());
     }
@@ -211,7 +211,7 @@ fn parse_bundle(bytes: Vec<u8>) -> Result<AppPackage,String> {
 fn read_embedded() -> Result<Vec<u8>,String> {
     let exe: PathBuf = std::env::current_exe().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/tsgpu.tgp")) {
+    if let Some(resources) = exe.parent().and_then(|dir| dir.parent()).map(|contents| contents.join("Resources/rendrix.tgp")) {
         if resources.is_file() { return std::fs::read(&resources).map_err(|e| format!("Unable to read app resource: {e}")); }
     }
     let mut f = File::open(&exe).map_err(|e| format!("Unable to open host: {e}"))?;
@@ -272,7 +272,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    const VALID_DOC: &str = r#"{"format":"tsgpu-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
+    const VALID_DOC: &str = r#"{"format":"rendrix-1","name":"app","title":"App","width":400,"height":300,"root":{"tag":"div","key":1},"backend_js":""}"#;
 
     fn overlay(payload: &[u8], count: u64) -> Vec<u8> {
         let mut bytes = payload.to_vec();
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_format_version() {
-        let json = VALID_DOC.replace("tsgpu-1", "tsgpui-2");
+        let json = VALID_DOC.replace("rendrix-1", "rendrix-2");
         assert!(parse_bundle(json.into_bytes()).unwrap_err().contains("Incompatible bundle format"));
     }
 

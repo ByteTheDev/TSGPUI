@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Extracts the public Electron API surface from an electron.d.ts file, so TS-GPU's shims can be
+// Extracts the public Electron API surface from an electron.d.ts file, so Rendrix's shims can be
 // measured against the real API instead of a hand-kept list.
 //
 // Usage: node scripts/extract-electron-surface.mjs <path/to/electron.d.ts> [--out surface.json]

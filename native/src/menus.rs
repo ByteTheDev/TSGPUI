@@ -3,8 +3,8 @@ use gpui::{Action, App, Menu, MenuItem, SharedString};
 use crate::package::Node;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(name = "TSGPUIAction", no_json)]
-pub struct TSGPUIAction {
+#[action(name = "RendrixAction", no_json)]
+pub struct RendrixAction {
     pub action: String,
 }
 
@@ -24,7 +24,7 @@ fn menu_items(node: &Node) -> Vec<MenuItem> {
             } else {
                 child.attrs.get("data-onclick").map(|action| MenuItem::action(
                     title,
-                    TSGPUIAction { action: action.clone() },
+                    RendrixAction { action: action.clone() },
                 ))
             }
         }

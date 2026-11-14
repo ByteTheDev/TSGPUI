@@ -1,7 +1,7 @@
 {
-  "name": "tsgpu-counter",
-  "title": "TS-GPU • Counter",
-  "window": {"width": 900, "height": 600},
+  "name": "rendrix-form",
+  "title": "Rendrix • Form",
+  "window": {"width": 720, "height": 760},
   "html": "src/index.html",
   "css": "src/styles.css",
   "backend": "src/backend.ts",

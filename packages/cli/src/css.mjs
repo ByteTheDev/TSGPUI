@@ -9,7 +9,7 @@ import postcss from 'postcss';
 //   line-height  "<n>px", or a unitless multiplier of the element's font-size
 //   flex-*       plain numbers, and lengths for flex-basis
 //
-// Declarations TS-GPU cannot render are warnings and are skipped. With strictCss they are errors.
+// Declarations Rendrix cannot render are warnings and are skipped. With strictCss they are errors.
 
 const ROOT_FONT_PX = 16;
 const STATE_PSEUDOS = new Set(['hover', 'active', 'focus', 'disabled']);
@@ -17,14 +17,14 @@ const STATE_PSEUDOS = new Set(['hover', 'active', 'focus', 'disabled']);
 const STATE_PROPERTIES = new Set(['background', 'color', 'border-color', 'border-width', 'border-style', 'box-shadow', 'opacity', 'cursor']);
 // Inherited by children, as in CSS.
 const INHERITED = ['color', 'font-size', 'font-weight', 'font-family', 'font-style', 'line-height', 'text-align', 'cursor', 'white-space'];
-// Known web properties that TS-GPU does not render yet. They are reported, never silently dropped.
+// Known web properties that Rendrix does not render yet. They are reported, never silently dropped.
 const UNSUPPORTED = new Set([
   'transition', 'transform', 'animation', 'filter', 'backdrop-filter', 'letter-spacing',
   'visibility', 'pointer-events', 'user-select', 'text-decoration', 'text-transform', 'outline',
   'will-change', 'vertical-align', 'float', 'clear', 'overflow-x', 'overflow-y',
   'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
 ]);
-// Accepted without effect. TS-GPU already sizes boxes the way box-sizing: border-box does.
+// Accepted without effect. Rendrix already sizes boxes the way box-sizing: border-box does.
 const IGNORED = new Set(['box-sizing']);
 
 const NAMED_COLORS = { transparent: '#00000000', white: '#ffffff', black: '#000000' };

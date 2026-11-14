@@ -9,10 +9,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bin = path.join(cliRoot, 'bin/tsgpu.mjs');
+const bin = path.join(cliRoot, 'bin/rendrix.mjs');
 const version = JSON.parse(fs.readFileSync(path.join(cliRoot, 'package.json'), 'utf8')).version;
 
-function tsgpu(args, options = {}) {
+function rendrix(args, options = {}) {
   return spawnSync(process.execPath, [bin, ...args], {encoding: 'utf8', ...options});
 }
 
@@ -20,7 +20,7 @@ function tsgpu(args, options = {}) {
 // specific keys without depending on the template's renderer default.
 function initProject(parent) {
   const dir = path.join(parent, 'my-app');
-  const created = tsgpu(['init', dir]);
+  const created = rendrix(['init', dir]);
   assert.equal(created.status, 0, created.stderr);
   const configFile = fs.readdirSync(dir).find(name => name.endsWith('.config.json'));
   assert.ok(configFile, `init created a config file in ${dir}`);
@@ -36,13 +36,13 @@ function writeProjectFiles(dir, config) {
 }
 
 test('--version prints the package version', () => {
-  const result = tsgpu(['--version']);
+  const result = rendrix(['--version']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), version);
 });
 
 test('help lists the commands', () => {
-  const result = tsgpu(['help']);
+  const result = rendrix(['help']);
   assert.equal(result.status, 0, result.stderr);
   for (const command of ['init', 'compile', 'dev', 'build', 'host fetch', 'host build', 'doctor']) {
     assert.match(result.stdout, new RegExp(command));
@@ -50,8 +50,8 @@ test('help lists the commands', () => {
 });
 
 test('init creates a project from the packaged template and compile produces a bundle', () => {
-  const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-init-')), 'my-app');
-  const created = tsgpu(['init', dir]);
+  const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'rendrix-init-')), 'my-app');
+  const created = rendrix(['init', dir]);
   assert.equal(created.status, 0, created.stderr);
   for (const file of ['src/index.html', 'src/styles.css', 'src/backend.ts', 'package.json']) {
     assert.ok(fs.existsSync(path.join(dir, file)), `missing ${file}`);
@@ -59,39 +59,39 @@ test('init creates a project from the packaged template and compile produces a b
   assert.ok(fs.readdirSync(dir).some(file => file.endsWith('.config.json')), 'a config file exists');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'my-app');
 
-  const compiled = tsgpu(['compile', '--project', dir]);
+  const compiled = rendrix(['compile', '--project', dir]);
   assert.equal(compiled.status, 0, compiled.stderr);
   const bundle = JSON.parse(fs.readFileSync(path.join(dir, 'dist/my-app.tgp'), 'utf8'));
   assert.equal(bundle.name, 'my-app');
 });
 
 test('init refuses a non-empty destination', () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-nonempty-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'rendrix-nonempty-'));
   fs.writeFileSync(path.join(dir, 'keep.txt'), 'x');
-  const result = tsgpu(['init', dir]);
+  const result = rendrix(['init', dir]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not empty/);
 });
 
 test('an absent renderer key defaults to rendrix', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-rendrix-default-'));
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-rendrix-default-'));
   const {dir: project, configFile} = initProject(parent);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   delete config.renderer;
   writeProjectFiles(project, config);
-  const compiled = tsgpu(['compile', '--project', project]);
+  const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
   const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.tgp`), 'utf8'));
   assert.equal(bundle.renderer, 'rendrix');
 });
 
 test('the deprecated native renderer compiles with a deprecation warning', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-native-warn-'));
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-native-warn-'));
   const {dir: project, configFile} = initProject(parent);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   config.renderer = 'native';
   fs.writeFileSync(configFile, JSON.stringify(config));
-  const compiled = tsgpu(['compile', '--project', project]);
+  const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
   assert.match(compiled.stderr + compiled.stdout, /deprecat/i);
   const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.tgp`), 'utf8'));
@@ -99,72 +99,72 @@ test('the deprecated native renderer compiles with a deprecation warning', () =>
 });
 
 test('the webview renderer is a hard error with migration guidance', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-webview-error-'));
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-webview-error-'));
   const {dir: project, configFile} = initProject(parent);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   config.renderer = 'webview';
   fs.writeFileSync(configFile, JSON.stringify(config));
-  const compiled = tsgpu(['compile', '--project', project]);
+  const compiled = rendrix(['compile', '--project', project]);
   assert.notEqual(compiled.status, 0);
   assert.match(compiled.stderr + compiled.stdout, /webview/i);
   assert.match(compiled.stderr + compiled.stdout, /rendrix/);
 });
 
-test('the legacy tsgpui.config.json name alone still compiles, with a rename warning', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-legacy-config-'));
+test('the legacy rendrix.config.json name alone still compiles, with a rename warning', () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-legacy-config-'));
   const {dir: project, configFile} = initProject(parent);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   fs.writeFileSync(configFile, JSON.stringify(config)); // canonical name, as init created it
-  fs.renameSync(configFile, path.join(project, 'tsgpui.config.json'));
-  const compiled = tsgpu(['compile', '--project', project]);
+  fs.renameSync(configFile, path.join(project, 'rendrix.config.json'));
+  const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
-  assert.match(compiled.stderr + compiled.stdout, /tsgpui\.config\.json[\s\S]*tsgpu\.config\.json|rename it to tsgpu\.config\.json/);
+  assert.match(compiled.stderr + compiled.stdout, /rendrix\.config\.json[\s\S]*rendrix\.config\.json|rename it to rendrix\.config\.json/);
   assert.ok(fs.existsSync(path.join(project, 'dist', `${config.name}.tgp`)), 'legacy config still compiles');
 });
 
-test('tsgpu.config.json wins when both config names exist', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-config-precedence-'));
+test('rendrix.config.json wins when both config names exist', () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-config-precedence-'));
   const {dir: project, configFile} = initProject(parent);
-  const legacy = path.join(project, 'tsgpui.config.json');
+  const legacy = path.join(project, 'rendrix.config.json');
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   fs.writeFileSync(configFile, JSON.stringify({...config, name: 'new-name'}));
   fs.writeFileSync(legacy, JSON.stringify({...config, name: 'legacy-name'}));
-  const compiled = tsgpu(['compile', '--project', project]);
+  const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
   assert.ok(fs.existsSync(path.join(project, 'dist', 'new-name.tgp')), 'the canonical config supplies the bundle name');
   assert.ok(!fs.existsSync(path.join(project, 'dist', 'legacy-name.tgp')), 'the legacy config is ignored when the canonical one exists');
 });
 
 test('doctor reports the rendrix renderer and no webview renderer', () => {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-home-'));
-  const result = tsgpu(['doctor'], {env: {...process.env, TSGPU_HOME: home}});
+  const home = mkdtempSync(path.join(os.tmpdir(), 'rendrix-home-'));
+  const result = rendrix(['doctor'], {env: {...process.env, RENDRIX_HOME: home}});
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /rendrix/);
   assert.doesNotMatch(result.stdout, /webview/);
 });
 
-test('TSGPU_HOME selects the per-user host cache location', () => {
-  const home = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-cache-home-'));
-  const result = tsgpu(['doctor'], {env: {...process.env, TSGPU_HOME: home}});
+test('RENDRIX_HOME selects the per-user host cache location', () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'rendrix-cache-home-'));
+  const result = rendrix(['doctor'], {env: {...process.env, RENDRIX_HOME: home}});
   assert.match(result.stdout, new RegExp(home.replaceAll('\\', '\\\\') + `[\\\\/]host`));
 });
 
 test('host installer verifies the hash before copying', () => {
-  const home=mkdtempSync(path.join(os.tmpdir(),'tsgpu-host-install-'));
+  const home=mkdtempSync(path.join(os.tmpdir(),'rendrix-host-install-'));
   try {
     const file=path.join(home,'input'); fs.writeFileSync(file,'host fixture');
     const hash=createHash('sha256').update('host fixture').digest('hex');
-    const env={...process.env,TSGPU_HOME:home};
-    const bad=tsgpu(['host','install','--renderer','rendrix','--file',file,'--sha256','0'.repeat(64)],{env});
+    const env={...process.env,RENDRIX_HOME:home};
+    const bad=rendrix(['host','install','--renderer','rendrix','--file',file,'--sha256','0'.repeat(64)],{env});
     assert.notEqual(bad.status,0); assert.match(bad.stderr,/mismatch/);
-    const good=tsgpu(['host','install','--renderer','rendrix','--file',file,'--sha256',hash],{env});
+    const good=rendrix(['host','install','--renderer','rendrix','--file',file,'--sha256',hash],{env});
     assert.equal(good.status,0,good.stderr);
     assert.equal(fs.readFileSync(path.join(home,'host',`${process.platform}-${process.arch}`,`rendrix-host${process.platform==='win32'?'.exe':''}`),'utf8'),'host fixture');
   } finally {fs.rmSync(home,{recursive:true,force:true});}
 });
 
 test('dev recovers when a missing nested backend module is created and rebuilds on edits', {timeout:20000}, async () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-dev-'));
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-dev-'));
   const {dir: project, configFile} = initProject(parent);
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   config.name = 'watch-test';
@@ -187,10 +187,10 @@ test('dev recovers when a missing nested backend module is created and rebuilds 
 });
 
 test('release manifest is deterministic and hashes artifact files', () => {
-  const dir=mkdtempSync(path.join(os.tmpdir(),'tsgpu-release-'));
+  const dir=mkdtempSync(path.join(os.tmpdir(),'rendrix-release-'));
   try {
     fs.writeFileSync(path.join(dir,'b'),'B'); fs.writeFileSync(path.join(dir,'a'),'A');
-    const a=tsgpu(['release','manifest','--file',dir]), b=tsgpu(['release','manifest','--file',dir]);
+    const a=rendrix(['release','manifest','--file',dir]), b=rendrix(['release','manifest','--file',dir]);
     assert.equal(a.status,0,a.stderr); assert.equal(a.stdout,b.stdout);
     const manifest=JSON.parse(a.stdout);
     assert.deepEqual(manifest.files.map(f=>f.path),['a','b']);
@@ -199,56 +199,56 @@ test('release manifest is deterministic and hashes artifact files', () => {
 });
 
 test('init --list-templates names every starter', () => {
-  const result = tsgpu(['init', '--list-templates']);
+  const result = rendrix(['init', '--list-templates']);
   assert.equal(result.status, 0, result.stderr);
   for (const name of ['counter', 'form', 'list-detail', 'electron-import']) assert.match(result.stdout, new RegExp(String.raw`^\s+${name}\s`, 'm'));
 });
 
 test('init rejects an unknown template and lists the valid ones', () => {
-  const result = tsgpu(['init', path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-')), 'x'), '--template', 'nope']);
+  const result = rendrix(['init', path.join(mkdtempSync(path.join(os.tmpdir(), 'rendrix-tpl-')), 'x'), '--template', 'nope']);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown template 'nope'.*counter, form, list-detail, electron-import/);
 });
 
 for (const template of ['counter', 'form', 'list-detail']) {
   test(`init --template ${template} creates a project that compiles`, () => {
-    const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-')), `my-${template}`);
+    const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'rendrix-tpl-')), `my-${template}`);
     // The template may come before or after the folder.
-    const created = tsgpu(['init', '--template', template, dir]);
+    const created = rendrix(['init', '--template', template, dir]);
     assert.equal(created.status, 0, created.stderr);
-    const config = JSON.parse(fs.readFileSync(path.join(dir, 'tsgpu.config.json'), 'utf8'));
+    const config = JSON.parse(fs.readFileSync(path.join(dir, 'rendrix.config.json'), 'utf8'));
     assert.equal(config.name, `my-${template}`);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).scripts.dev, 'tsgpu dev');
-    const compiled = tsgpu(['compile', '--project', dir]);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).scripts.dev, 'rendrix dev');
+    const compiled = rendrix(['compile', '--project', dir]);
     assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
     assert.ok(fs.existsSync(path.join(dir, 'dist', `my-${template}.tgp`)));
   });
 }
 
 test('init --template electron-import creates an Electron app that the importer converts and compiles', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'tsgpu-tpl-'));
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-tpl-'));
   const dir = path.join(parent, 'demo');
-  const created = tsgpu(['init', dir, '--template', 'electron-import']);
+  const created = rendrix(['init', dir, '--template', 'electron-import']);
   assert.equal(created.status, 0, created.stderr);
   assert.ok(fs.existsSync(path.join(dir, 'electron/main.js')));
-  assert.equal(fs.existsSync(path.join(dir, 'tsgpu.config.json')), false, 'an Electron template has no TS-GPU config');
+  assert.equal(fs.existsSync(path.join(dir, 'rendrix.config.json')), false, 'an Electron template has no Rendrix config');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'demo');
   const out = path.join(parent, 'out');
-  const imported = tsgpu(['import', 'electron', dir, '--out', out]);
+  const imported = rendrix(['import', 'electron', dir, '--out', out]);
   assert.equal(imported.status, 0, imported.stdout + imported.stderr);
-  assert.ok(fs.existsSync(path.join(out, 'TSGPU_IMPORT_REPORT.md')));
-  const compiled = tsgpu(['compile', '--project', out]);
+  assert.ok(fs.existsSync(path.join(out, 'RENDRIX_IMPORT_REPORT.md')));
+  const compiled = rendrix(['compile', '--project', out]);
   assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
 });
 
 test('compile errors name the file, line and column', () => {
-  const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'tsgpu-errs-')), 'app');
-  assert.equal(tsgpu(['init', dir]).status, 0);
+  const dir = path.join(mkdtempSync(path.join(os.tmpdir(), 'rendrix-errs-')), 'app');
+  assert.equal(rendrix(['init', dir]).status, 0);
   const edit = (file, change) => {
     const target = path.join(dir, file);
     const original = fs.readFileSync(target, 'utf8');
     fs.writeFileSync(target, change(original));
-    const result = tsgpu(['compile', '--project', dir]);
+    const result = rendrix(['compile', '--project', dir]);
     fs.writeFileSync(target, original);
     assert.notEqual(result.status, 0, `${file} should fail to compile`);
     return result.stderr;

@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 const cliRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Outside dist/, because package.json publishes dist/ and the archive must not be packed inside itself.
 const outDir = path.join(cliRoot, 'release');
-const asset = 'tsgpu-cli.tgz';
+const asset = 'rendrix-cli.tgz';
 const archive = path.join(outDir, asset);
 
 await rm(outDir, {recursive: true, force: true});

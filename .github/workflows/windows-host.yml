@@ -1,5 +1,5 @@
 name: Compile Windows hosts
-# Builds the deprecated GPUI host and the Rendrix host for Windows x64 and saves SHA-256
+# Builds the deprecated legacy host and the Rendrix host for Windows x64 and saves SHA-256
 # hashes. The WebView host is gone with the WebView renderer.
 on:
   workflow_dispatch:
@@ -26,14 +26,14 @@ jobs:
         run: cargo test --manifest-path native/Cargo.toml --features rendrix --bin rendrix-host
       - name: Build Rendrix host
         run: cargo build --manifest-path native/Cargo.toml --release --no-default-features --features rendrix --bin rendrix-host
-      - name: Build deprecated GPUI host
-        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin tsgpu-gpui-host
+      - name: Build deprecated legacy host
+        run: cargo build --manifest-path native/Cargo.toml --release --features native-host --bin rendrix-legacy-host
       - name: Save Rendrix SHA-256 hash
         shell: pwsh
         run: (Get-FileHash 'native/target/release/rendrix-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/rendrix-host.exe.sha256
       - name: Save GPUI SHA-256 hash
         shell: pwsh
-        run: (Get-FileHash 'native/target/release/tsgpu-gpui-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/tsgpu-gpui-host.exe.sha256
+        run: (Get-FileHash 'native/target/release/rendrix-legacy-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/rendrix-legacy-host.exe.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: rendrix-host-windows-x64
@@ -44,8 +44,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tsgpu-gpui-host-windows-x64
+          name: rendrix-legacy-host-windows-x64
           path: |
-            native/target/release/tsgpu-gpui-host.exe
-            native/target/release/tsgpu-gpui-host.exe.sha256
+            native/target/release/rendrix-legacy-host.exe
+            native/target/release/rendrix-legacy-host.exe.sha256
           if-no-files-found: error

@@ -74,7 +74,7 @@ export class CrashReporter {
   }
 
   /**
-   * TS-GPU addition: records a crash and writes a JSON dump under `<userData>/crashes`. Call this
+   * Rendrix addition: records a crash and writes a JSON dump under `<userData>/crashes`. Call this
    * from a global error handler; the host does not intercept native crashes.
    */
   captureCrash(reason: any = 'unknown', extra: Record<string, any> = {}): { date: number; id: string } {

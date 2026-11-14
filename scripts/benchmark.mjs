@@ -1,5 +1,5 @@
 // Track 8 benchmark: measures launch-to-window latency and idle resident memory for a
-// packaged TSGPUI app by launching it N times and taking min/median/max.
+// packaged Rendrix app by launching it N times and taking min/median/max.
 //
 // Usage: node scripts/benchmark.mjs <exe> [runs=5] [report.json]
 // The numbers are per-machine: record the host CPU, RAM, OS build and the package name
@@ -19,7 +19,7 @@ const runs = Math.max(1, Math.min(50, parseInt(runsArg, 10) || 5));
 
 const script = fileURLToPath(new URL('./smoke-packaged.ps1', import.meta.url));
 // The report travels through a file, not stdout, so non-ASCII window titles survive.
-const raw = mkdtempSync(join(tmpdir(), 'tsgpui-bench-'));
+const raw = mkdtempSync(join(tmpdir(), 'rendrix-bench-'));
 let report;
 try {
   execFileSync('powershell.exe', [

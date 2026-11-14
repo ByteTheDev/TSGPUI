@@ -1,4 +1,4 @@
-# Launches a packaged TSGPUI app, waits for its main window, captures the frame, and reports
+# Launches a packaged Rendrix app, waits for its main window, captures the frame, and reports
 # launch metrics as JSON on stdout (or -ReportPath).
 #
 # Smoke-test mode (default): one run, counts distinct sampled colors in the captured frame so

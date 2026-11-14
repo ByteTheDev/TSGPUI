@@ -13,7 +13,7 @@ import {packageExecutable,packageMacApp} from '../src/pack.mjs';
 import {buildNsis} from '../src/installer/nsis.mjs';
 import {signArtifact,resolveSignCommand,notarizeArtifact,writeManifest,findSigntool,findCodesign,findGpg,findNotarytool} from '../src/signing.mjs';
 import {startPreview,writePreviewFile} from '../src/preview.mjs';
-import {SUPPORTED_TARGETS,loadManifest,releaseBaseUrl,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,tsgpuHome,verifyCachedHost} from '../src/hosts.mjs';
+import {SUPPORTED_TARGETS,loadManifest,releaseBaseUrl,assertRenderer,assertTarget,cachedHostPath,currentTarget,downloadsDisabled,exeSuffix,fetchHost,hostBinaryName,inspectCachedHost,installHostFile,installedSourceStamp,recordLocalBuild,sourceStamp,rendrixHome,verifyCachedHost} from '../src/hosts.mjs';
 
 // This file works both from a monorepo checkout and from an installed package.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +36,7 @@ function nativeSource() {
   return null;
 }
 function explicitHost(renderer='rendrix') {
-  return [flag('host',null), process.env.TSGPU_HOST].filter(Boolean);
+  return [flag('host',null), process.env.RENDRIX_HOST].filter(Boolean);
 }
 function sourceBuilds(renderer='rendrix') {
   const source = nativeSource();
@@ -53,13 +53,13 @@ async function hostPath(autoBuild = false, renderer='rendrix') {
   if (checkoutSource) {
     const stamp = sourceStamp(source, renderer);
     if (cached.state === 'ok' && installedSourceStamp(cached.file) === stamp && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-    if (!autoBuild || !rustAvailable()) throw new Error(`The installed ${renderer} host is missing or does not match the current source. Install Rust, then run \`tsgpu host build --renderer ${renderer}\`.`);
+    if (!autoBuild || !rustAvailable()) throw new Error(`The installed ${renderer} host is missing or does not match the current source. Install Rust, then run \`rendrix host build --renderer ${renderer}\`.`);
     console.log(`Building the ${renderer} host to match the current source...`);
     await buildHost(renderer);
     return path.resolve(cachedHost(renderer));
   }
   if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-  if (!autoBuild || downloadsDisabled()) throw new Error(`No verified ${renderer} host is installed. Run \`tsgpu host fetch --renderer ${renderer}\` or install one with \`tsgpu host install\`.`);
+  if (!autoBuild || downloadsDisabled()) throw new Error(`No verified ${renderer} host is installed. Run \`rendrix host fetch --renderer ${renderer}\` or install one with \`rendrix host install\`.`);
   return path.resolve(await fetchHost({renderer,version:VERSION,pkgRoot}));
 }
 // Host for a target. The current platform may build from source; other targets use a verified prebuilt host.
@@ -68,7 +68,7 @@ async function hostPathFor(autoBuild = false, renderer='rendrix', target=current
   for(const candidate of explicitHost(renderer)) if (fs.existsSync(candidate)) return path.resolve(candidate);
   const cached = inspectCachedHost(renderer, VERSION, target);
   if (cached.state === 'ok' && await verifyCachedHost(cached) === true) return path.resolve(cached.file);
-  if (downloadsDisabled()) throw new Error(`No ${renderer} host for ${target} is installed, and downloads are disabled. Copy one in with \`tsgpu host install --renderer ${renderer} --target ${target}\`.`);
+  if (downloadsDisabled()) throw new Error(`No ${renderer} host for ${target} is installed, and downloads are disabled. Copy one in with \`rendrix host install --renderer ${renderer} --target ${target}\`.`);
   await fetchHost({renderer, version: VERSION, pkgRoot, target});
   return path.resolve(cachedHostPath(renderer, target));
 }
@@ -103,7 +103,7 @@ async function buildTargets(dir, targets) {
   for (const target of targets) {
     console.log(`\n== ${target}`);
     try { await buildApp(dir, target, true); }
-    catch (error) { failed.push({target, message: error.message}); console.error(`tsgpu: ${target} failed: ${error.message}`); }
+    catch (error) { failed.push({target, message: error.message}); console.error(`rendrix: ${target} failed: ${error.message}`); }
   }
   console.log(`\nBuilt ${targets.length - failed.length} of ${targets.length} targets.`);
   for (const {target, message} of failed) console.log(`  ${target}: ${message}`);
@@ -111,12 +111,12 @@ async function buildTargets(dir, targets) {
 }
 // Prepare Electron projects in a fresh directory so the original project is never rewritten.
 async function prepareProject(input) {
-  // tsgpu.config.json is the canonical name; tsgpui.config.json is the pre-rename name, still read
+  // rendrix.config.json is the canonical name; rendrix.config.json is the pre-rename name, still read
   // by readProject with a deprecation warning.
-  if (fs.existsSync(path.join(input, 'tsgpu.config.json'))) return input;
-  if (fs.existsSync(path.join(input, 'tsgpui.config.json'))) return input;
-  if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No tsgpu.config.json or Electron package.json found in ${input}`);
-  const temp = await mkdtemp(path.join(os.tmpdir(), 'tsgpu-project-'));
+  if (fs.existsSync(path.join(input, 'rendrix.config.json'))) return input;
+  if (fs.existsSync(path.join(input, 'rendrix.config.json'))) return input;
+  if (!fs.existsSync(path.join(input, 'package.json'))) throw new Error(`No rendrix.config.json or Electron package.json found in ${input}`);
+  const temp = await mkdtemp(path.join(os.tmpdir(), 'rendrix-project-'));
   const options = {out: path.join(temp, 'app')};
   let imported;
   try {
@@ -127,7 +127,7 @@ async function prepareProject(input) {
     console.log('No built renderer found; running the project build script first.');
     imported = await importElectron(input, {...options, build: true});
   }
-  console.log(`Electron compatibility is incomplete. Review ${path.join(imported.out, 'TSGPU_IMPORT_REPORT.md')} for limitations.`);
+  console.log(`Electron compatibility is incomplete. Review ${path.join(imported.out, 'RENDRIX_IMPORT_REPORT.md')} for limitations.`);
   return imported.out;
 }
 
@@ -143,13 +143,13 @@ async function runProject() {
 
 async function buildHost(renderer='rendrix') {
   const source = nativeSource();
-  if (!source) throw new Error('Host sources not found in this installation. Run `tsgpu host fetch` for a prebuilt host, or use a checkout of the TS-GPU repository.');
+  if (!source) throw new Error('Host sources not found in this installation. Run `rendrix host fetch` for a prebuilt host, or use a checkout of the Rendrix repository.');
   assertRenderer(renderer);
-  if (!rustAvailable()) throw new Error(`Rust/Cargo is required to compile the ${renderer} host. Install it from https://rustup.rs, or run \`tsgpu host fetch --renderer ${renderer}\` for a prebuilt host.`);
-  const targetDir = path.join(tsgpuHome(),'build');
+  if (!rustAvailable()) throw new Error(`Rust/Cargo is required to compile the ${renderer} host. Install it from https://rustup.rs, or run \`rendrix host fetch --renderer ${renderer}\` for a prebuilt host.`);
+  const targetDir = path.join(rendrixHome(),'build');
   const stamp = sourceStamp(source, renderer);
   const cargoArgs = ['build','--manifest-path',path.join(source,'Cargo.toml'),'--release','--target-dir',targetDir];
-  if (renderer==='native') cargoArgs.push('--features','native-host','--bin','tsgpu-gpui-host');
+  if (renderer==='native') cargoArgs.push('--features','native-host','--bin','rendrix-legacy-host');
   else cargoArgs.push('--no-default-features','--features','rendrix','--bin','rendrix-host');
   const res = spawnSync('cargo',cargoArgs,{stdio:'inherit'});
   if (res.status !== 0) throw new Error(`Host build failed (code ${res.status})`);
@@ -179,14 +179,14 @@ async function fetchHosts() {
 }
 async function installHost(renderer='rendrix') {
   const file=flag('file',null), expected=flag('sha256',null);
-  if (!file || !expected || !/^[a-fA-F0-9]{64}$/.test(expected)) throw new Error('Use `tsgpu host install --file PATH --sha256 HASH [--renderer rendrix|native]` with a checksum from a trusted source.');
+  if (!file || !expected || !/^[a-fA-F0-9]{64}$/.test(expected)) throw new Error('Use `rendrix host install --file PATH --sha256 HASH [--renderer rendrix|native]` with a checksum from a trusted source.');
   const result=await installHostFile({renderer,file,sha256:expected,version:VERSION,target:flag('target',currentTarget())});
   console.log(`${renderer} host installed: ${result.file} (SHA-256 ${result.sha256})`);
 }
 // Deterministic SHA-256 manifest of a file or directory, for publishing beside a release artifact.
 async function releaseManifest() {
   const target = flag('file',null);
-  if (!target) throw new Error('Use `tsgpu release manifest --file PATH`.');
+  if (!target) throw new Error('Use `rendrix release manifest --file PATH`.');
   const root = path.resolve(target);
   const files = [];
   async function visit(absolute, relative) {
@@ -203,14 +203,14 @@ async function releaseManifest() {
   files.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
   console.log(JSON.stringify({schema:1,files},null,2));
 }
-// Starter templates live in packages/cli/templates/<directory>. `tsgpu init --template NAME` copies one.
-// "app" templates are TS-GPU projects and get a package.json with the tsgpu scripts; the electron template is
-// a plain Electron project (it carries its own package.json) meant to be run through `tsgpu import electron`.
+// Starter templates live in packages/cli/templates/<directory>. `rendrix init --template NAME` copies one.
+// "app" templates are Rendrix projects and get a package.json with the rendrix scripts; the electron template is
+// a plain Electron project (it carries its own package.json) meant to be run through `rendrix import electron`.
 const TEMPLATES = {
   counter: {dir:'basic', kind:'app', summary:'a click counter: state, actions and styling in the smallest app'},
   form: {dir:'form', kind:'app', summary:'a validated form: text, email, number, select, checkbox and a repeated result list'},
   'list-detail': {dir:'list-detail', kind:'app', summary:'a searchable list next to a detail pane, driven by backend state'},
-  'electron-import': {dir:'electron-import', kind:'electron', summary:'a plain Electron app to try `tsgpu import electron` on'}
+  'electron-import': {dir:'electron-import', kind:'electron', summary:'a plain Electron app to try `rendrix import electron` on'}
 };
 async function copyTree(from,to,transform) {
   await mkdir(to,{recursive:true});
@@ -228,10 +228,10 @@ async function init() {
   const requested = flag('template','counter');
   const templateName = requested === 'basic' ? 'counter' : requested;
   const info = TEMPLATES[templateName];
-  if (!info) throw new Error(`Unknown template '${requested}'. Available: ${Object.keys(TEMPLATES).join(', ')} (see \`tsgpu init --list-templates\`)`);
+  if (!info) throw new Error(`Unknown template '${requested}'. Available: ${Object.keys(TEMPLATES).join(', ')} (see \`rendrix init --list-templates\`)`);
   // The folder is the first argument that is not a flag or a flag's value.
   const positional = args.filter((x,i) => !x.startsWith('--') && !(i>0 && args[i-1]==='--template'));
-  const folder = positional[0] ?? (info.kind==='electron' ? 'my-electron-app' : 'my-tsgpu-app');
+  const folder = positional[0] ?? (info.kind==='electron' ? 'my-electron-app' : 'my-rendrix-app');
   const destination = path.resolve(folder);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error('Project destination is not empty');
   const appName = path.basename(destination);
@@ -243,30 +243,30 @@ async function init() {
     console.log(`Created ${destination}
 
 This is a plain Electron app. Try the importer on it:
-  ${cd}tsgpu import electron . --out ../${appName}-tsgpu --build
-  tsgpu run ../${appName}-tsgpu
+  ${cd}rendrix import electron . --out ../${appName}-rendrix --build
+  rendrix run ../${appName}-rendrix
 
-Or run it in place (TS-GPU converts it into a temporary project first):
-  tsgpu run .
+Or run it in place (Rendrix converts it into a temporary project first):
+  rendrix run .
 
-The import writes TSGPU_IMPORT_REPORT.md, which lists every Electron API the app uses and how well TS-GPU supports it.`);
+The import writes RENDRIX_IMPORT_REPORT.md, which lists every Electron API the app uses and how well Rendrix supports it.`);
     return;
   }
-  await copyTree(template,destination,(text,name) => name==='tsgpu.config.json' ? text.replace(/"name": "[^"]*"/,`"name": ${JSON.stringify(appName)}`) : text);
+  await copyTree(template,destination,(text,name) => name==='rendrix.config.json' ? text.replace(/"name": "[^"]*"/,`"name": ${JSON.stringify(appName)}`) : text);
   const pkg = {
     name: appName,private:true,type:'module',
-    scripts:{dev:'tsgpu dev',build:'tsgpu build',compile:'tsgpu compile'},
-    devDependencies:{tsgpu:`^${VERSION}`}
+    scripts:{dev:'rendrix dev',build:'rendrix build',compile:'rendrix compile'},
+    devDependencies:{rendrix:`^${VERSION}`}
   };
   await writeFile(path.join(destination,'package.json'),JSON.stringify(pkg,null,2)+'\n');
   console.log(`Created ${destination} (template: ${templateName})
 
 Next:
-  ${cd}tsgpu dev      # opens the app and reloads on every save
-  tsgpu build   # packages a single executable into dist/
+  ${cd}rendrix dev      # opens the app and reloads on every save
+  rendrix build   # packages a single executable into dist/
 
-The first run downloads a verified prebuilt host (no Rust needed). \`tsgpu doctor\` checks your setup.
-Other starters: \`tsgpu init --list-templates\`.`);
+The first run downloads a verified prebuilt host (no Rust needed). \`rendrix doctor\` checks your setup.
+Other starters: \`rendrix init --list-templates\`.`);
 }
 // Skipped CSS declarations are reported, not silent. With strictCss in the config they are errors instead.
 function printWarnings(warnings=[]) {
@@ -274,7 +274,7 @@ function printWarnings(warnings=[]) {
 }
 function runHost(host,bundleFile) {
   const child=spawn(host,['--bundle',bundleFile],{stdio:'inherit',windowsHide:false});
-  child.on('error',e => console.error(`TS-GPU host failed: ${e.message}`));
+  child.on('error',e => console.error(`Rendrix host failed: ${e.message}`));
   return child;
 }
 // A failed compile cannot replace the bundle, so leave a sidecar that the running host watches.
@@ -427,27 +427,27 @@ async function checkReleaseManifest(renderer,report,{explicit,cached}) {
     // A repository checkout has no bundled manifest and its version has no release, so a missing one is only a note there.
     const offline = downloadsDisabled();
     if (offline || nativeSource()) { report('ok',`release manifest not checked (${offline ? 'downloads are disabled' : 'repository checkout'}): ${error.message}`); return; }
-    report(cached.state==='ok' ? 'warn' : 'fail',`cannot read the host manifest: ${error.message}`,'update tsgpu (npm i -g @bytethedeveloper/tsgpu@latest) or check your network and TSGPU_HOST_BASE_URL');
+    report(cached.state==='ok' ? 'warn' : 'fail',`cannot read the host manifest: ${error.message}`,'update rendrix (npm i -g @bytethedeveloper/rendrix@latest) or check your network and RENDRIX_HOST_BASE_URL');
     return;
   }
   const entry = loaded.manifest.hosts.find(host=>host.renderer===renderer && host.target===currentTarget());
   if (!entry) {
     const offered = [...new Set(loaded.manifest.hosts.filter(host=>host.renderer===renderer).map(host=>host.target))];
-    report('warn',`release ${loaded.manifest.version} has no prebuilt ${renderer} host for ${currentTarget()}${offered.length?` (it has: ${offered.join(', ')})`:''}`,`tsgpu host build --renderer ${renderer}   (compiles one; needs Rust)`);
+    report('warn',`release ${loaded.manifest.version} has no prebuilt ${renderer} host for ${currentTarget()}${offered.length?` (it has: ${offered.join(', ')})`:''}`,`rendrix host build --renderer ${renderer}   (compiles one; needs Rust)`);
     return;
   }
   report('ok',`manifest ${loaded.manifest.version} (${loaded.origin}) lists ${entry.asset}, ${(entry.size/1048576).toFixed(1)} MiB, sha256 ${entry.sha256.slice(0,12)}...`);
   if (cached.state==='ok' && cached.record?.sha256 && cached.record.source !== 'local cargo build' && cached.record.sha256 !== entry.sha256) {
-    report('warn',`the cached ${renderer} host differs from the manifest's hash for this release`,`tsgpu host fetch --renderer ${renderer} --force`);
+    report('warn',`the cached ${renderer} host differs from the manifest's hash for this release`,`rendrix host fetch --renderer ${renderer} --force`);
   }
   if (args.includes('--online')) {
     const url = `${releaseBaseUrl(VERSION)}/${entry.asset}`;
     try {
       const response = await fetch(url,{method:'HEAD',redirect:'follow',signal:AbortSignal.timeout(15000)});
       if (response.ok) report('ok',`download reachable: ${url}`);
-      else report('fail',`download answered HTTP ${response.status}: ${url}`,'check your network, a proxy, or TSGPU_HOST_BASE_URL');
+      else report('fail',`download answered HTTP ${response.status}: ${url}`,'check your network, a proxy, or RENDRIX_HOST_BASE_URL');
     } catch (error) {
-      report('fail',`cannot reach ${url} (${error.cause?.code || error.message})`,'check your network, a proxy, or TSGPU_HOST_BASE_URL; or install a host with `tsgpu host install --file PATH --sha256 HASH`');
+      report('fail',`cannot reach ${url} (${error.cause?.code || error.message})`,'check your network, a proxy, or RENDRIX_HOST_BASE_URL; or install a host with `rendrix host install --file PATH --sha256 HASH`');
     }
   }
 }
@@ -474,7 +474,7 @@ async function doctor() {
     if (fix) lines.push(`         fix: ${fix}`);
     if (level==='fail') blocking++;
   };
-  console.log(`tsgpu ${VERSION} | Node ${process.version} | ${target}`);
+  console.log(`rendrix ${VERSION} | Node ${process.version} | ${target}`);
   const nodeMajor = Number(process.versions.node.split('.')[0]);
   if (nodeMajor < 20) report('fail',`Node ${process.version} is too old (20 or newer is needed)`,'install Node 20+ from https://nodejs.org');
   else report('ok',`Node ${process.version}`);
@@ -499,21 +499,21 @@ async function doctor() {
     lines.push(`  installed source stamp: ${installedStamp || 'missing'}`);
     lines.push(`  current source stamp: ${currentStamp || 'unavailable'}`);
     lines.push(`  source stamps match: ${currentStamp && installedStamp === currentStamp && fs.existsSync(cached.file) ? 'yes' : 'no'}`);
-    if (currentStamp && installedStamp !== currentStamp) report('warn', `installed ${renderer} host does not match the current source`, `tsgpu host build --renderer ${renderer}`);
+    if (currentStamp && installedStamp !== currentStamp) report('warn', `installed ${renderer} host does not match the current source`, `rendrix host build --renderer ${renderer}`);
     if (explicit) report('ok',`host from --host/environment: ${path.resolve(explicit)} (not checked for compatibility)`);
     else if (cached.state==='ok') {
       const intact = await verifyCachedHost(cached);
-      if (intact===false) report('fail',`cached host fails its SHA-256 check: ${cached.file}`,`tsgpu host fetch --renderer ${renderer} --force`);
+      if (intact===false) report('fail',`cached host fails its SHA-256 check: ${cached.file}`,`rendrix host fetch --renderer ${renderer} --force`);
       else report('ok',`host ${cached.record.version} (${cached.record.source==='local cargo build'?'built locally':'checksum verified'}): ${cached.file}`);
     }
-    else if (cached.state==='unverified') report('warn',`host present but ${cached.reason}: ${cached.file}`,`tsgpu host fetch --renderer ${renderer} --force   (replaces it with a verified one)`);
-    else if (cached.state==='incompatible') report('fail',`cached host does not fit this CLI: ${cached.reason}`,`tsgpu host fetch --renderer ${renderer} --force`);
+    else if (cached.state==='unverified') report('warn',`host present but ${cached.reason}: ${cached.file}`,`rendrix host fetch --renderer ${renderer} --force   (replaces it with a verified one)`);
+    else if (cached.state==='incompatible') report('fail',`cached host does not fit this CLI: ${cached.reason}`,`rendrix host fetch --renderer ${renderer} --force`);
     else {
       const built = sourceBuilds(renderer).find(file=>fs.existsSync(file));
       if (built) report('ok',`host from a repository build: ${built}`);
       else {
         missingHosts++;
-        report('warn',`no host installed yet; \`tsgpu dev\` and \`tsgpu build\` will fetch one on first use`,`tsgpu host fetch --renderer ${renderer}`);
+        report('warn',`no host installed yet; \`rendrix dev\` and \`rendrix build\` will fetch one on first use`,`rendrix host fetch --renderer ${renderer}`);
       }
     }
     const libs = systemLibraryCheck(renderer);
@@ -524,25 +524,25 @@ async function doctor() {
   console.log(lines.join('\n'));
   const rust = rustAvailable();
   console.log(`Rust: ${rust ? 'available' : 'not installed'} (only needed to compile a host yourself${rust||nativeSource()?'':'; this installation also has no Rust sources'})`);
-  if (missingHosts && downloadsDisabled()) console.log('Note: TSGPU_NO_DOWNLOAD=1 is set, so hosts will not be downloaded.');
+  if (missingHosts && downloadsDisabled()) console.log('Note: RENDRIX_NO_DOWNLOAD=1 is set, so hosts will not be downloaded.');
   console.log(blocking ? `\n${blocking} problem${blocking>1?'s':''} to fix before the app can run.` : '\nNo blocking problems.');
   if (blocking) process.exitCode = 1;
 }
-// tsgpu package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]
+// rendrix package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]
 // Builds the Windows executable, optionally signs it, builds an NSIS installer, and writes a SHA-256 manifest.
-// Signing uses TSGPU_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
-// The manifest is signed with an Ed25519 key from --manifest-key or TSGPU_MANIFEST_KEY.
+// Signing uses RENDRIX_SIGN_COMMAND (from win.certificateFile/certificateSubjectName in migrated projects).
+// The manifest is signed with an Ed25519 key from --manifest-key or RENDRIX_MANIFEST_KEY.
 // Publishing is manual: upload the artifacts and manifest to publishUrl (from packaging.publishUrl or --publish-url).
-// In-app updates use autoUpdater against the published installer plus .manifest.json; TS-GPU provides the runtime shim and release artifacts.
+// In-app updates use autoUpdater against the published installer plus .manifest.json; Rendrix provides the runtime shim and release artifacts.
 async function packageApp() {
   const installer = flag('installer', '');
   if (installer && installer !== 'nsis') throw new Error(`Unsupported installer: ${installer} (supported: nsis)`);
-  if (process.platform !== 'win32') throw new Error('tsgpu package currently supports Windows only; build macOS apps with tsgpu build');
+  if (process.platform !== 'win32') throw new Error('rendrix package currently supports Windows only; build macOS apps with rendrix build');
   const sign = args.includes('--sign');
   const result = await buildPackage(projectDir());
   printWarnings(result.warnings);
   let packaging = {};
-  const configFilePath = ['tsgpu.config.json', 'tsgpui.config.json'].map(name => path.join(projectDir(), name)).find(file => fs.existsSync(file)) ?? path.join(projectDir(), 'tsgpu.config.json');
+  const configFilePath = ['rendrix.config.json', 'rendrix.config.json'].map(name => path.join(projectDir(), name)).find(file => fs.existsSync(file)) ?? path.join(projectDir(), 'rendrix.config.json');
   try { packaging = JSON.parse(fs.readFileSync(configFilePath, 'utf8')).packaging ?? {}; } catch {}
   const publishUrl = flag('publish-url', packaging.publishUrl || '');
   const certificateSubjectName = packaging.certificateSubjectName || '';
@@ -551,8 +551,8 @@ async function packageApp() {
   const info = await packageExecutable(host, result.bundleFile, output);
   console.log(`Built native application: ${info.file}`);
   if (sign) await signArtifact(info.file);
-  if (sign && !resolveSignCommand()) console.log('Signing skipped: set TSGPU_SIGN_COMMAND=<your sign command>, or TSGPU_CERT_FILE (+TSGPU_CERT_PASSWORD) on Windows / TSGPU_CODESIGN_IDENTITY on macOS (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `tsgpu package --installer nsis --sign`.');
-  if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set TSGPU_SIGN_COMMAND to sign with that certificate.`);
+  if (sign && !resolveSignCommand()) console.log('Signing skipped: set RENDRIX_SIGN_COMMAND=<your sign command>, or RENDRIX_CERT_FILE (+RENDRIX_CERT_PASSWORD) on Windows / RENDRIX_CODESIGN_IDENTITY on macOS (win.certificateFile / certificateSubjectName map here; keep the certificate and password outside the repo) and re-run `rendrix package --installer nsis --sign`.');
+  if (certificateSubjectName) console.log(`Certificate subject (packaging.certificateSubjectName): ${certificateSubjectName}. Set RENDRIX_SIGN_COMMAND to sign with that certificate.`);
   const artifacts = [info.file];
   if (installer === 'nsis') {
     const script = path.join(result.paths.outDir, `${result.config.name}.nsi`);
@@ -563,16 +563,16 @@ async function packageApp() {
     artifacts.push(installerFile);
   }
   const manifest = path.join(result.paths.outDir, `${result.config.name}.manifest.json`);
-  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.TSGPU_MANIFEST_KEY || ''), result.config.version);
+  await writeManifest(artifacts, manifest, flag('manifest-key', process.env.RENDRIX_MANIFEST_KEY || ''), result.config.version);
   console.log(`Wrote manifest: ${manifest}`);
   if (publishUrl) console.log(`Publish (manual): upload ${[...artifacts, manifest, ...(fs.existsSync(manifest + '.sig') ? [manifest + '.sig'] : [])].map(file => path.basename(file)).join(', ')} to publishUrl ${publishUrl}. Configure the app's autoUpdater feed URL to this publishUrl (plus the manifest) so installed apps can update in place.`);
-  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: configure autoUpdater.setFeedURL(...) to the published manifest URL; TS-GPU downloads, verifies and installs the update on quitAndInstall().');
+  if (installer === 'nsis' || sign || publishUrl) console.log('Auto-update: configure autoUpdater.setFeedURL(...) to the published manifest URL; Rendrix downloads, verifies and installs the update on quitAndInstall().');
 }
 
 // Sign (and optionally notarize) an arbitrary artifact on any platform.
 async function signCommand() {
   const file = flag('file', null);
-  if (!file) throw new Error('Use `tsgpu sign --file PATH [--notarize]`.');
+  if (!file) throw new Error('Use `rendrix sign --file PATH [--notarize]`.');
   const target = path.resolve(file);
   if (!fs.existsSync(target)) throw new Error(`File not found: ${target}`);
   const signed = await signArtifact(target);
@@ -580,10 +580,10 @@ async function signCommand() {
   if (args.includes('--notarize')) await notarizeArtifact(target);
 }
 function help() {
-  console.log(`tsgpu ${VERSION}
+  console.log(`rendrix ${VERSION}
   init [dir] [--template NAME] Create a starter project (counter, form, list-detail, electron-import; --list-templates)
   import electron <dir> [--out DIR] [--build] [--force] [--fix]  Import an Electron app
-  run [--project PATH]         Run a TS-GPU or Electron project (default)
+  run [--project PATH]         Run a Rendrix or Electron project (default)
   compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
   dev [--project PATH]         Build, launch the selected host, rebuild on change
   preview [--project PATH]     Live preview in a browser (--out FILE writes one HTML file)
@@ -594,9 +594,9 @@ function help() {
   host install --file PATH --sha256 HASH [--renderer MODE]  Install a verified prebuilt host
   release manifest --file PATH Write a deterministic SHA-256 manifest to stdout
   package [--installer nsis] [--sign] [--manifest-key PATH] [--publish-url URL]  Build the exe, sign it, make an installer and manifest (Windows)
-  sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via TSGPU_SIGN_COMMAND or platform env vars)
+  sign --file PATH [--notarize]  Sign an artifact (Windows/macOS/Linux via RENDRIX_SIGN_COMMAND or platform env vars)
   doctor [--renderer MODE] [--online]  Check the host, its hashes, the manifest and the toolchain; --online also probes the download URL
-Options: renderer is "rendrix" (default) or "native" (deprecated GPUI host); "webview" was removed; --host PATH overrides the selected host.`);
+Options: renderer is "rendrix" (default) or "native" (deprecated legacy host); "webview" was removed; --host PATH overrides the selected host.`);
 }
 async function main() {
   if (command === 'all' || /^(win32|windows|darwin|macos|linux)-(x64|arm64)$/.test(command)) {
@@ -608,7 +608,7 @@ async function main() {
   if(command==='--version' || command==='-v') return console.log(VERSION);
   if(command==='init') return init();
   if(command==='import') {
-    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: tsgpu import electron <dir> [--out <dir>] [--build] [--force] [--fix]');
+    if(args[0] !== 'electron' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: rendrix import electron <dir> [--out <dir>] [--build] [--force] [--fix]');
     const options = args.slice(2);
     for(let i=0;i<options.length;i++) {
       if(options[i] === '--out') { if(!options[++i] || options[i].startsWith('--')) throw new Error('--out requires a directory'); }
@@ -616,23 +616,23 @@ async function main() {
     }
     if(args.includes('--fix')) {
       const input = args[1];
-      const out = flag('out') || path.resolve(input) + '-tsgpu';
+      const out = flag('out') || path.resolve(input) + '-rendrix';
       const force = args.includes('--force');
-      console.log(`--fix (dry-run): would apply fixes from TSGPU_IMPORT_REPORT.md in ${out}.`);
+      console.log(`--fix (dry-run): would apply fixes from RENDRIX_IMPORT_REPORT.md in ${out}.`);
       try {
         const pkg = JSON.parse(fs.readFileSync(path.join(path.resolve(input), 'package.json'), 'utf8'));
-        if (pkg.build?.appId) console.log(`--fix: add "bundleId": "${pkg.build.appId}" to tsgpu.config.json`);
-        if (pkg.build?.directories?.output) console.log(`--fix: set "outDir" to "${pkg.build.directories.output}" in tsgpu.config.json`);
-        if (pkg.build?.productName) console.log(`--fix: set "title" to "${pkg.build.productName}" in tsgpu.config.json`);
-        if (pkg.build?.win?.target) console.log(`--fix: run \`tsgpu package --installer nsis\` for win.target ${pkg.build.win.target}`);
-        if (pkg.build?.win?.certificateFile) console.log(`--fix: win.certificateFile "${pkg.build.win.certificateFile}" maps to TSGPU_SIGN_COMMAND=<your sign command>; run \`tsgpu package --installer nsis --sign\` (keep the certificate and password outside the repo)`);
-        if (pkg.build?.win?.certificateSubjectName) console.log(`--fix: certificateSubjectName "${pkg.build.win.certificateSubjectName}" maps to TSGPU_SIGN_COMMAND=<your sign command>; run \`tsgpu package --installer nsis --sign\``);
-        if (pkg.build?.publish) console.log(`--fix: publish maps to packaging.publishUrl; upload signed artifacts and .manifest.json to the publish URL by hand (TS-GPU has no auto-publish), after \`tsgpu package --installer nsis --sign\` with TSGPU_MANIFEST_KEY=<path to Ed25519 key>`);
-        if (pkg.build?.win?.target && !pkg.build?.win?.certificateFile && !pkg.build?.win?.certificateSubjectName) console.log('--fix: signing is manual: set TSGPU_SIGN_COMMAND=<your sign command> and TSGPU_MANIFEST_KEY=<path to Ed25519 key>, then run `tsgpu package --installer nsis --sign`');
-        if (pkg.build?.win?.target) console.log('--fix: autoUpdater is unsupported in TS-GPU; ship updates via the TS-GPU release process (docs/BUILDING.md signing/auto-update subsection)');
+        if (pkg.build?.appId) console.log(`--fix: add "bundleId": "${pkg.build.appId}" to rendrix.config.json`);
+        if (pkg.build?.directories?.output) console.log(`--fix: set "outDir" to "${pkg.build.directories.output}" in rendrix.config.json`);
+        if (pkg.build?.productName) console.log(`--fix: set "title" to "${pkg.build.productName}" in rendrix.config.json`);
+        if (pkg.build?.win?.target) console.log(`--fix: run \`rendrix package --installer nsis\` for win.target ${pkg.build.win.target}`);
+        if (pkg.build?.win?.certificateFile) console.log(`--fix: win.certificateFile "${pkg.build.win.certificateFile}" maps to RENDRIX_SIGN_COMMAND=<your sign command>; run \`rendrix package --installer nsis --sign\` (keep the certificate and password outside the repo)`);
+        if (pkg.build?.win?.certificateSubjectName) console.log(`--fix: certificateSubjectName "${pkg.build.win.certificateSubjectName}" maps to RENDRIX_SIGN_COMMAND=<your sign command>; run \`rendrix package --installer nsis --sign\``);
+        if (pkg.build?.publish) console.log(`--fix: publish maps to packaging.publishUrl; upload signed artifacts and .manifest.json to the publish URL by hand (Rendrix has no auto-publish), after \`rendrix package --installer nsis --sign\` with RENDRIX_MANIFEST_KEY=<path to Ed25519 key>`);
+        if (pkg.build?.win?.target && !pkg.build?.win?.certificateFile && !pkg.build?.win?.certificateSubjectName) console.log('--fix: signing is manual: set RENDRIX_SIGN_COMMAND=<your sign command> and RENDRIX_MANIFEST_KEY=<path to Ed25519 key>, then run `rendrix package --installer nsis --sign`');
+        if (pkg.build?.win?.target) console.log('--fix: autoUpdater is unsupported in Rendrix; ship updates via the Rendrix release process (docs/BUILDING.md signing/auto-update subsection)');
       } catch {}
-      console.log('--fix: edit permissions (network/filesystem/processes) in tsgpu.config.json, then run `tsgpu build` in ' + out + '.');
-      console.log('--fix: review TSGPU_IMPORT_REPORT.md for file:line Fix: commands.');
+      console.log('--fix: edit permissions (network/filesystem/processes) in rendrix.config.json, then run `rendrix build` in ' + out + '.');
+      console.log('--fix: review RENDRIX_IMPORT_REPORT.md for file:line Fix: commands.');
       if (!force) {
         console.log('--fix: no files written. Add --force to allow overwriting an existing output directory.');
         return;
@@ -661,6 +661,6 @@ async function main() {
   if(command==='sign') return signCommand();
   if(command==='dev') return dev();
   if(command==='preview') return preview();
-  throw new Error(`Unknown command: ${command}. Run \`tsgpu help\`.`);
+  throw new Error(`Unknown command: ${command}. Run \`rendrix help\`.`);
 }
-main().catch(error=>{console.error(`tsgpu: ${error.message}`);process.exitCode=1;});
+main().catch(error=>{console.error(`rendrix: ${error.message}`);process.exitCode=1;});

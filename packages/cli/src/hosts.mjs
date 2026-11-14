@@ -1,7 +1,7 @@
 // Prebuilt host executables: where they live, how they are downloaded, and whether they fit this CLI.
 //
 // A release publishes one host per renderer and target, plus a `hosts.json` manifest with the SHA-256
-// of each. `tsgpu host fetch` downloads one, checks the hash and the size, and stores it in the
+// of each. `rendrix host fetch` downloads one, checks the hash and the size, and stores it in the
 // per-user cache next to a small `.json` record. That record is what the compatibility check reads.
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
@@ -9,27 +9,27 @@ import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// "rendrix" is the Rendrix host (the engine). "native" is the deprecated GPUI host, kept until the
+// "rendrix" is the Rendrix host (the engine). "native" is the deprecated legacy host, kept until the
 // Rendrix M1 gate. The "webview" renderer was removed; assertRenderer rejects it with guidance.
 export const RENDERERS = ['rendrix', 'native'];
-export const BUNDLE_FORMAT = 'tsgpu-1';
-export const REPO_URL = 'https://github.com/ByteTheDev/TSGPUI';
+export const BUNDLE_FORMAT = 'rendrix-1';
+export const REPO_URL = 'https://github.com/ByteTheDev/Rendrix';
 const MAX_HOST_BYTES = 512 * 1024 * 1024;
 
 export function currentTarget() {return `${process.platform}-${process.arch}`;}
 export function exeSuffix(target = currentTarget()) {return target.startsWith('win32-') ? '.exe' : '';}
-export function tsgpuHome() {return process.env.TSGPU_HOME || path.join(os.homedir(), '.tsgpu');}
-export function hostBinaryName(renderer = 'rendrix') {return renderer === 'native' ? 'tsgpu-gpui-host' : 'rendrix-host';}
+export function rendrixHome() {return process.env.RENDRIX_HOME || path.join(os.homedir(), '.rendrix');}
+export function hostBinaryName(renderer = 'rendrix') {return renderer === 'native' ? 'rendrix-legacy-host' : 'rendrix-host';}
 export function cachedHostPath(renderer = 'rendrix', target = currentTarget()) {
-  return path.join(tsgpuHome(), 'host', target, `${hostBinaryName(renderer)}${exeSuffix(target)}`);
+  return path.join(rendrixHome(), 'host', target, `${hostBinaryName(renderer)}${exeSuffix(target)}`);
 }
 // Release asset name, for example rendrix-host-win32-x64.exe.
 export function assetName(renderer, target) {return `${hostBinaryName(renderer)}-${target}${exeSuffix(target)}`;}
 function recordPath(hostFile) {return `${hostFile}.json`;}
 
 export function assertRenderer(renderer) {
-  if (renderer === 'webview') throw new Error('The "webview" renderer was removed; TS-GPU renders natively with Rendrix. Remove the renderer key from tsgpu.config.json (it defaults to "rendrix"), or set it to "rendrix".');
-  if (!RENDERERS.includes(renderer)) throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated GPUI host), not ${JSON.stringify(renderer)}`);
+  if (renderer === 'webview') throw new Error('The "webview" renderer was removed; Rendrix renders natively with Rendrix. Remove the renderer key from rendrix.config.json (it defaults to "rendrix"), or set it to "rendrix".');
+  if (!RENDERERS.includes(renderer)) throw new Error(`renderer must be "rendrix" (default) or "native" (deprecated legacy host), not ${JSON.stringify(renderer)}`);
 }
 export async function sha256File(file) {return createHash('sha256').update(await readFile(file)).digest('hex');}
 
@@ -47,7 +47,7 @@ export function sourceStamp(source, renderer) {
   walk(path.join(source, 'src'), 'src');
   const hash = createHash('sha256');
   const add = data => { const bytes = Buffer.from(data); hash.update(`${bytes.length}:`); hash.update(bytes); };
-  add('tsgpu-host-source-v1'); add(renderer);
+  add('rendrix-host-source-v1'); add(renderer);
   for (const file of files.sort()) { add(file); add(fs.readFileSync(path.join(source, ...file.split('/')))); }
   return hash.digest('hex');
 }
@@ -111,9 +111,9 @@ export async function recordLocalBuild({renderer, version, sourceStamp: stamp}) 
 }
 
 export function releaseBaseUrl(version) {
-  return (process.env.TSGPU_HOST_BASE_URL || `${REPO_URL}/releases/download/v${version}`).replace(/\/+$/, '');
+  return (process.env.RENDRIX_HOST_BASE_URL || `${REPO_URL}/releases/download/v${version}`).replace(/\/+$/, '');
 }
-export function downloadsDisabled() {return process.env.TSGPU_NO_DOWNLOAD === '1';}
+export function downloadsDisabled() {return process.env.RENDRIX_NO_DOWNLOAD === '1';}
 
 export function validateManifest(manifest, version) {
   if (!manifest || manifest.schema !== 2 || !Array.isArray(manifest.hosts)) throw new Error('hosts.json is not a recognised host manifest (schema 2)');
@@ -166,7 +166,7 @@ export function assertTarget(target) {
 export async function fetchHost({renderer, version, pkgRoot, target = currentTarget(), log = console.log}) {
   assertRenderer(renderer);
   assertTarget(target);
-  if (downloadsDisabled()) throw new Error('downloads are disabled by TSGPU_NO_DOWNLOAD=1');
+  if (downloadsDisabled()) throw new Error('downloads are disabled by RENDRIX_NO_DOWNLOAD=1');
   const {manifest, origin} = await loadManifest({version, pkgRoot});
   const entry = manifest.hosts.find(host => host.renderer === renderer && host.target === target);
   if (!entry) {

@@ -5,7 +5,7 @@ type Rectangle = {x: number; y: number; width: number; height: number};
 
 // Host bridge ids for Tray instances. The native host owns the OS tray icon; this shim keeps the
 // Electron-facing state and forwards mutations through `tray.*` ops. Native events come back
-// through `__tsgpui_host_event('tray.event', { id, event, itemId })`.
+// through `__rendrix_host_event('tray.event', { id, event, itemId })`.
 let nextTrayId = 1;
 const trays = new Map<number, Tray>();
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs `tsgpu import electron` and then `tsgpu compile` on a corpus of open-source Electron apps and
+// Runs `rendrix import electron` and then `rendrix compile` on a corpus of open-source Electron apps and
 // prints a Markdown table. Results are published in docs/ELECTRON_IMPORT_RESULTS.md.
 //
 //   node scripts/electron-corpus.mjs <work-dir> [--json results.json]
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const cli = path.resolve(here, '../packages/cli/bin/tsgpu.mjs');
+const cli = path.resolve(here, '../packages/cli/bin/rendrix.mjs');
 
 // [repository, sub-directories to import (empty means the repository root)]
 export const CORPUS = [
@@ -29,7 +29,7 @@ export const CORPUS = [
 ];
 
 const run = (command, args, options = {}) => spawnSync(command, args, { encoding: 'utf8', timeout: 300000, ...options });
-const first = text => (text ?? '').trim().split('\n')[0].replace(/^tsgpu: /, '');
+const first = text => (text ?? '').trim().split('\n')[0].replace(/^rendrix: /, '');
 
 function main() {
   const argv = process.argv.slice(2);
@@ -59,7 +59,7 @@ function main() {
         if (compiled.status !== 0) row.detail = first(compiled.stderr);
         row.warnings = (compiled.stderr.match(/^Warning:/gm) ?? []).length;
         row.cssWarnings = (compiled.stderr.match(/^Warning: .*(?:CSS|selector)/gm) ?? []).length;
-        const report = fs.readFileSync(path.join(out, 'TSGPU_IMPORT_REPORT.md'), 'utf8');
+        const report = fs.readFileSync(path.join(out, 'RENDRIX_IMPORT_REPORT.md'), 'utf8');
         row.scriptsRemoved = [...report.matchAll(/^- (?!node_modules\/)[^\n]*removed (\d+) <script>/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
         row.unsupportedModules = [...new Set([...report.matchAll(/Unsupported module (\S+)/g)].map(match => match[1]))];
         row.reviewApis = [...new Set([...report.matchAll(/Review potentially unsupported API (\S+)/g)].map(match => match[1]))];

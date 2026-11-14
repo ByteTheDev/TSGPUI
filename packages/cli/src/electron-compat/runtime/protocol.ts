@@ -18,7 +18,7 @@ function encodeUtf8(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-// Custom protocol shim for Electron -> TS-GPU transfer.
+// Custom protocol shim for Electron -> Rendrix transfer.
 // Supports packaged-asset handlers, binary and streaming bodies, callback handlers, remote
 // proxy responses through the permission-checked transport, and per-scheme privilege records.
 
@@ -126,7 +126,7 @@ function pathFromCustomUrl(urlText: string): string | null {
   let parsed: URL;
   try { parsed = new URL(urlText); } catch { return null; }
   const scheme = parsed.protocol.slice(0, -1).toLowerCase();
-  if (scheme === 'tsgpui') {
+  if (scheme === 'rendrix') {
     const path = decodedPath(parsed);
     return path.startsWith('/') ? path : '/' + path;
   }
@@ -143,11 +143,11 @@ function decodedPath(parsed: URL): string {
 
 export function rewriteCustomUrl(urlText: string): string | null {
   if (typeof urlText !== 'string') return null;
-  if (urlText.startsWith('tsgpui://localhost/')) return urlText;
+  if (urlText.startsWith('rendrix://localhost/')) return urlText;
   const path = pathFromCustomUrl(urlText);
   if (path === null) return null;
   if (path.startsWith('//') || path.split('/').includes('..') || path.includes('\\')) return null;
-  return `tsgpui://localhost${path}`;
+  return `rendrix://localhost${path}`;
 }
 
 function chunkToBytes(value: any): Uint8Array | null {
@@ -497,5 +497,5 @@ function rewrittenOrPath(urlValue: any): string {
 export default protocol;
 
 const g: any = globalThis;
-g.__tsgpui_protocol = protocol;
-g.__tsgpui_protocol_rewrite = rewriteCustomUrl;
+g.__rendrix_protocol = protocol;
+g.__rendrix_protocol_rewrite = rewriteCustomUrl;

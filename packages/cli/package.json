@@ -1,12 +1,12 @@
 {
-  "name": "@bytethedeveloper/tsgpu",
+  "name": "@bytethedeveloper/rendrix",
   "version": "0.4.0",
   "description": "Compile HTML/CSS and TypeScript applications into native windows rendered by Rendrix",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "rendrix",
-    "gpui",
+    "rendrix",
     "native",
     "html",
     "css",
@@ -16,12 +16,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ByteTheDev/TSGPUI.git",
+    "url": "git+https://github.com/ByteTheDev/Rendrix.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/ByteTheDev/TSGPUI#readme",
+  "homepage": "https://github.com/ByteTheDev/Rendrix#readme",
   "bin": {
-    "tsgpu": "dist/tsgpu.mjs"
+    "rendrix": "dist/rendrix.mjs"
   },
   "exports": {
     "./types": "./types/app.d.ts"
@@ -36,7 +36,7 @@
     "hosts.json"
   ],
   "scripts": {
-    "build": "bun build bin/tsgpu.mjs --target=node --outfile=dist/tsgpu.mjs",
+    "build": "bun build bin/rendrix.mjs --target=node --outfile=dist/rendrix.mjs",
     "prepack": "node scripts/pack-native.mjs copy && bun run build",
     "postpack": "node scripts/pack-native.mjs clean",
     "release:archive": "node scripts/pack-release.mjs",

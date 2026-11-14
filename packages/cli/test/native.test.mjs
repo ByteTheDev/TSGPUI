@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createNativeGrants, performNative } from '../src/native.mjs';
 
 function sandbox(name) {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), `tsgpui-native-${name}-`));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), `rendrix-native-${name}-`));
   fs.mkdirSync(path.join(base, 'data'));
   return base;
 }

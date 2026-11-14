@@ -1,4 +1,4 @@
-import type { AppDefinition } from "tsgpu/types";
+import type { AppDefinition } from "rendrix/types";
 
 type Account = { name: string; email: string; plan: string };
 

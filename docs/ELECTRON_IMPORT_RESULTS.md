@@ -1,10 +1,10 @@
 # Electron importer: results on real open-source apps
 
-Run on 2026-11-12 against TS-GPU 0.4.0 (Electron 33 surface), branch `dev`.
+Run on 2026-11-12 against Rendrix 0.4.0 (Electron 33 surface), branch `dev`.
 Reproduce with `node scripts/electron-corpus.mjs <work-dir>` (clones shallow, imports, compiles, prints the table).
 
-**Method.** 23 import targets from 9 public repositories. For each: `tsgpu import electron <dir>`, then
-`tsgpu compile` on the result. Nothing from these apps was executed: the importer only reads files, and
+**Method.** 23 import targets from 9 public repositories. For each: `rendrix import electron <dir>`, then
+`rendrix compile` on the result. Nothing from these apps was executed: the importer only reads files, and
 `--build` was never passed, so no `npm install` or third-party build script ran. **No converted app was
 launched**, so "compiles" below means the bundle was produced, not that the app works.
 
