@@ -2,7 +2,7 @@ import type { AppDefinition } from "rendrix/types";
 
 type CounterState = { count: number };
 
-// Runs in QuickJS inside the native GPUI process, not in a browser.
+// Runs in QuickJS inside the native Rendrix process, not in a browser.
 const app: AppDefinition<CounterState> = {
   state: { count: 0 },
   actions: {

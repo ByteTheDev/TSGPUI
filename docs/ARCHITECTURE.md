@@ -8,7 +8,7 @@ The `renderer` setting selects the host:
 - `native`: the deprecated legacy host. Accepted with a deprecation warning until the Rendrix M1 gate removes it.
 - `webview`: a hard error. The WebView renderer was removed in the rewrite; see below.
 
-Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.tgp` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][RENDRIX001]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/rendrix.tgp`. Packaged apps do not need Node or Bun at runtime.
+Both paths bundle project-local TypeScript backend modules and emit a UTF-8 JSON `.rdx` bundle. On Windows and Linux release packaging appends `[bundle][u64 LE length][RENDRI01]` to the matching prebuilt host executable. macOS app bundles store the document in `Contents/Resources/rendrix.rdx`. Packaged apps do not need Node or Bun at runtime.
 
 ## Removed: WebView renderer
 
@@ -26,7 +26,7 @@ The deprecated legacy host is organized under `native/src/view/`: `mod.rs` owns 
 
 ## Build and development
 
-Build a host when Rust host code changes. Use `rendrix host build --renderer rendrix` for the Rendrix engine or `rendrix host build --renderer native` for the deprecated legacy host. HTML, CSS, TypeScript, and asset changes only rebuild the `.tgp` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `rendrix build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `rendrix all` package the same bundle for other supported targets, each with its own verified prebuilt host.
+Build a host when Rust host code changes. Use `rendrix host build --renderer rendrix` for the Rendrix engine or `rendrix host build --renderer native` for the deprecated legacy host. HTML, CSS, TypeScript, and asset changes only rebuild the `.rdx` bundle. Hosts are target-specific: Windows produces PE, Linux ELF, and macOS Mach-O. `rendrix build` packages the matching host and creates a macOS `.app` directory bundle; it does not sign or notarize that bundle. `--target` and `rendrix all` package the same bundle for other supported targets, each with its own verified prebuilt host.
 
 `rendrix dev` watches the configured source files and rewrites the bundle. Host processes reload the bundle in the existing window. The legacy host preserves backend state across reloads by merging user-changed values into the new script; the Rendrix host's reload behavior is part of the early beta and follows the same merge model as it matures. A failed build is shown in the legacy host's in-window panel while the last successful document keeps running. The browser preview (`rendrix preview`) preserves state on reload.
 
@@ -54,7 +54,7 @@ QuickJS memory and execution time are limited as described in the safety documen
 
 ## Versioned binary format
 
-On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `RENDRIX001`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
+On Windows and Linux a packaged application consists of the native executable followed by JSON bytes, an 8-byte little-endian payload length, and `RENDRI01`. The Windows host also locates this trailer before an Authenticode certificate table. macOS uses a bundle resource. The host limits embedded payload reads to 16 MiB. The bundle carries an optional SHA-256 integrity field over its backend and root; the host verifies it on load when present and rejects tampered bundles. The outer container itself is still not encrypted.
 
 ## Remaining roadmap
 

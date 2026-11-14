@@ -220,7 +220,7 @@ export default app;</code></pre>
             </div>
             <p class="visual-caption">
               Interactive simulation of the counter's layout and colours. The real
-              window is drawn by the Rendrix host from the compiled <code>.tgp</code>.
+              window is drawn by the Rendrix host from the compiled <code>.rdx</code>.
             </p>
           </div>
         </div>
@@ -298,9 +298,9 @@ export default app;</code></pre>
             <h3><code>rendrix compile</code></h3>
             <p>
               Parses the HTML subset, resolves CSS, transpiles the backend and writes a
-              <code>.tgp</code> document.
+              <code>.rdx</code> document.
             </p>
-            <pre class="tgp" aria-label="Excerpt of the compiled counter bundle"><code>{
+            <pre class="rdx" aria-label="Excerpt of the compiled counter bundle"><code>{
   "format": "rendrix-1",
   "name": "rendrix-counter",
   "title": "Rendrix • Native Counter",
@@ -320,11 +320,11 @@ export default app;</code></pre>
               <span class="seg seg-host">host</span>
               <span class="seg seg-bundle">bundle</span>
               <span class="seg seg-len">len</span>
-              <span class="seg seg-magic">RENDRIX001</span>
+              <span class="seg seg-magic">RENDRI01</span>
             </div>
             <p class="layout-caption">
               Host executable, then the bundle JSON, an 8-byte little-endian length and
-              the <code>RENDRIX001</code> marker.
+              the <code>RENDRI01</code> marker.
             </p>
             <p class="stage-result">→ <code>dist/rendrix-counter.exe</code></p>
           </div>
@@ -379,7 +379,7 @@ export default app;</code></pre>
           </div>
           <div class="fact reveal">
             <h3>Plain-text bundle</h3>
-            <p>The <code>.tgp</code> document is JSON. Its format and contents can be read and checked directly.</p>
+            <p>The <code>.rdx</code> document is JSON. Its format and contents can be read and checked directly.</p>
           </div>
           <div class="fact reveal">
             <h3>Compile-time components</h3>
@@ -411,7 +411,7 @@ export default app;</code></pre>
 bun run test
 bun run rendrix:compile</code></pre>
             </div>
-            <p>Writes <code>examples/counter/dist/rendrix-counter.tgp</code>.</p>
+            <p>Writes <code>examples/counter/dist/rendrix-counter.rdx</code>.</p>
           </div>
 
           <div class="step reveal">

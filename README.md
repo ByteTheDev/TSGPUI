@@ -32,16 +32,16 @@ Rendrix is an **experimental, source-first framework prototype**. It turns a sup
 **Rendrix renames from Rendrix; the WebView renderer is removed; Rendrix is the sole rendering engine** (owner-authorized decision of 2026-11-11, contract in [docs/REWRITE_RENDRIX.md](docs/REWRITE_RENDRIX.md)). What that means in practice:
 
 - **One renderer.** The `renderer` key is `"rendrix"` (default). `"native"` selects the deprecated legacy host (`rendrix-legacy-host`) with a deprecation warning and is scheduled for removal at the Rendrix M1 gate. `"webview"` is a hard error with migration guidance.
-- **Renamed interfaces.** Bundle magic `RENDRIX001`, home env var `RENDRIX_HOME`, CLI entry `packages/cli/bin/rendrix.mjs`, binaries `rendrix-host` / `rendrix-legacy-host` (deprecated); the webview host binary is deleted.
+- **Renamed interfaces.** Bundle magic `RENDRI01`, home env var `RENDRIX_HOME`, CLI entry `packages/cli/bin/rendrix.mjs`, binaries `rendrix-host` / `rendrix-legacy-host` (deprecated); the webview host binary is deleted.
 - **Preserved.** The Electron-compat runtime, the updater, the QuickJS backend + permissions model, and the smoke/benchmark scripts all keep working; they never depended on the WebView renderer.
 
 ## The idea
 
 ```text
-HTML + CSS + TypeScript  →  .tgp app bundle  →  one desktop executable
+HTML + CSS + TypeScript  →  .rdx app bundle  →  one desktop executable
 ```
 
-The `.tgp` bundle contains the validated app document and transpiled backend. At runtime, the native host renders the UI and embeds QuickJS for actions—there is no separate JavaScript process. Bun or Node is needed for development and building, but not to run a packaged app.
+The `.rdx` bundle contains the validated app document and transpiled backend. At runtime, the native host renders the UI and embeds QuickJS for actions—there is no separate JavaScript process. Bun or Node is needed for development and building, but not to run a packaged app.
 
 The host is compiled once per OS and architecture. Later builds compile the app bundle and append it to a copy of the matching host. The packager supports PE on Windows, ELF on Linux, and Mach-O on macOS. The CLI can fetch a checksummed host from a configured release, or build one locally (`rendrix host fetch` / `rendrix doctor`); availability depends on published release artifacts.
 
@@ -75,7 +75,7 @@ bun run test
 bun run rendrix:compile
 ```
 
-This builds `examples/counter/dist/rendrix-counter.tgp` without Rust. To create a Windows executable, use a compatible prebuilt host or build one locally:
+This builds `examples/counter/dist/rendrix-counter.rdx` without Rust. To create a Windows executable, use a compatible prebuilt host or build one locally:
 
 **Use a prebuilt host:** build it with the [Windows host workflow](.github/workflows/windows-host.yml), or obtain a trusted compatible build and verify its provenance and SHA-256.
 

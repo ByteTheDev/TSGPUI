@@ -279,7 +279,7 @@ function runHost(host,bundleFile) {
 }
 // A failed compile cannot replace the bundle, so leave a sidecar that the running host watches.
 function buildErrorPath(project,bundleFile) {
-  return bundleFile ? `${bundleFile}.error` : path.join(project.paths.outDir,`${project.config.name}.tgp.error`);
+  return bundleFile ? `${bundleFile}.error` : path.join(project.paths.outDir,`${project.config.name}.rdx.error`);
 }
 async function writeBuildError(file,error) {
   try {
@@ -584,7 +584,7 @@ function help() {
   init [dir] [--template NAME] Create a starter project (counter, form, list-detail, electron-import; --list-templates)
   import electron <dir> [--out DIR] [--build] [--force] [--fix]  Import an Electron app
   run [--project PATH]         Run a Rendrix or Electron project (default)
-  compile [--project PATH]     Compile HTML/CSS/TS to a .tgp bundle
+  compile [--project PATH]     Compile HTML/CSS/TS to a .rdx bundle
   dev [--project PATH]         Build, launch the selected host, rebuild on change
   preview [--project PATH]     Live preview in a browser (--out FILE writes one HTML file)
   build [--project PATH] [--target T]  Package for T: a target, a comma list, or "all" (win32-x64, win32-arm64, darwin-arm64, linux-x64, linux-arm64; default: this machine)

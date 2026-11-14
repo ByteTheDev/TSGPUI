@@ -61,7 +61,7 @@ test('init creates a project from the packaged template and compile produces a b
 
   const compiled = rendrix(['compile', '--project', dir]);
   assert.equal(compiled.status, 0, compiled.stderr);
-  const bundle = JSON.parse(fs.readFileSync(path.join(dir, 'dist/my-app.tgp'), 'utf8'));
+  const bundle = JSON.parse(fs.readFileSync(path.join(dir, 'dist/my-app.rdx'), 'utf8'));
   assert.equal(bundle.name, 'my-app');
 });
 
@@ -81,7 +81,7 @@ test('an absent renderer key defaults to rendrix', () => {
   writeProjectFiles(project, config);
   const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
-  const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.tgp`), 'utf8'));
+  const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.rdx`), 'utf8'));
   assert.equal(bundle.renderer, 'rendrix');
 });
 
@@ -94,7 +94,7 @@ test('the deprecated native renderer compiles with a deprecation warning', () =>
   const compiled = rendrix(['compile', '--project', project]);
   assert.equal(compiled.status, 0, compiled.stderr);
   assert.match(compiled.stderr + compiled.stdout, /deprecat/i);
-  const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.tgp`), 'utf8'));
+  const bundle = JSON.parse(fs.readFileSync(path.join(project, 'dist', `${config.name}.rdx`), 'utf8'));
   assert.equal(bundle.renderer, 'native');
 });
 
@@ -108,31 +108,6 @@ test('the webview renderer is a hard error with migration guidance', () => {
   assert.notEqual(compiled.status, 0);
   assert.match(compiled.stderr + compiled.stdout, /webview/i);
   assert.match(compiled.stderr + compiled.stdout, /rendrix/);
-});
-
-test('the legacy rendrix.config.json name alone still compiles, with a rename warning', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-legacy-config-'));
-  const {dir: project, configFile} = initProject(parent);
-  const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-  fs.writeFileSync(configFile, JSON.stringify(config)); // canonical name, as init created it
-  fs.renameSync(configFile, path.join(project, 'rendrix.config.json'));
-  const compiled = rendrix(['compile', '--project', project]);
-  assert.equal(compiled.status, 0, compiled.stderr);
-  assert.match(compiled.stderr + compiled.stdout, /rendrix\.config\.json[\s\S]*rendrix\.config\.json|rename it to rendrix\.config\.json/);
-  assert.ok(fs.existsSync(path.join(project, 'dist', `${config.name}.tgp`)), 'legacy config still compiles');
-});
-
-test('rendrix.config.json wins when both config names exist', () => {
-  const parent = mkdtempSync(path.join(os.tmpdir(), 'rendrix-config-precedence-'));
-  const {dir: project, configFile} = initProject(parent);
-  const legacy = path.join(project, 'rendrix.config.json');
-  const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-  fs.writeFileSync(configFile, JSON.stringify({...config, name: 'new-name'}));
-  fs.writeFileSync(legacy, JSON.stringify({...config, name: 'legacy-name'}));
-  const compiled = rendrix(['compile', '--project', project]);
-  assert.equal(compiled.status, 0, compiled.stderr);
-  assert.ok(fs.existsSync(path.join(project, 'dist', 'new-name.tgp')), 'the canonical config supplies the bundle name');
-  assert.ok(!fs.existsSync(path.join(project, 'dist', 'legacy-name.tgp')), 'the legacy config is ignored when the canonical one exists');
 });
 
 test('doctor reports the rendrix renderer and no webview renderer', () => {
@@ -179,7 +154,7 @@ test('dev recovers when a missing nested backend module is created and rebuilds 
     child.stdout.on('data',chunk=>logs+=chunk); child.stderr.on('data',chunk=>logs+=chunk);
     await waitFor(()=>logs.includes('Watching project source directories'));
     fs.mkdirSync(path.join(project,'src/nested')); fs.writeFileSync(path.join(project,'src/nested/helper.ts'),'export const value = 17;');
-    const bundle=path.join(project,'dist/watch-test.tgp');
+    const bundle=path.join(project,'dist/watch-test.rdx');
     await waitFor(()=>fs.existsSync(bundle) && fs.readFileSync(bundle,'utf8').includes('value = 17'));
     fs.writeFileSync(path.join(project,'src/nested/helper.ts'),'export const value = 42;');
     await waitFor(()=>fs.readFileSync(bundle,'utf8').includes('value = 42'));
@@ -221,7 +196,7 @@ for (const template of ['counter', 'form', 'list-detail']) {
     assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).scripts.dev, 'rendrix dev');
     const compiled = rendrix(['compile', '--project', dir]);
     assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
-    assert.ok(fs.existsSync(path.join(dir, 'dist', `my-${template}.tgp`)));
+    assert.ok(fs.existsSync(path.join(dir, 'dist', `my-${template}.rdx`)));
   });
 }
 

@@ -31,7 +31,7 @@ jobs:
       - name: Save Rendrix SHA-256 hash
         shell: pwsh
         run: (Get-FileHash 'native/target/release/rendrix-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/rendrix-host.exe.sha256
-      - name: Save GPUI SHA-256 hash
+      - name: Save legacy host SHA-256 hash
         shell: pwsh
         run: (Get-FileHash 'native/target/release/rendrix-legacy-host.exe' -Algorithm SHA256).Hash | Set-Content native/target/release/rendrix-legacy-host.exe.sha256
       - uses: actions/upload-artifact@v4

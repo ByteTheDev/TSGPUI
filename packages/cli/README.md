@@ -1,6 +1,6 @@
 # rendrix
 
-Compile HTML, CSS and TypeScript into a native window rendered by [Rendrix](#), Rendrix's own GPU renderer, backed by the GPUI toolchain. Backend actions run in an embedded QuickJS engine inside the host.
+Compile HTML, CSS and TypeScript into a native window rendered by [Rendrix](#), Rendrix's own GPU renderer, backed by the Rendrix toolchain. Backend actions run in an embedded QuickJS engine inside the host.
 
 ## Install
 
@@ -62,7 +62,7 @@ That needs Rust (https://rustup.rs) and, on Windows, the MSVC C++ build tools. Y
 | `rendrix run [--project PATH]` | Start a Rendrix or Electron project (the default command) |
 | `rendrix init [dir] [--template NAME]` | Create a starter: `counter` (default), `form`, `list-detail`, `electron-import` (`--list-templates`) |
 | `rendrix import electron <dir> [--out DIR] [--build] [--force]` | Convert an Electron project into a Rendrix project and write its review report |
-| `rendrix compile [--project PATH]` | Write `dist/<name>.tgp` |
+| `rendrix compile [--project PATH]` | Write `dist/<name>.rdx` |
 | `rendrix dev [--project PATH]` | Build, launch the host, and rebuild on change |
 | `rendrix preview [--project PATH]` | Live preview in a browser at 127.0.0.1 (`--out FILE` writes one HTML file) |
 | `rendrix build [--project PATH] [--target T]` | Write a single native executable for T: one target, a comma-separated list, or `all` (default: this machine) |

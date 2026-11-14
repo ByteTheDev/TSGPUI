@@ -3,7 +3,7 @@ name = "rendrix-host"
 version = "0.4.0"
 edition = "2024"
 license = "MIT"
-description = "Native GPUI (deprecated) and Rendrix hosts for Rendrix bundles"
+description = "Native legacy (deprecated) and Rendrix hosts for Rendrix bundles"
 
 [features]
 default = ["native-host"]

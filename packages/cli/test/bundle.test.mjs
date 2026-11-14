@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { validateConfig } from '../src/compiler.mjs';
 import { MAGIC } from '../src/pack.mjs';
 
-test('bundle magic is RENDRIX001 (Rust package.rs and the JS packer must agree byte-for-byte)', () => {
-  assert.equal(Buffer.from(MAGIC).toString('ascii'), 'RENDRIX001');
+test('bundle magic is RENDRI01 (Rust package.rs and the JS packer must agree byte-for-byte)', () => {
+  assert.equal(Buffer.from(MAGIC).toString('ascii'), 'RENDRI01');
   assert.equal(MAGIC.length, 8);
 });
 

@@ -199,7 +199,7 @@ function parseDocument(source, library) {
       const closing = token[0].startsWith('</');
       const tagMatch = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/.exec(token[0]);
       const tag = tagMatch[1].toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) throw new Error(`Unsupported HTML element <${tag}>. HTML is translated to native GPUI, not Chromium.`);
+      if (!ALLOWED_TAGS.has(tag)) throw new Error(`Unsupported HTML element <${tag}>. HTML is translated to native Rendrix, not Chromium.`);
       if (closing) {
         if (stack.length <= 1 || stack.at(-1).tag !== tag) throw new Error(`Unexpected closing tag </${tag}>`);
         stack.pop();

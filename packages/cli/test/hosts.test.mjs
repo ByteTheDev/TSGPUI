@@ -54,7 +54,7 @@ test('release asset names follow the hosts.json v2 naming', () => {
   assert.equal(assetName('rendrix', target), `rendrix-host-${target}${exeSuffix(target)}`);
 });
 
-test('hosts.json v2 accepts rendrix and deprecated gpui entries and rejects webview entries', () => {
+test('hosts.json v2 accepts rendrix and deprecated legacy entries and rejects webview entries', () => {
   const ok = {schema: 2, version, bundleFormat: BUNDLE_FORMAT, hosts: [
     {renderer: 'rendrix', target, asset: `rendrix-host-${target}${exeSuffix(target)}`, sha256: sha('r'), size: 1},
     {renderer: 'native', target, asset: `rendrix-legacy-host-${target}${exeSuffix(target)}`, sha256: sha('g'), size: 1},
@@ -116,8 +116,8 @@ test('host fetch downloads, verifies and records the rendrix host', async () => 
   });
 });
 
-test('the deprecated gpui host is still fetchable under its v2 name', async () => {
-  const data = Buffer.from('gpui host bytes');
+test('the deprecated legacy host is still fetchable under its v2 name', async () => {
+  const data = Buffer.from('legacy host bytes');
   await withRelease({files: {[assetName('native', target)]: data}, manifestHosts: [entry('native', data)]}, async ({home, env}) => {
     const result = await run(['host', 'fetch', '--renderer', 'native'], env);
     assert.equal(result.status, 0, result.stderr);

@@ -39,7 +39,7 @@ test('a valid project builds with a missing output directory', async () => {
   const { root, project } = await fixture();
   try {
     const result = await buildPackage(project);
-    assert.equal(path.basename(result.bundleFile), 'contained.tgp');
+    assert.equal(path.basename(result.bundleFile), 'contained.rdx');
     assert.ok((await readFile(result.bundleFile, 'utf8')).includes('"rendrix-1"'));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -122,7 +122,7 @@ test('an output directory symlink that stays inside the project is allowed', asy
     await mkdir(path.join(project, 'real-out'));
     if (!await link(path.join(project, 'real-out'), path.join(project, 'dist'), 'junction')) return t.skip('symlinks unavailable');
     const result = await buildPackage(project);
-    assert.ok((await readdir(path.join(project, 'real-out'))).includes('contained.tgp'));
+    assert.ok((await readdir(path.join(project, 'real-out'))).includes('contained.rdx'));
     assert.ok(result.bundleFile);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -133,10 +133,10 @@ test('an existing output file that is a symlink is not written through', async (
   const { root, project, outside } = await fixture();
   try {
     await mkdir(path.join(project, 'dist'));
-    await writeFile(path.join(outside, 'target.tgp'), 'original');
-    if (!await link(path.join(outside, 'target.tgp'), path.join(project, 'dist/contained.tgp'))) return t.skip('symlinks unavailable');
+    await writeFile(path.join(outside, 'target.rdx'), 'original');
+    if (!await link(path.join(outside, 'target.rdx'), path.join(project, 'dist/contained.rdx'))) return t.skip('symlinks unavailable');
     await assert.rejects(buildPackage(project), /Refusing to write through symlink/);
-    assert.equal(await readFile(path.join(outside, 'target.tgp'), 'utf8'), 'original');
+    assert.equal(await readFile(path.join(outside, 'target.rdx'), 'utf8'), 'original');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

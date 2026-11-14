@@ -32,7 +32,7 @@ of raw Parley. Re-evaluation is a later refactor, not a blocker.
 ## Architecture
 
 ```
-.tgp bundle ──► package::load ──► Node tree (resolved styles)
+.rdx bundle ──► package::load ──► Node tree (resolved styles)
                                     │
                                     ▼
    gpu::backend (doc → taffy tree → paint list)   ← state changes re-drive this

@@ -8,7 +8,7 @@ Owner-authorized decision of 2026-11-11; the full contract is
 at branch `backup/webview-era` (tag `webview-era-checkpoint`, commit `0fc860b`).
 
 - **Developer experience.** Compile errors in HTML and CSS now print `file:line:col` (CSS no longer shows `<css input>`). `rendrix doctor` also checks the release manifest, can probe the download URL (`--online`) and checks the TypeScript/PostCSS toolchain. `rendrix init --template` adds `form`, `list-detail` and `electron-import` starters. The Electron importer resolves concatenated/templated/`url.format` `file:` page URLs, falls back to a root `index.html`, explains remote-only apps, and no longer flags `app.*` calls the runtime implements. Results on real apps: [docs/ELECTRON_IMPORT_RESULTS.md](docs/ELECTRON_IMPORT_RESULTS.md).
-$2** Product Rendrix (was Rendrix); CLI package/command `rendrix`; bundle magic `RENDRIX001`;
+$2** Product Rendrix (was Rendrix); CLI package/command `rendrix`; bundle magic `RENDRI01`;
   home env var `RENDRIX_HOME`; renderer config key `"rendrix"` (the default). Entries below the
   Unreleased section describe releases as they shipped under the old name and are left as
   written.

@@ -514,7 +514,7 @@ impl AppView {
                     }
                 }
             }));
-            element = element.on_action(cx.listener(|this, action: &RendrixAction, _, cx| {
+            element = element.on_action(cx.listener(|this, action: &RENDRIXAction, _, cx| {
                 if this.inspector { return; }
                 if let Err(error) = this.backend.invoke_with_event(&action.action, serde_json::json!({"type":"menu"})) {
                     eprintln!("Rendrix menu action: {error}");

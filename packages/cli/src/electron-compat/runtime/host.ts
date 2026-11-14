@@ -106,7 +106,7 @@ const nativeRoutes: Record<string, Route> = {
   // a message when no page is loaded, so this does the same and records a warning instead of failing.
   'window.send': () => { compatWarnings.push('webContents.send has no page in the native renderer; the message was dropped'); return Promise.resolve(null); },
   'window.watchClose': () => { compatWarnings.push('BrowserWindow close listeners cannot cancel a close in the native renderer'); return Promise.resolve(null); },
-  // The native renderer has a single GPUI window: show/hide, fullscreen, focus, bounds and geometry are
+  // The native renderer has a single Rendrix window: show/hide, fullscreen, focus, bounds and geometry are
   // tracked locally in BrowserWindow. These routes record a warning instead of failing, so the shim's
   // local state (isVisible, bounds, focus) stays consistent without moving native chrome.
   'window.show': () => { compatWarnings.push('BrowserWindow show has no native chrome effect in the native renderer; visibility is tracked locally'); return Promise.resolve(null); },

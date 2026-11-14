@@ -18,8 +18,8 @@ The pre-rewrite implementation is preserved at branch `backup/webview-era` (tag
 | Rendrix binary/feature    | `rendrix-gpu-host` / `gpu-host` | `rendrix-host` / `rendrix`   |
 | GPUI binary (deprecated)  | `rendrix-host` / `native-host` | `rendrix-legacy-host` / `native-host` |
 | WebView binary            | `rendrix-webview-host`     | **deleted**                      |
-| Bundle magic (8 bytes)    | `RENDRIX01`                | `RENDRIX001`                       |
-| Bundle file extension     | `.tgp`                    | `.tgp` (unchanged)               |
+| Bundle magic (8 bytes)    | `RENDRIX01`                | `RENDRI01`                       |
+| Bundle file extension     | `.rdx`                    | `.rdx` (unchanged)               |
 | Home env var              | `RENDRIX_HOME`             | `RENDRIX_HOME`                     |
 | CLI entry                 | `packages/cli/bin/rendrix.mjs` | `packages/cli/bin/rendrix.mjs` |
 | CLI package/command       | `rendrix`                  | `rendrix`                          |
@@ -70,7 +70,7 @@ of raw Parley. Re-evaluation is a later refactor, not a blocker.
 
 - Renderer key `"rendrix"` (see table). The Rendrix host (`gpu_main.rs`) already accepts
   exactly `"rendrix"`.
-- Bundle magic `b"RENDRIX001"` — Agent R writes it in `package.rs`, Agent J writes it in the
+- Bundle magic `b"RENDRI01"` — Agent R writes it in `package.rs`, Agent J writes it in the
   packer; both sides must agree byte-for-byte.
 - `hosts.json` v2: targets unchanged (`win32-x64`, `win32-arm64`, `darwin-arm64`, `linux-x64`,
   `linux-arm64`); entries reference `rendrix-host-<target>` (and `rendrix-legacy-host-<target>`

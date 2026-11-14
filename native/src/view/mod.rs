@@ -17,7 +17,7 @@ use crate::{
     network::NativeHttpClient,
     package::{self, AppPackage, Node},
     runtime::{JsBackend, UiCommand},
-    menus::RendrixAction,
+    menus::RENDRIXAction,
     style as styles,
     text_input::{self, Selection},
 };
@@ -268,7 +268,7 @@ impl AppView {
         let Some(bundle_file) = self.bundle_file.clone() else { return; };
         // The CLI cannot write a bundle when compilation fails, so it leaves a sidecar next to
         // the last good bundle. The window shows that message and keeps running the old build.
-        let error_file = bundle_file.with_extension("tgp.error");
+        let error_file = bundle_file.with_extension("rdx.error");
         let mut last_stamp = bundle_stamp(&bundle_file);
         let mut last_error: Option<String> = None;
         cx.spawn(async move |this, cx| {

@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
-// The compatibility runtime as the native (GPUI) backend runs it: `api.native` is the only host bridge,
+// The compatibility runtime as the native (Rendrix) backend runs it: `api.native` is the only host bridge,
 // and there is no `__rendrix_host`. These tests check that the shims reach `api.native` with the
 // arguments it expects and read its results in the shapes the shims use.
 const dir = fileURLToPath(new URL('../src/electron-compat/runtime/', import.meta.url));

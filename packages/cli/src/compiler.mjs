@@ -189,18 +189,9 @@ function collectImagePaths(node, paths = new Set()) {
 }
 export async function readProject(projectPath) {
   const projectRoot = path.resolve(projectPath);
-  // rendrix.config.json is the canonical name since the Rendrix rename; the old
-  // rendrix.config.json still loads with a deprecation warning for one transition.
-  const newFile = path.join(projectRoot,'rendrix.config.json');
-  const legacyFile = path.join(projectRoot,'rendrix.config.json');
-  const legacyExists = await readFile(legacyFile,'utf8').then(() => true,() => false);
-  const newExists = await readFile(newFile,'utf8').then(() => true,() => false);
-  if (!newExists && legacyExists) {
-    console.error('Warning: this project uses rendrix.config.json; rename it to rendrix.config.json (the old name is deprecated by the Rendrix rename).');
-  }
-  const configFile = newExists ? newFile : legacyFile;
-  const label = newExists ? 'rendrix.config.json' : 'rendrix.config.json';
-  if (!newExists && !legacyExists) throw new Error('No rendrix.config.json found in the project root');
+  const configFile = path.join(projectRoot,'rendrix.config.json');
+  const label = 'rendrix.config.json';
+  if (!await readFile(configFile,'utf8').then(() => true,() => false)) throw new Error('No rendrix.config.json found in the project root');
   await assertRealInside(projectRoot,configFile,label);
   const config = validateConfig(JSON.parse(await readFile(configFile,'utf8')));
   const paths = {
@@ -328,7 +319,7 @@ export async function buildPackage(projectPath, options = {}) {
   const bytes = Buffer.from(json,'utf8');
   if (bytes.length > project.config.maxBundleSize) throw new Error(`App bundle exceeds maxBundleSize (${project.config.maxBundleSize} bytes)`);
   await mkdir(project.paths.outDir,{recursive:true});
-  const output = path.join(project.paths.outDir,`${project.config.name}.tgp`);
+  const output = path.join(project.paths.outDir,`${project.config.name}.rdx`);
   const temporary = `${output}.tmp`;
   for (const file of [output,temporary]) {
     if ((await lstat(file).catch(() => null))?.isSymbolicLink()) throw new Error(`Refusing to write through symlink: ${path.relative(project.projectRoot,file)}`);

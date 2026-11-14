@@ -817,7 +817,7 @@ mod diagnostic {
 
     #[test]
     fn diagnostic_counter_bundle_rects_and_glyphs() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/rendrix-counter.tgp");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/counter/dist/rendrix-counter.rdx");
         let Ok(json) = std::fs::read_to_string(&path) else {
             eprintln!("skipping: counter bundle not built at {}", path.display());
             return;

@@ -2,7 +2,7 @@ import { copyFile, appendFile, rename, rm, chmod, readFile, stat, open, mkdir, w
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const MAGIC = Buffer.from('RENDRIX001','ascii');
+export const MAGIC = Buffer.from('RENDRI01','ascii');
 export const MAX_PAYLOAD = 1024 * 1024 * 1024;
 
 function isMachO(header) {
@@ -66,7 +66,7 @@ export async function packageMacApp(hostFile,bundleFile,outputDirectory,options 
     await chmod(executable,hostStat.mode);
     await mkdir(path.join(temporary,'Contents','Resources'),{recursive:true});
     await writeFile(path.join(temporary,'Contents','Info.plist'),plist);
-    await writeFile(path.join(temporary,'Contents','Resources','rendrix.tgp'),payload);
+    await writeFile(path.join(temporary,'Contents','Resources','rendrix.rdx'),payload);
     if (options.iconFile) await copyFile(options.iconFile,path.join(temporary,'Contents','Resources','AppIcon.icns'));
     if (existing) await rm(output,{recursive:true,force:true});
     await rename(temporary,output);

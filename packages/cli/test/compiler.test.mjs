@@ -152,13 +152,13 @@ test('bundles and watches local backend modules', async()=>{
 test('macOS app puts payload and icon in resources and records version metadata', async()=>{
   const dir=await mkdtemp(path.join(os.tmpdir(),'rendrix-mac-'));
   try {
-    const host=path.join(dir,'host'), bundle=path.join(dir,'app.tgp'), icon=path.join(dir,'icon.icns'), output=path.join(dir,'App.app');
+    const host=path.join(dir,'host'), bundle=path.join(dir,'app.rdx'), icon=path.join(dir,'icon.icns'), output=path.join(dir,'App.app');
     const macho=Buffer.alloc(1024); macho.writeUInt32BE(0xfeedfacf); await writeFile(host,macho);
     const doc={format:'rendrix-1',name:'App',title:'App & Co',version:'2.3.4',bundle_id:'com.example.app'};
     await writeFile(bundle,JSON.stringify(doc)); await writeFile(icon,'icon');
     await packageMacApp(host,bundle,output,{iconFile:icon});
     assert.deepEqual(await readFile(path.join(output,'Contents/MacOS/App')),macho);
-    assert.deepEqual(JSON.parse(await readFile(path.join(output,'Contents/Resources/rendrix.tgp'),'utf8')),doc);
+    assert.deepEqual(JSON.parse(await readFile(path.join(output,'Contents/Resources/rendrix.rdx'),'utf8')),doc);
     assert.equal(await readFile(path.join(output,'Contents/Resources/AppIcon.icns'),'utf8'),'icon');
     const plist=await readFile(path.join(output,'Contents/Info.plist'),'utf8');
     assert.match(plist,/com.example.app/); assert.match(plist,/2.3.4/); assert.match(plist,/App &amp; Co/); assert.match(plist,/AppIcon.icns/);

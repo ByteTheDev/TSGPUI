@@ -247,7 +247,7 @@ struct DialogGrant {
 
 impl Capabilities {
     /// Builds the grants from a bundle. Relative roots resolve against `base`, which is the
-    /// directory of the app executable, or of the `.tgp` file for `--bundle` runs.
+    /// directory of the app executable, or of the `.rdx` file for `--bundle` runs.
     pub fn from_permissions(permissions: &Permissions, base: PathBuf) -> Self {
         let named = |roots: &[String]| -> Vec<(String, PathBuf)> { roots.iter().map(|root| (root.clone(), base.join(root))).collect() };
         let read_named = named(&permissions.filesystem.read);

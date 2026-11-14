@@ -22,7 +22,7 @@ permissions:
 jobs:
   validate:
     # NOTE (Project Rendrix, Phase A): the JS suite in this job targets the post-rewrite
-    # contract (bin/rendrix.mjs, renderer "rendrix", magic RENDRIX001, hosts.json v2). It goes
+    # contract (bin/rendrix.mjs, renderer "rendrix", magic RENDRI01, hosts.json v2). It goes
     # green only once Agent J's CLI rename (packages/cli) has landed; the Rust steps below
     # target Agent R's renamed Cargo targets (rendrix-host / rendrix-legacy-host), which have.
     strategy:
