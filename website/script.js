@@ -274,16 +274,59 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Cursor-following light on [data-spot] surfaces.
+  // Hero mark: the R resolves from coarse pixels to the crisp vector, once.
+  // The crisp SVG is always in the page; the canvas only covers it while drawing.
   // ---------------------------------------------------------------------------
-  if (!reduceMotion && window.matchMedia("(hover: hover)").matches) {
-    document.querySelectorAll("[data-spot]").forEach(function (el) {
-      el.addEventListener("pointermove", function (event) {
-        var rect = el.getBoundingClientRect();
-        el.style.setProperty("--mx", event.clientX - rect.left + "px");
-        el.style.setProperty("--my", event.clientY - rect.top + "px");
-      });
-    });
+  var pixelHost = document.querySelector(".pixel-r");
+  var pixelCanvas = pixelHost && pixelHost.querySelector("canvas");
+
+  if (pixelCanvas && !reduceMotion && window.Path2D) {
+    var R_PATH = new Path2D(
+      "M603 304H885C965 304 1020 358 1020 430C1020 500 962 552 877 562L1013 713H870L679 487H836C882 487 908 464 908 436C908 406 884 385 852 385H689L606 687H487Z"
+    );
+    var VB = { x: 480, y: 296, w: 545, h: 424 };
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var cssWidth = pixelHost.clientWidth || 480;
+    pixelCanvas.width = Math.round(cssWidth * dpr);
+    pixelCanvas.height = Math.round((cssWidth * dpr * VB.h) / VB.w);
+    var ctx = pixelCanvas.getContext("2d");
+    var small = document.createElement("canvas");
+    var sctx = small.getContext("2d");
+    // cells across the mark, coarse to fine
+    var steps = [6, 10, 16, 26, 42, 70, 120];
+    var stepIndex = 0;
+
+    var drawStep = function () {
+      var cells = steps[stepIndex];
+      small.width = cells;
+      small.height = Math.max(1, Math.round((cells * VB.h) / VB.w));
+      sctx.clearRect(0, 0, small.width, small.height);
+      sctx.save();
+      sctx.scale(small.width / VB.w, small.height / VB.h);
+      sctx.translate(-VB.x, -VB.y);
+      sctx.fillStyle = "#fff";
+      sctx.fill(R_PATH);
+      sctx.restore();
+      ctx.clearRect(0, 0, pixelCanvas.width, pixelCanvas.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(small, 0, 0, pixelCanvas.width, pixelCanvas.height);
+    };
+
+    var tick = function () {
+      drawStep();
+      stepIndex += 1;
+      if (stepIndex < steps.length) {
+        window.setTimeout(tick, 170);
+      } else {
+        window.setTimeout(function () {
+          pixelHost.classList.remove("is-drawing");
+          pixelCanvas.style.display = "none";
+        }, 220);
+      }
+    };
+
+    pixelHost.classList.add("is-drawing");
+    window.setTimeout(tick, 350);
   }
 
   // ---------------------------------------------------------------------------

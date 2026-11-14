@@ -3,31 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rendrix · Web markup. Native pixels.</title>
+    <title>Rendrix: web markup, native pixels</title>
     <meta
       name="description"
-      content="Rendrix compiles a strict subset of HTML and CSS into a native desktop executable rendered by the Rendrix engine, with TypeScript actions running in embedded QuickJS."
+      content="Rendrix compiles a strict subset of HTML and CSS into one native desktop executable drawn by the Rendrix engine, with TypeScript actions running in embedded QuickJS."
     />
-    <meta name="theme-color" content="#0b0a09" />
-    <link rel="icon" type="image/png" href="assets/rendrix-logo.png" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="icon" type="image/svg+xml" href="assets/rendrix-icon.svg" />
+    <link rel="alternate icon" href="favicon.ico" sizes="any" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="rendrix-mark" viewBox="480 296 545 424">
+        <path d="M603 304H885C965 304 1020 358 1020 430C1020 500 962 552 877 562L1013 713H870L679 487H836C882 487 908 464 908 436C908 406 884 385 852 385H689L606 687H487Z" />
+      </symbol>
+    </svg>
+
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-nav">
       <div class="nav-inner">
         <a class="brand" href="#top" aria-label="Rendrix home">
-          <img class="brand-mark" src="assets/rendrix-logo.png" alt="" aria-hidden="true" />
-          <span>Rendrix</span>
+          <svg class="mark brand-mark" aria-hidden="true" focusable="false"><use href="#rendrix-mark" width="100%" height="100%"></use></svg>
+          <span class="brand-name">Rendrix</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
+          <a href="#compare">What ships</a>
           <a href="#demo">Demo</a>
           <a href="#how-it-works">How it works</a>
           <a href="#architecture">Architecture</a>
@@ -35,106 +43,140 @@
           <a href="#status">Status</a>
         </nav>
         <a class="nav-github" href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">GitHub</a>
-        <a class="btn btn-primary btn-small" href="#quick-start">Quick start</a>
+        <a class="btn btn-primary btn-small" href="#quick-start"><span>Quick start</span></a>
       </div>
     </header>
 
     <main id="main">
       <!-- Hero -->
       <section id="top" class="hero">
-        <div class="hero-copy">
-          <h1 class="reveal">
-            Web markup<br />Native pixels.
-          </h1>
-          <p class="lede reveal" style="--d: 1">
-            Rendrix compiles a strict subset of HTML and CSS into one native Windows
-            executable. The Rendrix engine draws the window, and no browser or Node runtime ships
-            with the app. It is an experimental prototype, and Rendrix is in early beta.
-          </p>
-          <div class="actions reveal" style="--d: 2">
-            <a class="btn btn-primary" href="#quick-start">
-              Start building
-              <span class="arrow" aria-hidden="true">→</span>
-            </a>
-            <a class="btn btn-ghost" href="#demo">See the demo</a>
-            <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener">Install from npm</a>
+        <div class="hero-bg" aria-hidden="true"></div>
+        <div class="wrap hero-inner">
+          <h1 class="reveal">Web markup.<br />Native pixels.</h1>
+          <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="lede reveal" style="--d: 1">
+              Rendrix compiles a strict subset of HTML and CSS into one native desktop
+              executable. The Rendrix engine draws the window, and no browser or Node
+              runtime ships with the app.
+            </p>
+            <div class="actions reveal" style="--d: 2">
+              <a class="btn btn-primary" href="#quick-start"><span>Start building</span></a>
+              <a class="btn btn-ghost" href="#demo"><span>See the demo</span></a>
+              <a class="btn btn-ghost" href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener"><span>Install from npm</span></a>
+            </div>
+            <div class="codeblock hero-cmd reveal" style="--d: 3">
+              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/rendrix&#10;rendrix init my-app&#10;cd my-app&#10;rendrix dev" aria-label="Copy install commands">Copy</button>
+              <pre><code>bun install -g @bytethedeveloper/rendrix
+rendrix init my-app
+cd my-app &amp;&amp; rendrix dev</code></pre>
+            </div>
+            <p class="hero-note reveal" style="--d: 4">
+              Experimental, in early beta. The Windows host has been run by hand; hosts for
+              other platforms are built in CI.
+            </p>
           </div>
 
-          <dl class="compare reveal" style="--d: 3">
-            <div>
-              <dt>Typical Electron app</dt>
-              <dd>Ships Chromium and Node.js with every app.</dd>
-            </div>
-            <div>
-              <dt>Rendrix</dt>
-              <dd>The Rendrix engine is the only renderer. No browser engine ships with the app.</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div class="hero-visual reveal" style="--d: 2">
-          <div class="app app-hero" data-counter data-ui>
-            <div class="app-titlebar">
-              <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span>Rendrix · Native counter</span>
-            </div>
-            <div class="app-body">
-              <div class="app-card">
-                <span class="app-badge">Rendrix rendering · beta</span>
-                <h3 class="app-title">Rendrix</h3>
-                <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
-                <div class="app-panel">
-                                    <span class="app-count" data-count aria-live="polite">0</span>
-                  <span class="app-hint">Click below to update native UI state.</span>
+          <div class="hero-visual reveal" style="--d: 2">
+            <div class="hero-stage">
+              <div class="pixel-r" aria-hidden="true">
+                <canvas data-pixel-r></canvas>
+                <svg class="mark pixel-r-final" aria-hidden="true" focusable="false"><use href="#rendrix-mark" width="100%" height="100%"></use></svg>
+              </div>
+              <div class="hero-window">
+            <div class="app app-hero" data-counter data-ui>
+              <div class="app-titlebar">
+                <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>Rendrix counter</span>
+              </div>
+              <div class="app-body">
+                <div class="app-card">
+                  <span class="app-badge">RENDRIX NATIVE RENDERING</span>
+                  <h3 class="app-title">Rendrix</h3>
+                  <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
+                  <div class="app-panel">
+                    <span class="app-eyebrow">CLICK COUNTER</span>
+                    <span class="app-count" data-count aria-live="polite">0</span>
+                    <span class="app-hint">Click below to update native UI state.</span>
+                  </div>
+                  <div class="app-buttons">
+                    <button type="button" class="app-btn app-btn-secondary" data-action="decrement">− Decrease</button>
+                    <button type="button" class="app-btn app-btn-primary" data-action="increment">+ Increase</button>
+                    <button type="button" class="app-btn app-btn-ghost" data-action="reset">Reset</button>
+                  </div>
+                  <p class="app-foot">Backend actions run in embedded QuickJS, not Bun at runtime.</p>
                 </div>
-                <div class="app-buttons">
-                  <button type="button" class="app-btn app-btn-secondary" data-action="decrement">− Decrease</button>
-                  <button type="button" class="app-btn app-btn-primary" data-action="increment">+ Increase</button>
-                  <button type="button" class="app-btn app-btn-ghost" data-action="reset">Reset</button>
-                </div>
-                <p class="app-foot">Backend actions run in embedded QuickJS, not Bun at runtime.</p>
               </div>
             </div>
+              </div>
+            </div>
+            <p class="visual-caption">
+              A simulation of <code>examples/counter</code>. These buttons run in the browser,
+              not in the Rendrix runtime.
+            </p>
           </div>
-          <p class="visual-caption">
-            Simulated preview of <code>examples/counter</code>. Its buttons run in the browser
-            and do not use the Rendrix runtime.
-          </p>
+          </div>
         </div>
       </section>
 
-      <!-- Interactive demo -->
+      <!-- What ships -->
+      <section id="compare" class="section">
+        <div class="wrap">
+          <header class="section-head">
+            <h2>What ships with your app.</h2>
+            <p class="section-lede">
+              A typical Electron app carries a browser and a Node.js runtime. A Rendrix app
+              carries the Rendrix host and your compiled bundle, and nothing else.
+            </p>
+          </header>
+          <div class="stacks">
+            <figure class="stack stack-electron">
+              <figcaption>Typical Electron app</figcaption>
+              <div class="layer layer-app">Your HTML, CSS and JavaScript</div>
+              <div class="layer layer-node">Node.js</div>
+              <div class="layer layer-chromium">Chromium</div>
+            </figure>
+            <figure class="stack stack-rendrix">
+              <figcaption>Rendrix app</figcaption>
+              <div class="layer layer-app">Your app, as a <code>.rdx</code> bundle</div>
+              <div class="layer layer-host">Rendrix engine and QuickJS</div>
+            </figure>
+          </div>
+          <p class="stack-note">These are layers, not file sizes. No size, memory or startup measurements have been made yet.</p>
+        </div>
+      </section>
+
+      <!-- Demo -->
       <section id="demo" class="section">
-        <header class="section-head reveal">
-          <h2>Source on the left. Native window on the right.</h2>
-          <p class="section-lede">
-            These are the real files from <code>examples/counter/src</code>, shown
-            with syntax highlighting. Switch tabs to read each one.
-          </p>
-        </header>
+        <div class="wrap">
+          <header class="section-head">
+            <h2>Source on the left. Native window on the right.</h2>
+            <p class="section-lede">
+              These are the real files from <code>examples/counter/src</code>. Switch tabs to
+              read each one, then use the window to see what they describe.
+            </p>
+          </header>
 
-        <div class="demo-grid">
-          <div class="editor reveal">
-            <div class="editor-bar">
-              <div class="tabs" role="tablist" aria-label="Source files">
-                <button type="button" role="tab" id="tab-html" aria-controls="panel-html" aria-selected="true" tabindex="0">index.html</button>
-                <button type="button" role="tab" id="tab-css" aria-controls="panel-css" aria-selected="false" tabindex="-1">styles.css</button>
-                <button type="button" role="tab" id="tab-ts" aria-controls="panel-ts" aria-selected="false" tabindex="-1">backend.ts</button>
+          <div class="demo-grid">
+            <div class="editor">
+              <div class="editor-bar">
+                <div class="tabs" role="tablist" aria-label="Source files">
+                  <button type="button" role="tab" id="tab-html" aria-controls="panel-html" aria-selected="true" tabindex="0">index.html</button>
+                  <button type="button" role="tab" id="tab-css" aria-controls="panel-css" aria-selected="false" tabindex="-1">styles.css</button>
+                  <button type="button" role="tab" id="tab-ts" aria-controls="panel-ts" aria-selected="false" tabindex="-1">backend.ts</button>
+                </div>
+                <button type="button" class="copy" data-copy-active aria-label="Copy the file shown in this editor">Copy</button>
               </div>
-              <button type="button" class="copy" data-copy-active aria-label="Copy the file shown in this editor">Copy</button>
-            </div>
-
-            <div role="tabpanel" id="panel-html" aria-labelledby="tab-html" class="panel">
-              <pre><code id="code-html" data-lang="html">&lt;!doctype html&gt;
+              <div role="tabpanel" id="panel-html" aria-labelledby="tab-html" class="panel" tabindex="0"><pre><code id="code-html" data-lang="html">&lt;!doctype html&gt;
 &lt;html&gt;
   &lt;body&gt;
     &lt;main class="shell"&gt;
       &lt;section class="card"&gt;
-        &lt;div class="badge"&gt;RENDRIX RENDERING (BETA)&lt;/div&gt;
+        &lt;div class="badge"&gt;RENDRIX NATIVE RENDERING&lt;/div&gt;
         &lt;h1&gt;Rendrix&lt;/h1&gt;
-        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. Native Rendrix rendering (beta).&lt;/p&gt;
+        &lt;p class="subtitle"&gt;HTML + CSS + TypeScript. No browser engine.&lt;/p&gt;
         &lt;div class="counter-panel"&gt;
-          &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt; <!-- taste-skill-ignore -->
+          &lt;span class="eyebrow"&gt;CLICK COUNTER&lt;/span&gt;
           &lt;span class="count" data-bind="count"&gt;0&lt;/span&gt;
           &lt;span class="hint"&gt;Click below to update native UI state.&lt;/span&gt;
         &lt;/div&gt;
@@ -147,18 +189,15 @@
       &lt;/section&gt;
     &lt;/main&gt;
   &lt;/body&gt;
-&lt;/html&gt;</code></pre>
-            </div>
-
-            <div role="tabpanel" id="panel-css" aria-labelledby="tab-css" class="panel" hidden>
-              <pre><code id="code-css" data-lang="css">html, body { background: #090b14; color: #f5f5fb; }
+&lt;/html&gt;</code></pre></div>
+              <div role="tabpanel" id="panel-css" aria-labelledby="tab-css" class="panel" tabindex="0" hidden><pre><code id="code-css" data-lang="css">html, body { background: #090b14; color: #f5f5fb; }
 .shell { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 48px; background: #090b14; height: 600px; }
 .card { display: flex; flex-direction: column; gap: 19px; padding: 36px; width: 640px; background: #171b2c; border-radius: 22px; }
 .badge { font-size: 11px; font-weight: 700; color: #91a8ff; }
 h1 { font-size: 48px; font-weight: 700; color: #ffffff; }
 .subtitle { font-size: 15px; color: #adb7d2; }
 .counter-panel { display: flex; flex-direction: column; align-items: center; gap: 9px; background: #222942; border-radius: 14px; padding: 25px; }
-.eyebrow { font-size: 12px; color: #8f9dc6; }<!-- taste-skill-ignore -->
+.eyebrow { font-size: 12px; color: #8f9dc6; }
 .count { font-size: 66px; font-weight: 700; color: #ffffff; }
 .hint { font-size: 13px; color: #aab8d5; }
 .buttons { display: flex; flex-direction: row; gap: 12px; }
@@ -166,15 +205,12 @@ button { padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700; 
 .primary { background: #7288ff; color: #ffffff; }
 .secondary { background: #343e60; color: #edf2ff; }
 .ghost { background: #20273c; color: #b4bfd8; }
-.footer { font-size: 12px; color: #7887ac; }</code></pre>
-            </div>
-
-            <div role="tabpanel" id="panel-ts" aria-labelledby="tab-ts" class="panel" hidden>
-              <pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "rendrix/types";
+.footer { font-size: 12px; color: #7887ac; }</code></pre></div>
+              <div role="tabpanel" id="panel-ts" aria-labelledby="tab-ts" class="panel" tabindex="0" hidden><pre><code id="code-ts" data-lang="ts">import type { AppDefinition } from "rendrix/types";
 
 type CounterState = { count: number };
 
-// Runs in QuickJS inside the native host process, not in a browser.
+// Runs in QuickJS inside the native Rendrix process, not in a browser.
 const app: AppDefinition&lt;CounterState&gt; = {
   state: { count: 0 },
   actions: {
@@ -190,23 +226,23 @@ const app: AppDefinition&lt;CounterState&gt; = {
   }
 };
 
-export default app;</code></pre>
+export default app;</code></pre></div>
             </div>
-          </div>
 
-          <div class="demo-preview reveal" style="--d: 1">
+            <div class="demo-preview">
             <div class="app app-demo" data-counter data-ui>
               <div class="app-titlebar">
                 <span class="app-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span>Rendrix · Native counter · 900 × 600</span>
+                <span>Rendrix counter, 900 × 600</span>
               </div>
               <div class="app-body">
                 <div class="app-card">
-                  <span class="app-badge">Rendrix rendering · beta</span>
+                  <span class="app-badge">RENDRIX NATIVE RENDERING</span>
                   <h3 class="app-title">Rendrix</h3>
-                  <p class="app-sub">HTML + CSS + TypeScript. Native Rendrix rendering (beta).</p>
+                  <p class="app-sub">HTML + CSS + TypeScript. No browser engine.</p>
                   <div class="app-panel">
-                                        <span class="app-count" data-count aria-live="polite">0</span>
+                    <span class="app-eyebrow">CLICK COUNTER</span>
+                    <span class="app-count" data-count aria-live="polite">0</span>
                     <span class="app-hint">Click below to update native UI state.</span>
                   </div>
                   <div class="app-buttons">
@@ -218,300 +254,266 @@ export default app;</code></pre>
                 </div>
               </div>
             </div>
-            <p class="visual-caption">
-              Interactive simulation of the counter's layout and colours. The real
-              window is drawn by the Rendrix host from the compiled <code>.rdx</code>.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <!-- Pillars -->
-      <section id="how-it-works" class="section">
-        <div class="split">
-          <div class="split-copy">
-            <header class="section-head reveal">
-              <h2>Three parts, one job each.</h2>
-              <p class="section-lede">
-                Markup is compiled ahead of time, logic runs in a small sandbox, and the
-                pixels come from the Rendrix engine. Nothing in the shipped app asks for
-                a browser or a JavaScript runtime.
+              <p class="visual-caption">
+                An interactive simulation of the counter. The real window is drawn by the
+                Rendrix host from the compiled <code>.rdx</code> bundle.
               </p>
-            </header>
-
-            <div class="rows">
-              <article class="row reveal">
-                <h3>Markup and styles</h3>
-                <p>
-                  A strict subset of HTML and CSS is parsed at build time into an element
-                  tree with explicit keys. CSS selectors, specificity and inheritance are
-                  resolved before anything reaches the window, so the layout you write is
-                  the layout that ships.
-                </p>
-              </article>
-              <article class="row reveal">
-                <h3>TypeScript backend</h3>
-                <p>
-                  One <code>backend.ts</code> exports state and actions. It is transpiled to
-                  JavaScript and run in embedded QuickJS on the UI thread. Actions are
-                  synchronous and see only <code>get</code>, <code>set</code> and
-                  <code>update</code>.
-                </p>
-              </article>
-              <article class="row reveal">
-                <h3>One executable</h3>
-                <p>
-                  Packaging copies a prebuilt Rendrix host and appends the app bundle to it.
-                  The result is a single <code>.exe</code> that runs without Bun, Node or
-                  Rust on the machine.
-                </p>
-              </article>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Pipeline -->
-      <section id="pipeline" class="section">
-        <header class="section-head reveal">
-          <h2>From source files to one native executable.</h2>
-          <p class="section-lede">
-            Each stage writes a file you can inspect. The bundle is plain JSON, so you
-            can open it and see exactly what the host will render.
-          </p>
-        </header>
-
-        <div class="pipeline" data-pipeline>
-          <div class="stage" style="--s: 0">
-            <h3>Your project</h3>
-            <ul class="file-list">
-              <li><code>src/index.html</code></li>
-              <li><code>src/styles.css</code></li>
-              <li><code>src/backend.ts</code></li>
-              <li><code>rendrix.config.json</code></li>
-            </ul>
-          </div>
-
-          <div class="link" aria-hidden="true"><span></span></div>
-
-          <div class="stage" style="--s: 1">
-            <h3><code>rendrix compile</code></h3>
-            <p>
-              Parses the HTML subset, resolves CSS, transpiles the backend and writes a
-              <code>.rdx</code> document.
+      <!-- Three parts -->
+      <section id="how-it-works" class="section">
+        <div class="wrap split">
+          <header class="section-head sticky">
+            <h2>Three parts, one job each.</h2>
+            <p class="section-lede">
+              Markup is compiled ahead of time, logic runs in a small sandbox, and the pixels
+              come from the Rendrix engine. Nothing in the shipped app asks for a browser or a
+              JavaScript runtime.
             </p>
-            <pre class="rdx" aria-label="Excerpt of the compiled counter bundle"><code>{
+          </header>
+
+          <div class="rows">
+            <article class="row">
+              <h3>Markup and styles</h3>
+              <p>
+                A strict subset of HTML and CSS is parsed at build time into an element tree
+                with explicit keys. Selectors, specificity and inheritance are resolved before
+                anything reaches the window, so the layout you write is the layout that ships.
+              </p>
+            </article>
+            <article class="row">
+              <h3>TypeScript backend</h3>
+              <p>
+                One <code>backend.ts</code> exports state and actions. It is transpiled to
+                JavaScript and run in embedded QuickJS on the UI thread. Actions are
+                synchronous and see only <code>get</code>, <code>set</code> and <code>update</code>.
+              </p>
+            </article>
+            <article class="row">
+              <h3>One executable</h3>
+              <p>
+                Packaging copies a prebuilt Rendrix host and appends the app bundle to it. The
+                result is a single <code>.exe</code> that runs without Bun, Node or Rust on the
+                machine.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pipeline: a real sequence, so it animates in order. -->
+      <section id="pipeline" class="section">
+        <div class="wrap">
+          <header class="section-head">
+            <h2>From source files to one native executable.</h2>
+            <p class="section-lede">
+              Each stage writes a file you can inspect. The bundle is plain JSON, so you can
+              open it and see exactly what the host will render.
+            </p>
+          </header>
+
+          <div class="pipeline" data-pipeline>
+            <div class="stage" style="--s: 0">
+              <h3>Your project</h3>
+              <ul class="file-list">
+                <li><code>src/index.html</code></li>
+                <li><code>src/styles.css</code></li>
+                <li><code>src/backend.ts</code></li>
+                <li><code>rendrix.config.json</code></li>
+              </ul>
+            </div>
+
+            <div class="link" aria-hidden="true"><span></span></div>
+
+            <div class="stage" style="--s: 1">
+              <h3><code>rendrix compile</code></h3>
+              <p>Parses the HTML subset, resolves CSS, transpiles the backend and writes a <code>.rdx</code> document.</p>
+              <pre class="rdx" aria-label="Excerpt of the compiled counter bundle"><code>{
   "format": "rendrix-1",
   "name": "rendrix-counter",
-  "title": "Rendrix • Native Counter",
   "width": 900,
   "height": 600,
   "root": { "tag": "body", … },
   "backend_js": "…"
 }</code></pre>
-          </div>
-
-          <div class="link" aria-hidden="true"><span></span></div>
-
-          <div class="stage" style="--s: 2">
-            <h3><code>rendrix build</code></h3>
-            <p>Copies the prebuilt host and appends the bundle, then the host reads it back at startup.</p>
-            <div class="layout-bar" aria-label="Executable layout: host, bundle, length, marker">
-              <span class="seg seg-host">host</span>
-              <span class="seg seg-bundle">bundle</span>
-              <span class="seg seg-len">len</span>
-              <span class="seg seg-magic">RENDRI01</span>
             </div>
-            <p class="layout-caption">
-              Host executable, then the bundle JSON, an 8-byte little-endian length and
-              the <code>RENDRI01</code> marker.
-            </p>
-            <p class="stage-result">→ <code>dist/rendrix-counter.exe</code></p>
+
+            <div class="link" aria-hidden="true"><span></span></div>
+
+            <div class="stage" style="--s: 2">
+              <h3><code>rendrix build</code></h3>
+              <p>Copies the prebuilt host and appends the bundle. The host reads it back at startup.</p>
+              <div class="layout-bar" role="img" aria-label="Executable layout: host, bundle, length, marker">
+                <span class="seg seg-host">host</span>
+                <span class="seg seg-bundle">bundle</span>
+                <span class="seg seg-len">len</span>
+                <span class="seg seg-magic">RENDRI01</span>
+              </div>
+              <p class="layout-caption">
+                Host executable, the bundle JSON, an 8-byte little-endian length, then the
+                <code>RENDRI01</code> marker.
+              </p>
+              <p class="stage-result">Writes <code>dist/rendrix-counter.exe</code></p>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- Architecture -->
       <section id="architecture" class="section">
-        <header class="section-head reveal">
-          <h2>A small, native backend.</h2>
-          <p class="section-lede">
-            The design trades browser breadth for a smaller, inspectable system. These
-            are the properties the current prototype is built around.
-          </p>
-        </header>
+        <div class="wrap">
+          <header class="section-head">
+            <h2>A small, native backend.</h2>
+            <p class="section-lede">
+              The design trades browser breadth for a smaller, inspectable system. These are
+              the properties the current prototype is built around.
+            </p>
+          </header>
 
-        <ol class="layers">
-          <li class="reveal">
-            <span class="layer-name">Parse</span>
-            <p>Strict HTML subset to an element tree with explicit keys and attributes. Unsupported tags fail the build.</p>
-          </li>
-          <li class="reveal">
-            <span class="layer-name">Style</span>
-            <p>CSS parsed with PostCSS. Descendant matching, class and id selectors, inheritance and specificity are resolved.</p>
-          </li>
-          <li class="reveal">
-            <span class="layer-name">Transpile</span>
-            <p>The single backend file is compiled with the TypeScript compiler to CommonJS (ES2020).</p>
-          </li>
-          <li class="reveal">
-            <span class="layer-name">Render</span>
-            <p>The Rendrix host opens a GPU-accelerated window and draws the tree. Media queries are evaluated at compile time.</p>
-          </li>
-          <li class="reveal">
-            <span class="layer-name">Run</span>
-            <p>Clicks invoke actions in QuickJS. The view takes a state snapshot and redraws. QuickJS has an approximate heap cap, not a CPU-time limit.</p>
-          </li>
-        </ol>
+          <ol class="layers">
+            <li><span class="layer-name">Parse</span><p>Strict HTML subset to an element tree with explicit keys and attributes. Unsupported tags fail the build.</p></li>
+            <li><span class="layer-name">Style</span><p>CSS parsed with PostCSS. Descendant matching, class and id selectors, inheritance and specificity are resolved.</p></li>
+            <li><span class="layer-name">Transpile</span><p>The single backend file is compiled with the TypeScript compiler to CommonJS (ES2020).</p></li>
+            <li><span class="layer-name">Render</span><p>The Rendrix host opens a GPU-accelerated window and draws the tree. Media queries are evaluated at compile time.</p></li>
+            <li><span class="layer-name">Run</span><p>Clicks invoke actions in QuickJS. The view takes a state snapshot and redraws. QuickJS has an approximate heap cap, not a CPU-time limit.</p></li>
+          </ol>
 
-        <div class="facts">
-          <div class="fact reveal">
-            <h3>One rendering engine</h3>
-            <p>Rendrix is the only engine, in early beta; the deprecated legacy host stays available until the Rendrix M1 gate.</p>
-          </div>
-          <div class="fact reveal">
-            <h3>No Node or Bun at runtime</h3>
-            <p>Bun or Node is needed for development. The distributed app does not need either one installed.</p>
-          </div>
-          <div class="fact reveal">
-            <h3>Fast iteration</h3>
-            <p>Changing HTML, CSS or TypeScript recompiles the bundle and reuses the existing host. Rust is not rebuilt.</p>
-          </div>
-          <div class="fact reveal">
-            <h3>Plain-text bundle</h3>
-            <p>The <code>.rdx</code> document is JSON. Its format and contents can be read and checked directly.</p>
-          </div>
-          <div class="fact reveal">
-            <h3>Compile-time components</h3>
-            <p><code>&lt;template data-component&gt;</code> is expanded at compile time. Recursive uses and duplicate IDs are rejected.</p>
-          </div>
-          <div class="fact reveal">
-            <h3>Explicit data binding</h3>
-            <p><code>data-bind</code> and <code>{{stateKey}}</code> read backend state. <code>data-onclick</code> dispatches named actions.</p>
+          <div class="facts">
+            <div class="fact"><h3>One rendering engine</h3><p>Rendrix is the only engine, in early beta. The deprecated legacy host stays available until the Rendrix M1 gate.</p></div>
+            <div class="fact"><h3>No Node or Bun at runtime</h3><p>Bun or Node is needed for development. The distributed app does not need either one installed.</p></div>
+            <div class="fact"><h3>Fast iteration</h3><p>Changing HTML, CSS or TypeScript recompiles the bundle and reuses the existing host. Rust is not rebuilt.</p></div>
+            <div class="fact"><h3>Plain-text bundle</h3><p>The <code>.rdx</code> document is JSON. Its format and contents can be read and checked directly.</p></div>
+            <div class="fact"><h3>Compile-time components</h3><p><code>&lt;template data-component&gt;</code> is expanded at compile time. Recursive uses and duplicate IDs are rejected.</p></div>
+            <div class="fact"><h3>Explicit data binding</h3><p><code>data-bind</code> and <code>{{stateKey}}</code> read backend state. <code>data-onclick</code> dispatches named actions.</p></div>
           </div>
         </div>
       </section>
 
       <!-- Quick start -->
       <section id="quick-start" class="section">
-        <header class="section-head reveal">
-          <h2>Build the counter from a checkout.</h2>
-          <p class="section-lede">
-            Requires Bun or Node 20+ for the developer CLI. Compiling the bundle does
-            not need Rust. Building the native host does.
-          </p>
-        </header>
+        <div class="wrap split">
+          <header class="section-head sticky">
+            <h2>Build the counter from a checkout.</h2>
+            <p class="section-lede">
+              Requires Bun or Node 20+ for the developer CLI. Compiling the bundle does not
+              need Rust. Building the native host does.
+            </p>
+            <p class="docs-links">
+              Read the <a href="#docs">full docs</a>, the
+              <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
+              or the <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">repository</a>.
+            </p>
+          </header>
 
-        <div class="steps">
-          <div class="step reveal">
-            <h3>Check and compile the example</h3>
-            <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun install&#10;bun run test&#10;bun run rendrix:compile" aria-label="Copy commands">Copy</button>
-              <pre><code>bun install
+          <div class="steps">
+            <div class="step">
+              <h3>Check and compile the example</h3>
+              <div class="codeblock">
+                <button type="button" class="copy" data-copy-text="bun install&#10;bun run test&#10;bun run rendrix:compile" aria-label="Copy commands">Copy</button>
+                <pre><code>bun install
 bun run test
 bun run rendrix:compile</code></pre>
+              </div>
+              <p>Writes <code>examples/counter/dist/rendrix-counter.rdx</code>.</p>
             </div>
-            <p>Writes <code>examples/counter/dist/rendrix-counter.rdx</code>.</p>
-          </div>
 
-          <div class="step reveal">
-            <h3>Get a native host, once per machine</h3>
-            <p>
-              Either point <code>RENDRIX_HOST</code> at a host you trust, or compile one
-              with the Rust toolchain. On Windows that also needs the MSVC build tools.
-            </p>
-            <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun run rendrix:host" aria-label="Copy host build command">Copy</button>
-              <pre><code>bun run rendrix:host</code></pre>
+            <div class="step">
+              <h3>Get a native host, once per machine</h3>
+              <p>
+                Point <code>RENDRIX_HOST</code> at a host you trust, or compile one with the
+                Rust toolchain. On Windows that also needs the MSVC build tools.
+              </p>
+              <div class="codeblock">
+                <button type="button" class="copy" data-copy-text="bun run rendrix:host" aria-label="Copy host build command">Copy</button>
+                <pre><code>bun run rendrix:host</code></pre>
+              </div>
             </div>
-          </div>
 
-          <div class="step reveal">
-            <h3>Package the executable</h3>
-            <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun run rendrix" aria-label="Copy package command">Copy</button>
-              <pre><code>bun run rendrix</code></pre>
+            <div class="step">
+              <h3>Package the executable</h3>
+              <div class="codeblock">
+                <button type="button" class="copy" data-copy-text="bun run rendrix" aria-label="Copy package command">Copy</button>
+                <pre><code>bun run rendrix</code></pre>
+              </div>
+              <p>Writes <code>examples/counter/dist/rendrix-counter.exe</code>.</p>
             </div>
-            <p>Writes <code>examples/counter/dist/rendrix-counter.exe</code>.</p>
-          </div>
 
-          <div class="step reveal">
-            <h3>Or install the CLI from npm</h3>
-            <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/rendrix&#10;rendrix --version" aria-label="Copy install command">Copy</button>
-              <pre><code>bun install -g @bytethedeveloper/rendrix
+            <div class="step">
+              <h3>Or install the CLI from npm</h3>
+              <div class="codeblock">
+                <button type="button" class="copy" data-copy-text="bun install -g @bytethedeveloper/rendrix&#10;rendrix --version" aria-label="Copy install command">Copy</button>
+                <pre><code>bun install -g @bytethedeveloper/rendrix
 rendrix --version</code></pre>
+              </div>
+              <p>
+                <code>-g</code> installs <code>rendrix</code> globally. Without it, Bun adds the
+                package to the current project's <code>node_modules</code>. npm works too:
+                <code>npm install -g @bytethedeveloper/rendrix</code>.
+                <a href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener">View the package on npm</a>.
+              </p>
             </div>
-            <p>
-              <code>-g</code> installs <code>rendrix</code> globally. Without it, Bun adds the package to the current project's <code>node_modules</code>.
-              npm works too: <code>npm install -g @bytethedeveloper/rendrix</code>.
-              <a href="https://www.npmjs.com/package/@bytethedeveloper/rendrix" target="_blank" rel="noopener">View the package on npm</a>.
-            </p>
-          </div>
 
-          <div class="step reveal">
-            <h3>Or start a new project with the CLI</h3>
-            <div class="codeblock">
-              <button type="button" class="copy" data-copy-text="rendrix init my-app&#10;cd my-app&#10;rendrix dev" aria-label="Copy CLI commands">Copy</button>
-              <pre><code>rendrix init my-app
+            <div class="step">
+              <h3>Or start a new project with the CLI</h3>
+              <div class="codeblock">
+                <button type="button" class="copy" data-copy-text="rendrix init my-app&#10;cd my-app&#10;rendrix dev" aria-label="Copy CLI commands">Copy</button>
+                <pre><code>rendrix init my-app
 cd my-app
 rendrix dev</code></pre>
+              </div>
+              <p>
+                <code>rendrix dev</code> rebuilds and restarts the host on save. It is a fast
+                reload, not state-preserving hot module replacement. <code>rendrix build</code>
+                writes the single executable, and <code>rendrix build --target linux-x64</code>
+                or <code>rendrix all</code> packages the other platforms. <code>rendrix run</code>
+                also opens an Electron project directory, converting it first.
+              </p>
             </div>
-            <p>
-              <code>rendrix dev</code> rebuilds and restarts the host on save. It is a fast
-              reload, not state-preserving hot module replacement.
-              <code>rendrix build</code> writes the single executable, and <code>rendrix build --target linux-x64</code> or <code>rendrix all</code> packages the other platforms.
-              <code>rendrix run</code> also opens an Electron project directory, converting it first.
-            </p>
           </div>
         </div>
-
-        <p class="docs-links reveal">
-          Read the
-          <a href="#docs">full docs</a> below, the
-          <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI reference</a>
-          and the
-          <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">repository</a>.
-        </p>
       </section>
 
       <!-- Docs -->
       <section id="docs" class="section">
-        <header class="section-head reveal">
-          <h2>The reference, rendered here.</h2>
-          <p class="section-lede">
-            The architecture, supported syntax and safety model, read directly on this page.
-          </p>
-        </header>
+        <div class="wrap">
+          <header class="section-head">
+            <h2>The reference, rendered here.</h2>
+            <p class="section-lede">The architecture, supported syntax, build steps and safety model, read directly on this page.</p>
+          </header>
 
-        <div class="tabs reveal" role="tablist" aria-label="Documentation">
-          <button type="button" role="tab" data-doc="docs/ARCHITECTURE.md" aria-selected="true" tabindex="0">Architecture</button>
-          <button type="button" role="tab" data-doc="docs/SUPPORTED_SYNTAX.md" aria-selected="false" tabindex="-1">Supported syntax</button>
-          <button type="button" role="tab" data-doc="docs/BUILDING.md" aria-selected="false" tabindex="-1">Building</button>
-          <button type="button" role="tab" data-doc="docs/SAFETY.md" aria-selected="false" tabindex="-1">Safety</button>
+          <div class="doc-tabs" role="tablist" aria-label="Documentation">
+            <button type="button" role="tab" data-doc="docs/ARCHITECTURE.md" aria-selected="true" tabindex="0">Architecture</button>
+            <button type="button" role="tab" data-doc="docs/SUPPORTED_SYNTAX.md" aria-selected="false" tabindex="-1">Supported syntax</button>
+            <button type="button" role="tab" data-doc="docs/BUILDING.md" aria-selected="false" tabindex="-1">Building</button>
+            <button type="button" role="tab" data-doc="docs/SAFETY.md" aria-selected="false" tabindex="-1">Safety</button>
+          </div>
+
+          <article class="doc-body" id="doc-content" aria-live="polite" tabindex="0">
+            <p>Loading…</p>
+          </article>
         </div>
-
-        <article class="doc-body reveal" id="doc-content" aria-live="polite">
-          <p>Loading…</p>
-        </article>
       </section>
 
       <!-- Status -->
       <section id="status" class="section">
-        <header class="section-head reveal">
-          <h2>Status: an experimental prototype, stated plainly.</h2>
-          <p class="section-lede">
-            Rendrix is not a production-ready GUI SDK. The Rendrix engine is the sole
-            renderer and is in <strong>early beta</strong>: feature coverage is limited and a long way
-            from stable. The list below reflects what the deprecated legacy host (available until
-            the Rendrix M1 gate) documents today.
-          </p>
-        </header>
+        <div class="wrap">
+          <header class="section-head">
+            <h2>Status: an experimental prototype, stated plainly.</h2>
+            <p class="section-lede">
+              Rendrix is not a production-ready GUI SDK. The Rendrix engine is the sole renderer
+              and is in <strong>early beta</strong>: feature coverage is limited and a long way
+              from stable. The list below reflects what the deprecated legacy host (available
+              until the Rendrix M1 gate) documents today.
+            </p>
+          </header>
 
-        <div class="status-grid">
-          <div class="status-col reveal">
-            <h3>Works today</h3>
-            <ul>
+          <div class="status-grid">
+            <div class="status-col">
+              <h3>Works today</h3>
+              <ul>
               <li>Strict HTML subset with <code>class</code>, <code>id</code>, <code>data-bind</code> and <code>data-onclick</code></li>
               <li>Forms, text inputs, textareas and keyboard editing</li>
               <li>Images, repeated data lists and optional virtual scrolling</li>
@@ -525,10 +527,10 @@ rendrix dev</code></pre>
               <li>Cross-target builds for Windows, macOS and Linux on x64 and arm64, using verified prebuilt hosts</li>
               <li>Electron project conversion into a Rendrix project, with a report that lists what needs review</li>
             </ul>
-          </div>
-          <div class="status-col reveal" style="--d: 1">
-            <h3>Not yet</h3>
-            <ul>
+            </div>
+            <div class="status-col">
+              <h3>Not yet</h3>
+              <ul>
               <li>Rendrix feature coverage: state-driven re-render, hover/active/focus, scrolling, images, text editing, accessibility and animations are on the M1–M3 ladder</li>
               <li>General-purpose native dialogs beyond confirmation and file picker prompts</li>
               <li>Unequal sizing for pure <code>fr</code> grid tracks and explicit grid placement</li>
@@ -536,48 +538,45 @@ rendrix dev</code></pre>
               <li>Built-in signing or encryption: signing runs a command you configure, and packages are neither encrypted nor tamper-proof</li>
               <li>Complete Electron compatibility: the importer lists each partial or unsupported API</li>
             </ul>
+            </div>
           </div>
-        </div>
 
-        <div class="notice reveal">
-          <p>
-            Only run backend code and Electron projects you trust: execution limits are not a sandbox, and importing an Electron project runs its build script.
+          <div class="notice"><p>Only run backend code and Electron projects you trust: execution limits are not a sandbox, and importing an Electron project runs its build script.
             The container format is a prototype. The Windows host has been run by hand.
-            Hosts for other platforms are built in CI and have not been run here.
-          </p>
+            Hosts for other platforms are built in CI and have not been run here.</p></div>
         </div>
       </section>
 
       <!-- Closing -->
       <section id="start" class="closing">
-        <div class="closing-inner">
-          <div class="closing-copy reveal">
-            <h2>Start with the counter.</h2>
-            <p class="section-lede">
-              Clone the repository, compile the example and open the window it produces.
-              Everything in the demo above is the same source.
-            </p>
-            <div class="actions">
-              <a class="btn btn-primary" href="#quick-start">Read the quick start</a>
-              <a class="btn btn-ghost" href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">View on GitHub</a>
-            </div>
+        <svg class="mark closing-mark" aria-hidden="true" focusable="false"><use href="#rendrix-mark" width="100%" height="100%"></use></svg>
+        <div class="wrap closing-inner">
+          <h2>Start with the counter.</h2>
+          <p class="section-lede">
+            Clone the repository, compile the example and open the window it produces.
+            Everything in the demo above is the same source.
+          </p>
+          <div class="actions">
+            <a class="btn btn-primary" href="#quick-start"><span>Read the quick start</span></a>
+            <a class="btn btn-ghost" href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener"><span>View on GitHub</span></a>
           </div>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <div class="footer-inner">
-        <a class="footer-wordmark" href="#top" aria-label="Back to top">Rendrix</a>
-        <div class="footer-row">
-          <p class="footer-tagline">Web markup. Native pixels. An experimental framework.</p>
-          <nav class="footer-links" aria-label="Project links">
-            <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">GitHub</a>
-            <a href="#docs">Docs</a>
-            <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
-            <a href="https://github.com/ByteTheDev/Rendrix/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
-          </nav>
-        </div>
+      <div class="wrap footer-inner">
+        <a class="brand" href="#top" aria-label="Back to top">
+          <svg class="mark brand-mark" aria-hidden="true" focusable="false"><use href="#rendrix-mark" width="100%" height="100%"></use></svg>
+          <span class="brand-name">Rendrix</span>
+        </a>
+        <p class="footer-tagline">Web markup. Native pixels. An experimental framework.</p>
+        <nav class="footer-links" aria-label="Project links">
+          <a href="https://github.com/ByteTheDev/Rendrix" target="_blank" rel="noopener">GitHub</a>
+          <a href="#docs">Docs</a>
+          <a href="https://github.com/ByteTheDev/Rendrix/blob/main/packages/cli/README.md" target="_blank" rel="noopener">CLI</a>
+          <a href="https://github.com/ByteTheDev/Rendrix/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+        </nav>
       </div>
     </footer>
 
